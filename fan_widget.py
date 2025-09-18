@@ -111,7 +111,7 @@ def _disk_save(p:Path, pm:QtGui.QPixmap):
 
 class FanItem(QtWidgets.QGraphicsPixmapItem):
     def __init__(self, pm:QtGui.QPixmap, path:Path):
-        super().__init__(pm if pm and not pm.isNull() else QtGui.QPixmap()); self.path=path
+        super().__init__(pm if pm and not pm.isNull() else QtGui.QPixmap()); self.path=path; self.label=None  # type: ignore[attr-defined]
     def mousePressEvent(self,e:QtWidgets.QGraphicsSceneMouseEvent):  # type: ignore[name-defined]
         try:
             if self.path.is_file(): os.startfile(str(self.path))  # type: ignore[attr-defined]
@@ -164,15 +164,51 @@ class FanWindow(QtWidgets.QWidget):
         self._worker=ThumbnailWorker()
         self._worker.thumbnailReady.connect(self._on_worker_thumb)  # type: ignore
         self._worker.start()
+        # feature flags / options
+        self.show_filenames = True  # show filename labels to the left of icons
+        # In future could be exposed via a config or hotkey.
         logger.debug(f'FanWindow created dir={self.directory} max_items={self.max_items}')
-    def set_anchor_x(self,x:int): self._anchor_x=x; self._recenter_to_anchor()
+
+    def set_anchor_x(self,x:int):
+        self._anchor_x=x
+        self._recenter_to_anchor()
     def refresh(self):
         for it in list(self.items):
-            try: self.scene.removeItem(it)
+            try:
+                # remove label first (if present) then icon item
+                if hasattr(it,'label') and it.label:
+                    try: self.scene.removeItem(it.label)
+                    except Exception: pass
+                self.scene.removeItem(it)
             except Exception: pass
         self.items.clear(); files=self._recent_files(); self._update_thumb_size(len(files))
         for p in files:
             pm=self._load_icon_for(p); item=FanItem(pm,p); self.scene.addItem(item); self.items.append(item)
+            # add label (filename) to the left if enabled
+            if self.show_filenames:
+                try:
+                    font=QtGui.QFont(); font.setPointSizeF(max(8.0, min(13.0, self.thumb_size/9.5)))
+                    metrics=QtGui.QFontMetrics(font)
+                    max_display_width=280  # px cap to avoid ultra-wide window
+                    name=p.name
+                    elided=metrics.elidedText(name, QtCore.Qt.TextElideMode.ElideMiddle, max_display_width)
+                    label_item=QtWidgets.QGraphicsTextItem(elided)
+                    label_item.setFont(font)
+                    label_item.setDefaultTextColor(QtGui.QColor(240,240,240))
+                    # subtle shadow for contrast
+                    try:
+                        effect=QtWidgets.QGraphicsDropShadowEffect()
+                        effect.setBlurRadius(4)
+                        effect.setOffset(0,0)
+                        effect.setColor(QtGui.QColor(0,0,0,160))
+                        label_item.setGraphicsEffect(effect)
+                    except Exception: pass
+                    self.scene.addItem(label_item)
+                    item.label=label_item  # type: ignore[attr-defined]
+                except Exception:
+                    item.label=None  # type: ignore[attr-defined]
+            else:
+                item.label=None  # type: ignore[attr-defined]
         self.relayout()
     def _recent_files(self)->List[Path]:
         try:
@@ -315,16 +351,36 @@ class FanWindow(QtWidgets.QWidget):
         n=len(self.items)
         if n==0: return
         left=4; top=2; v_spacing=max(4,int(self.thumb_size*0.85)); curve=self.thumb_size*(0.8+0.04*n)
+        label_gap=8 if self.show_filenames else 0
+        # compute max label width (if any)
+        max_label_width=0
+        if self.show_filenames:
+            for it in self.items:
+                lbl=getattr(it,'label',None)
+                if lbl:
+                    try:
+                        max_label_width=max(max_label_width, int(lbl.boundingRect().width()))
+                    except Exception: pass
+            # safety cap (should match elide width to remain consistent)
+            max_label_width=min(max_label_width, 280)
         offs=[]; max_off=0.0; denom=max(1.0,(n-1)**2)
         for i in range(n):
             dist=(n-1-i); norm=(dist**2)/denom; inv=1.0-norm; off=inv*curve; offs.append(off); max_off=max(max_off,off)
-        req=int(left+max_off+self.thumb_size+left)
+        req=int(left+max_label_width+label_gap+max_off+self.thumb_size+left)
         if req>self.width():
             try: self.resize(req,self.height())
             except Exception: pass
-        width=self.width() or req; base_x=left+max_off; last_y=0; last_h=self.thumb_size
+        width=self.width() or req; base_x=left+max_label_width+label_gap+max_off; last_y=0; last_h=self.thumb_size
         for i,(it,off) in enumerate(zip(self.items,offs)):
             pix=it.pixmap(); h=pix.height(); x=int(base_x-off); y=int(top+i*v_spacing); it.setPos(x,y); it.setRotation(0); last_y=y; last_h=h
+            # position label to the left (vertically centered relative to icon)
+            if self.show_filenames:
+                lbl=getattr(it,'label',None)
+                if lbl:
+                    try:
+                        lb=lbl.boundingRect(); label_x=x-label_gap-int(lb.width()); label_y=y+max(0,(h-lb.height())/2)
+                        lbl.setPos(label_x,label_y)
+                    except Exception: pass
         total=int(last_y+last_h+1)
         try: self.scene.setSceneRect(0,0,width,total)
         except Exception: pass
