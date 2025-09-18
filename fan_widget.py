@@ -198,18 +198,42 @@ class _StrokeTextItem(QtWidgets.QGraphicsItem):
         self._fill=QtGui.QColor(25,25,25)
         self._stroke=QtGui.QColor(255,255,255)
         self._stroke_w=2.0
-        self._path,self._rect=self._make_path()
+        # Label background appearance
+        self._pad_h = 6.0   # horizontal padding around text path
+        self._pad_v = 3.5   # vertical padding
+        self._bg_base = QtGui.QColor(255,255,255,185)  # soft translucent white
+        self._bg_highlight = QtGui.QColor(255,255,255,230)
+        self._radius_factor = 0.55  # pill style (portion of height)
+        self._path,self._rect,self._bg_rect=self._make_path()
         self._highlight=False
         self.setCacheMode(QtWidgets.QGraphicsItem.CacheMode.DeviceCoordinateCache)
     def _make_path(self):
-        fm=QtGui.QFontMetrics(self._font); p=QtGui.QPainterPath(); p.addText(0,fm.ascent(),self._font,self._text)
-        r=p.boundingRect(); m=self._stroke_w*0.6; r=r.adjusted(-m,-m,m,m); return p,r
+        fm=QtGui.QFontMetrics(self._font)
+        p=QtGui.QPainterPath(); p.addText(0,fm.ascent(),self._font,self._text)
+        r=p.boundingRect()
+        # Expand for stroke
+        m=self._stroke_w*0.6
+        r=r.adjusted(-m,-m,m,m)
+        # Background rect with padding
+        bg=r.adjusted(-self._pad_h,-self._pad_v,self._pad_h,self._pad_v)
+        return p,r,bg
     def boundingRect(self):  # type: ignore[override]
-        return self._rect
+        return self._bg_rect
     def paint(self,p:QtGui.QPainter, option, widget=None):  # type: ignore[override]
         p.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
         p.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing, True)
-        p.translate(-self._rect.left(), -self._rect.top())
+        # translate so bg rect origin aligns
+        p.translate(-self._bg_rect.left(), -self._bg_rect.top())
+        # Background rounded rect
+        bg_col = self._bg_highlight if self._highlight else self._bg_base
+        radius = self._bg_rect.height() * self._radius_factor
+        br=QtCore.QRectF(self._bg_rect)
+        br.moveTo(0,0)  # because we translated to bg origin
+        p.setPen(QtCore.Qt.PenStyle.NoPen)
+        p.setBrush(bg_col)
+        p.drawRoundedRect(br, radius, radius)
+        # Shift drawing for text path (since path rect may be smaller than bg rect)
+        p.translate(self._bg_rect.left()-self._rect.left(), self._bg_rect.top()-self._rect.top())
         stroke=self._stroke
         fill=self._fill
         if self._highlight:
@@ -221,11 +245,18 @@ class _StrokeTextItem(QtWidgets.QGraphicsItem):
     def set_highlighted(self,on:bool):
         if self._highlight==on: return
         self._highlight=on
-        # scale subtly
+        # Slight scale bump including background for emphasis
         try:
-            self.setTransform(QtGui.QTransform().scale(1.05 if on else 1.0, 1.05 if on else 1.0))
+            factor = 1.06 if on else 1.0
+            self.setTransform(QtGui.QTransform().scale(factor, factor))
+        except Exception:
+            pass
+        # Invalidate cache so background repaint reflects highlight alpha
+        try: self.setCacheMode(QtWidgets.QGraphicsItem.CacheMode.NoCache)
         except Exception: pass
         self.update()
+        try: self.setCacheMode(QtWidgets.QGraphicsItem.CacheMode.DeviceCoordinateCache)
+        except Exception: pass
 
 class FanWindow(QtWidgets.QWidget):
     globalMouse=QtCore.Signal(int,int,int)
@@ -648,6 +679,7 @@ class FanWindow(QtWidgets.QWidget):
                 lbl=getattr(it,'label',None)
                 if lbl:
                     try:
+                        # Use full background rect width for spacing now
                         max_label_width=max(max_label_width, int(lbl.boundingRect().width()))
                     except Exception: pass
             # safety cap (should match elide width to remain consistent)
@@ -821,8 +853,8 @@ class FanWindow(QtWidgets.QWidget):
                 try: a.stop()
                 except Exception: pass
             self._anims.clear()
-            # Even faster animation per latest request
-            base_duration=180; stagger=30
+            # Even faster animation per latest request (shorter duration & tighter stagger)
+            base_duration=130; stagger=18
             easing_scale=QtCore.QEasingCurve.Type.OutBack; easing_opacity=QtCore.QEasingCurve.Type.OutCubic
 
             def schedule_target(target, delay_ms:int):
@@ -849,7 +881,7 @@ class FanWindow(QtWidgets.QWidget):
                 lbl=getattr(it,'label',None)
                 if lbl: schedule_target(lbl, delay)
             # Mark entrance done after total time (based on reversed indexing)
-            total_time = (len(self.items)-1)*stagger + base_duration + 30
+            total_time = (len(self.items)-1)*stagger + base_duration + 25
             QtCore.QTimer.singleShot(total_time, lambda: setattr(self,'_entrance_done',True))
         except Exception:
             logger.exception('entrance animation failed')
