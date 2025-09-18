@@ -123,31 +123,33 @@ class FanItem(QtWidgets.QGraphicsPixmapItem):
         except Exception: pass
         super().mousePressEvent(e)
 
-class _OutlineTextItem(QtWidgets.QGraphicsTextItem):
-    """Text item with multi-pass shadow/outline for better readability on bright backgrounds.
-
-    Draw strategy:
-      1. Paint several offset translucent dark passes (soft shadow ring)
-      2. Paint main bright text on top
-    Using manual paint improves contrast compared to a single DropShadow effect while
-    keeping background transparent (no box).
-    """
-    def __init__(self, text:str):
-        super().__init__(text)
-        self._outline_color=QtGui.QColor(0,0,0,170)
-        self._text_color=QtGui.QColor(250,250,250)
-        self._passes=[QtCore.QPointF(dx,dy) for dx in (-1,0,1) for dy in (-1,0,1) if not (dx==0 and dy==0)]
+class _StrokeTextItem(QtWidgets.QGraphicsItem):
+    """Single-pass stroke/fill text for crisp readability (no repeated draws)."""
+    def __init__(self, text: str, base_font: QtGui.QFont):
+        super().__init__()
+        self._text=text
+        self._font=QtGui.QFont(base_font)
+        # Make text bold as per user request
+        self._font.setBold(True)
+        self._font.setWeight(QtGui.QFont.Weight.Bold)
+        # Dark charcoal fill instead of pure black for slightly softer contrast (option #3)
+        self._fill=QtGui.QColor(25,25,25)
+        self._stroke=QtGui.QColor(255,255,255)
+        self._stroke_w=2.0
+        self._path,self._rect=self._make_path()
         self.setCacheMode(QtWidgets.QGraphicsItem.CacheMode.DeviceCoordinateCache)
-    def paint(self,painter:QtGui.QPainter,option,widget=None):  # type: ignore[override]
-        painter.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing, True)
-        doc=self.document()
-        if not doc: return
-        # We rely on default boundingRect from QGraphicsTextItem; only drawing overridden.
-        # Outline passes
-        for ofs in self._passes:
-            painter.save(); painter.translate(ofs); painter.setPen(self._outline_color); painter.setBrush(QtCore.Qt.BrushStyle.NoBrush); doc.drawContents(painter); painter.restore()
-        # Main text
-        painter.setPen(self._text_color); doc.drawContents(painter)
+    def _make_path(self):
+        fm=QtGui.QFontMetrics(self._font); p=QtGui.QPainterPath(); p.addText(0,fm.ascent(),self._font,self._text)
+        r=p.boundingRect(); m=self._stroke_w*0.6; r=r.adjusted(-m,-m,m,m); return p,r
+    def boundingRect(self):  # type: ignore[override]
+        return self._rect
+    def paint(self,p:QtGui.QPainter, option, widget=None):  # type: ignore[override]
+        p.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+        p.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing, True)
+        p.translate(-self._rect.left(), -self._rect.top())
+        pen=QtGui.QPen(self._stroke); pen.setWidthF(self._stroke_w); pen.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin); pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
+        p.setPen(pen); p.setBrush(QtCore.Qt.BrushStyle.NoBrush); p.drawPath(self._path)
+        p.setPen(QtCore.Qt.PenStyle.NoPen); p.setBrush(self._fill); p.drawPath(self._path)
 
 class FanWindow(QtWidgets.QWidget):
     globalMouse=QtCore.Signal(int,int,int)
@@ -192,6 +194,7 @@ class FanWindow(QtWidgets.QWidget):
         self._worker.start()
         # feature flags / options
         self.show_filenames = True  # show filename labels to the left of icons
+        self.include_home_arrow = True  # always show a top arrow icon to open the base directory
         # In future could be exposed via a config or hotkey.
         logger.debug(f'FanWindow created dir={self.directory} max_items={self.max_items}')
 
@@ -208,20 +211,42 @@ class FanWindow(QtWidgets.QWidget):
                 self.scene.removeItem(it)
             except Exception: pass
         self.items.clear(); files=self._recent_files(); self._update_thumb_size(len(files))
+        # If arrow enabled, reduce file list to keep total within max_items
+        if self.include_home_arrow:
+            if len(files) > self.max_items - 1:
+                files = files[: self.max_items - 1]
+        else:
+            if len(files) > self.max_items:
+                files = files[: self.max_items]
+
+        # Add arrow item first (topmost)
+        if self.include_home_arrow:
+            try:
+                arrow_pm = self._arrow_pixmap()
+                arrow_item = FanItem(arrow_pm, self.directory)
+                arrow_item.is_arrow = True  # type: ignore[attr-defined]
+                self.scene.addItem(arrow_item)
+                self.items.append(arrow_item)
+            except Exception:
+                logger.exception('failed creating arrow item')
+
         for p in files:
             pm=self._load_icon_for(p); item=FanItem(pm,p); self.scene.addItem(item); self.items.append(item)
             # add label (filename) to the left if enabled
             if self.show_filenames:
                 try:
-                    font=QtGui.QFont(); font.setPointSizeF(max(8.0, min(13.0, self.thumb_size/9.5)))
-                    metrics=QtGui.QFontMetrics(font)
-                    max_display_width=280  # px cap to avoid ultra-wide window
-                    name=p.name
-                    elided=metrics.elidedText(name, QtCore.Qt.TextElideMode.ElideMiddle, max_display_width)
-                    label_item=_OutlineTextItem(elided)
-                    label_item.setFont(font)
-                    self.scene.addItem(label_item)
-                    item.label=label_item  # type: ignore[attr-defined]
+                    # Skip label for the synthetic arrow item
+                    if getattr(item, 'is_arrow', False):
+                        item.label=None  # type: ignore[attr-defined]
+                    else:
+                        font=QtGui.QFont(); font.setPointSizeF(max(8.0, min(13.0, self.thumb_size/9.5)))
+                        metrics=QtGui.QFontMetrics(font)
+                        max_display_width=280  # px cap to avoid ultra-wide window
+                        name=p.name
+                        elided=metrics.elidedText(name, QtCore.Qt.TextElideMode.ElideMiddle, max_display_width)
+                        label_item=_StrokeTextItem(elided, font)
+                        self.scene.addItem(label_item)
+                        item.label=label_item  # type: ignore[attr-defined]
                 except Exception:
                     item.label=None  # type: ignore[attr-defined]
             else:
@@ -236,9 +261,51 @@ class FanWindow(QtWidgets.QWidget):
                     st=child.stat();
                     if child.is_file() or child.is_dir(): entries.append((st.st_mtime, child))
                 except Exception: pass
-            entries.sort(reverse=True); return [p for _,p in entries[:self.max_items]]
+            entries.sort(reverse=True)
+            return [p for _,p in entries[:self.max_items]]
         except Exception:
             logger.exception('list directory failed'); return []
+    def _arrow_pixmap(self) -> QtGui.QPixmap:
+        """Build an arrow pixmap (upward pointing) sized to current thumb_size."""
+        size = max(32, int(self.thumb_size))
+        pm = QtGui.QPixmap(size, size)
+        pm.fill(QtCore.Qt.GlobalColor.transparent)
+        try:
+            painter = QtGui.QPainter(pm)
+            painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+            # Background circle for contrast
+            bg_color = QtGui.QColor(30,30,30,180)
+            painter.setPen(QtCore.Qt.PenStyle.NoPen)
+            painter.setBrush(bg_color)
+            margin = size*0.05
+            painter.drawEllipse(QtCore.QRectF(margin, margin, size-2*margin, size-2*margin))
+            # Arrow
+            stroke = QtGui.QPen(QtGui.QColor(255,255,255,240))
+            stroke.setWidthF(max(2.0, size*0.08))
+            stroke.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
+            stroke.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(stroke)
+            painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+            shaft_top = size*0.28
+            shaft_bottom = size*0.70
+            center_x = size/2
+            # Shaft
+            painter.drawLine(QtCore.QPointF(center_x, shaft_bottom), QtCore.QPointF(center_x, shaft_top))
+            # Head (triangle)
+            head_w = size*0.28
+            head_h = size*0.26
+            path = QtGui.QPainterPath()
+            path.moveTo(center_x, shaft_top - head_h)  # tip
+            path.lineTo(center_x - head_w/2, shaft_top)
+            path.lineTo(center_x + head_w/2, shaft_top)
+            path.closeSubpath()
+            painter.fillPath(path, QtGui.QColor(255,255,255,240))
+        except Exception:
+            logger.exception('arrow pixmap draw failed')
+        finally:
+            try: painter.end()
+            except Exception: pass
+        return pm
     def _update_thumb_size(self,count:int):
         try:
             screen=QtWidgets.QApplication.primaryScreen(); avail=screen.availableGeometry() if screen else QtCore.QRect(0,0,1280,720)
