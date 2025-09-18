@@ -152,6 +152,11 @@ class FanItem(QtWidgets.QGraphicsPixmapItem):
             anim.finished.connect(lambda a=anim: None)
             anim.start()
             self._hover_anim_scale = anim
+            # Highlight associated label if present
+            lbl=getattr(self,'label',None)
+            if lbl and hasattr(lbl,'set_highlighted'):
+                try: lbl.set_highlighted(True)
+                except Exception: pass
         except Exception:
             pass
         super().hoverEnterEvent(event)
@@ -172,6 +177,10 @@ class FanItem(QtWidgets.QGraphicsPixmapItem):
             anim.setDuration(120); anim.setEasingCurve(QtCore.QEasingCurve.Type.OutCubic)
             anim.valueChanged.connect(lambda v, tgt=self: tgt.setTransform(QtGui.QTransform().scale(float(v), float(v))))  # type: ignore
             anim.start(); self._hover_anim_scale = anim
+            lbl=getattr(self,'label',None)
+            if lbl and hasattr(lbl,'set_highlighted'):
+                try: lbl.set_highlighted(False)
+                except Exception: pass
         except Exception:
             pass
         super().hoverLeaveEvent(event)
@@ -190,6 +199,7 @@ class _StrokeTextItem(QtWidgets.QGraphicsItem):
         self._stroke=QtGui.QColor(255,255,255)
         self._stroke_w=2.0
         self._path,self._rect=self._make_path()
+        self._highlight=False
         self.setCacheMode(QtWidgets.QGraphicsItem.CacheMode.DeviceCoordinateCache)
     def _make_path(self):
         fm=QtGui.QFontMetrics(self._font); p=QtGui.QPainterPath(); p.addText(0,fm.ascent(),self._font,self._text)
@@ -200,9 +210,22 @@ class _StrokeTextItem(QtWidgets.QGraphicsItem):
         p.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
         p.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing, True)
         p.translate(-self._rect.left(), -self._rect.top())
-        pen=QtGui.QPen(self._stroke); pen.setWidthF(self._stroke_w); pen.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin); pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
+        stroke=self._stroke
+        fill=self._fill
+        if self._highlight:
+            # brighten fill slightly
+            fill=QtGui.QColor(min(255,fill.red()+40),min(255,fill.green()+40),min(255,fill.blue()+40))
+        pen=QtGui.QPen(stroke); pen.setWidthF(self._stroke_w + (0.8 if self._highlight else 0.0)); pen.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin); pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
         p.setPen(pen); p.setBrush(QtCore.Qt.BrushStyle.NoBrush); p.drawPath(self._path)
-        p.setPen(QtCore.Qt.PenStyle.NoPen); p.setBrush(self._fill); p.drawPath(self._path)
+        p.setPen(QtCore.Qt.PenStyle.NoPen); p.setBrush(fill); p.drawPath(self._path)
+    def set_highlighted(self,on:bool):
+        if self._highlight==on: return
+        self._highlight=on
+        # scale subtly
+        try:
+            self.setTransform(QtGui.QTransform().scale(1.05 if on else 1.0, 1.05 if on else 1.0))
+        except Exception: pass
+        self.update()
 
 class FanWindow(QtWidgets.QWidget):
     globalMouse=QtCore.Signal(int,int,int)
@@ -764,8 +787,10 @@ class FanWindow(QtWidgets.QWidget):
             if not self.geometry().contains(x,y): self.hide()
         except Exception: pass
     def _start_entrance_animation(self):
-        if self._entrance_done or not getattr(self,'animate_show',False):
+        if not getattr(self,'animate_show',False):
             return
+        # Always re-run animation: reset flag
+        self._entrance_done = False
         try:
             # Restore window opacity & updates just before kicking off child item animations
             try:
