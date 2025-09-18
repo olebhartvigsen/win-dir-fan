@@ -1,0 +1,31 @@
+# Python / Virtualenv
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.venv/
+venv/
+.env
+
+# Logs
+debug.log
+run_err.log
+*.log
+
+# Build / Dist
+build/
+dist/
+*.spec
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cache
+.win_dir_fan_cache/
