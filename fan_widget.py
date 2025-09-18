@@ -618,13 +618,17 @@ class FanWindow(QtWidgets.QWidget):
     def show(self):
         now=QtCore.QDateTime.currentMSecsSinceEpoch(); self._ignore_mouse_until=now+self._initial_ignore_ms; self._ignore_focus_until=now+self._initial_ignore_ms; self._stay_open_until=now+self._stay_open_ms
         if self.animate_show:
-            try: self.setUpdatesEnabled(False)
-            except Exception: pass
+            try:
+                # Start fully transparent & with updates disabled to avoid flash
+                self.setUpdatesEnabled(False)
+                self._pre_anim_window_opacity = self.windowOpacity()
+                self.setWindowOpacity(0.0)
+            except Exception:
+                pass
         super().show(); self.install_global_filter(); self._start_hooks(); QtCore.QTimer.singleShot(0,self._bottom_align_and_anchor)
-        if self.animate_show:
-            QtCore.QTimer.singleShot(5, lambda: self.setUpdatesEnabled(True))
-            if not self._entrance_done:
-                QtCore.QTimer.singleShot(25, self._start_entrance_animation)
+        if self.animate_show and not self._entrance_done:
+            # Slight delay to allow layout/positioning, then start animation (will restore opacity & updates)
+            QtCore.QTimer.singleShot(25, self._start_entrance_animation)
     def hide(self): self._remove_hooks(); self.uninstall_global_filter(); super().hide()
     def showEvent(self,e:QtGui.QShowEvent):  # type: ignore[override]
         super().showEvent(e)
@@ -694,6 +698,18 @@ class FanWindow(QtWidgets.QWidget):
         if self._entrance_done or not getattr(self,'animate_show',False):
             return
         try:
+            # Restore window opacity & updates just before kicking off child item animations
+            try:
+                if hasattr(self, '_pre_anim_window_opacity'):
+                    self.setWindowOpacity(getattr(self, '_pre_anim_window_opacity') or 1.0)
+                else:
+                    self.setWindowOpacity(1.0)
+            except Exception:
+                pass
+            try:
+                self.setUpdatesEnabled(True)
+            except Exception:
+                pass
             for a in list(self._anims):
                 try: a.stop()
                 except Exception: pass
