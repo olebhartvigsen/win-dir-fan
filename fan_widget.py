@@ -804,20 +804,16 @@ class FanWindow(QtWidgets.QWidget):
                 self.setUpdatesEnabled(True)
             except Exception:
                 pass
-            # Force-reset every item's starting state in case a prior refresh or race left them visible.
-            # This addresses cases where icons appeared immediately while labels still animated on subsequent openings.
+            # Force-reset every item's starting state unconditionally (ensures icons animate every show)
             try:
                 for it in self.items:
-                    # Only reset if opacity not already near zero (avoid compounding transforms)
                     try:
-                        if it.opacity() > 0.05:
-                            it.setOpacity(0.0)
-                        # Reset scale (extract current scale if already set to avoid accumulating)
-                        t=QtGui.QTransform(); t.scale(0.85,0.85); it.setTransform(t)
+                        it.setOpacity(0.0)
+                        it.setTransform(QtGui.QTransform().scale(0.85,0.85))
                         lbl=getattr(it,'label',None)
                         if lbl:
-                            if lbl.opacity() > 0.05: lbl.setOpacity(0.0)
-                            lt=QtGui.QTransform(); lt.scale(0.85,0.85); lbl.setTransform(lt)
+                            lbl.setOpacity(0.0)
+                            lbl.setTransform(QtGui.QTransform().scale(0.85,0.85))
                     except Exception: pass
             except Exception:
                 logger.exception('failed resetting entrance state')
