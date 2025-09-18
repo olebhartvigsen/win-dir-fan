@@ -203,7 +203,8 @@ class _StrokeTextItem(QtWidgets.QGraphicsItem):
         self._pad_v = 3.5   # vertical padding
         self._bg_base = QtGui.QColor(255,255,255,185)  # soft translucent white
         self._bg_highlight = QtGui.QColor(255,255,255,230)
-        self._radius_factor = 0.55  # pill style (portion of height)
+        # Use smaller radius for clearer rounded-corner box instead of full pill
+        self._radius_factor = 0.25  # fraction of height -> softer corners
         self._path,self._rect,self._bg_rect=self._make_path()
         self._highlight=False
         self.setCacheMode(QtWidgets.QGraphicsItem.CacheMode.DeviceCoordinateCache)
@@ -226,7 +227,8 @@ class _StrokeTextItem(QtWidgets.QGraphicsItem):
         p.translate(-self._bg_rect.left(), -self._bg_rect.top())
         # Background rounded rect
         bg_col = self._bg_highlight if self._highlight else self._bg_base
-        radius = self._bg_rect.height() * self._radius_factor
+        # Explicit corner radius (min to avoid over-rounding on very small labels)
+        radius = max(4.0, self._bg_rect.height() * self._radius_factor)
         br=QtCore.QRectF(self._bg_rect)
         br.moveTo(0,0)  # because we translated to bg origin
         p.setPen(QtCore.Qt.PenStyle.NoPen)
@@ -711,7 +713,7 @@ class FanWindow(QtWidgets.QWidget):
                 it.setZValue(z)
                 lbl=getattr(it,'label',None)
                 if lbl:
-                    try: lbl.setZValue(z+0.1)
+                    try: lbl.setZValue(z-0.1)  # label slightly below its icon
                     except Exception: pass
         except Exception:
             logger.exception('failed setting z-order')
