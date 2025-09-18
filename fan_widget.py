@@ -192,19 +192,32 @@ class FanWindow(QtWidgets.QWidget):
                     max_display_width=280  # px cap to avoid ultra-wide window
                     name=p.name
                     elided=metrics.elidedText(name, QtCore.Qt.TextElideMode.ElideMiddle, max_display_width)
-                    label_item=QtWidgets.QGraphicsTextItem(elided)
-                    label_item.setFont(font)
-                    label_item.setDefaultTextColor(QtGui.QColor(240,240,240))
-                    # subtle shadow for contrast
+                    # container: background rect + text item grouped manually
+                    text_item=QtWidgets.QGraphicsTextItem(elided)
+                    text_item.setFont(font)
+                    text_item.setDefaultTextColor(QtGui.QColor(255,255,255))
+                    # Measure text for background sizing
+                    br=text_item.boundingRect()
+                    pad_x=6; pad_y=2; radius=6
+                    bg_rect=QtWidgets.QGraphicsRectItem(0,0, br.width()+pad_x*2, br.height()+pad_y*2)
+                    bg_rect.setBrush(QtGui.QBrush(QtGui.QColor(0,0,0,180)))
+                    bg_rect.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
                     try:
+                        # stronger yet soft shadow on the group (apply to text for simplicity)
                         effect=QtWidgets.QGraphicsDropShadowEffect()
-                        effect.setBlurRadius(4)
-                        effect.setOffset(0,0)
-                        effect.setColor(QtGui.QColor(0,0,0,160))
-                        label_item.setGraphicsEffect(effect)
+                        effect.setBlurRadius(8)
+                        effect.setOffset(0,1)
+                        effect.setColor(QtGui.QColor(0,0,0,190))
+                        text_item.setGraphicsEffect(effect)
                     except Exception: pass
-                    self.scene.addItem(label_item)
-                    item.label=label_item  # type: ignore[attr-defined]
+                    # Store both to move together: we'll treat text as label origin, background behind
+                    group=[]  # type: ignore[var-annotated]
+                    self.scene.addItem(bg_rect)
+                    self.scene.addItem(text_item)
+                    # custom attributes for layout
+                    item.label=text_item  # type: ignore[attr-defined]
+                    item.label_bg=bg_rect  # type: ignore[attr-defined]
+                    item._label_padding=(pad_x,pad_y,radius)  # type: ignore[attr-defined]
                 except Exception:
                     item.label=None  # type: ignore[attr-defined]
             else:
@@ -359,7 +372,9 @@ class FanWindow(QtWidgets.QWidget):
                 lbl=getattr(it,'label',None)
                 if lbl:
                     try:
-                        max_label_width=max(max_label_width, int(lbl.boundingRect().width()))
+                        w=int(lbl.boundingRect().width())
+                        pad=getattr(it,'_label_padding',(6,2,6))[0]
+                        max_label_width=max(max_label_width, w+pad*2)
                     except Exception: pass
             # safety cap (should match elide width to remain consistent)
             max_label_width=min(max_label_width, 280)
@@ -378,8 +393,21 @@ class FanWindow(QtWidgets.QWidget):
                 lbl=getattr(it,'label',None)
                 if lbl:
                     try:
-                        lb=lbl.boundingRect(); label_x=x-label_gap-int(lb.width()); label_y=y+max(0,(h-lb.height())/2)
-                        lbl.setPos(label_x,label_y)
+                        lb=lbl.boundingRect()
+                        pad_x,pad_y,radius=getattr(it,'_label_padding',(6,2,6))
+                        total_w=lb.width()+pad_x*2
+                        label_x=x-label_gap-int(total_w)
+                        label_y=y+max(0,(h-(lb.height()+pad_y*2))/2)
+                        # Position background then text inside
+                        bg=getattr(it,'label_bg',None)
+                        if bg:
+                            bg.setRect(0,0, total_w, lb.height()+pad_y*2)
+                            bg.setPos(label_x, label_y)
+                            try:
+                                path=QtGui.QPainterPath(); path.addRoundedRect(bg.rect(), radius, radius)
+                                bg.setData(0x1001, path)  # store for potential future use
+                            except Exception: pass
+                        lbl.setPos(label_x+pad_x,label_y+pad_y)
                     except Exception: pass
         total=int(last_y+last_h+1)
         try: self.scene.setSceneRect(0,0,width,total)
