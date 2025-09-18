@@ -112,6 +112,10 @@ def _disk_save(p:Path, pm:QtGui.QPixmap):
 class FanItem(QtWidgets.QGraphicsPixmapItem):
     def __init__(self, pm:QtGui.QPixmap, path:Path):
         super().__init__(pm if pm and not pm.isNull() else QtGui.QPixmap()); self.path=path; self.label=None  # type: ignore[attr-defined]
+        # Enable hover tracking
+        self.setAcceptHoverEvents(True)
+        self._hover_anim_scale = None  # type: ignore[assignment]
+        self._hover_glow = None  # type: ignore[assignment]
     def mousePressEvent(self,e:QtWidgets.QGraphicsSceneMouseEvent):  # type: ignore[name-defined]
         try:
             if self.path.is_file(): os.startfile(str(self.path))  # type: ignore[attr-defined]
@@ -122,6 +126,55 @@ class FanItem(QtWidgets.QGraphicsPixmapItem):
             if views and views[0].window(): views[0].window().hide()
         except Exception: pass
         super().mousePressEvent(e)
+    # --- Hover highlight ---
+    def _ensure_glow(self):
+        if self._hover_glow is None:
+            glow = QtWidgets.QGraphicsDropShadowEffect()
+            glow.setBlurRadius(28)
+            glow.setColor(QtGui.QColor(255,255,255,160))
+            glow.setOffset(0,0)
+            self._hover_glow = glow
+    def hoverEnterEvent(self, event):  # type: ignore[override]
+        try:
+            self._ensure_glow()
+            if self._hover_glow:
+                try: self.setGraphicsEffect(self._hover_glow)
+                except Exception: pass
+            # Start scale up animation
+            start_scale = 1.0
+            end_scale = 1.08
+            self.setTransformOriginPoint(self.boundingRect().center())
+            anim = QtCore.QVariantAnimation()
+            anim.setStartValue(start_scale); anim.setEndValue(end_scale)
+            anim.setDuration(130)
+            anim.setEasingCurve(QtCore.QEasingCurve.Type.OutCubic)
+            anim.valueChanged.connect(lambda v, tgt=self: tgt.setTransform(QtGui.QTransform().scale(float(v), float(v))))  # type: ignore
+            anim.finished.connect(lambda a=anim: None)
+            anim.start()
+            self._hover_anim_scale = anim
+        except Exception:
+            pass
+        super().hoverEnterEvent(event)
+    def hoverLeaveEvent(self, event):  # type: ignore[override]
+        try:
+            # Remove glow
+            if self._hover_glow:
+                try:
+                    # type: ignore[arg-type] - explicitly clearing effect
+                    self.setGraphicsEffect(None)  # type: ignore
+                except Exception:
+                    pass
+            # Animate back to normal scale
+            current_transform = self.transform()
+            # approximate current scale from m11()
+            current_scale = current_transform.m11() if current_transform is not None else 1.08
+            anim = QtCore.QVariantAnimation(); anim.setStartValue(current_scale); anim.setEndValue(1.0)
+            anim.setDuration(120); anim.setEasingCurve(QtCore.QEasingCurve.Type.OutCubic)
+            anim.valueChanged.connect(lambda v, tgt=self: tgt.setTransform(QtGui.QTransform().scale(float(v), float(v))))  # type: ignore
+            anim.start(); self._hover_anim_scale = anim
+        except Exception:
+            pass
+        super().hoverLeaveEvent(event)
 
 class _StrokeTextItem(QtWidgets.QGraphicsItem):
     """Single-pass stroke/fill text for crisp readability (no repeated draws)."""
@@ -594,6 +647,19 @@ class FanWindow(QtWidgets.QWidget):
                         lb=lbl.boundingRect(); label_x=x-label_gap-int(lb.width()); label_y=y+max(0,(h-lb.height())/2)
                         lbl.setPos(label_x,label_y)
                     except Exception: pass
+        # Assign Z-order so that items further from the taskbar (smaller y, higher vertically) appear above lower ones.
+        try:
+            n=len(self.items)
+            for i,it in enumerate(self.items):
+                # smaller y => higher z; top item index 0 gets largest z
+                z=float(n - i)
+                it.setZValue(z)
+                lbl=getattr(it,'label',None)
+                if lbl:
+                    try: lbl.setZValue(z+0.1)
+                    except Exception: pass
+        except Exception:
+            logger.exception('failed setting z-order')
         total=int(last_y+last_h+1)
         try: self.scene.setSceneRect(0,0,width,total)
         except Exception: pass
@@ -623,12 +689,15 @@ class FanWindow(QtWidgets.QWidget):
                 self.setUpdatesEnabled(False)
                 self._pre_anim_window_opacity = self.windowOpacity()
                 self.setWindowOpacity(0.0)
+                # Re-arm entrance animation every time we show so subsequent openings animate
+                # (refresh normally resets this, but doing it here is a safety net if refresh was skipped)
+                self._entrance_done = False
             except Exception:
                 pass
         super().show(); self.install_global_filter(); self._start_hooks(); QtCore.QTimer.singleShot(0,self._bottom_align_and_anchor)
         if self.animate_show and not self._entrance_done:
-            # Slight delay to allow layout/positioning, then start animation (will restore opacity & updates)
-            QtCore.QTimer.singleShot(25, self._start_entrance_animation)
+            # Start animation almost immediately; using 0ms posts event after current loop iteration.
+            QtCore.QTimer.singleShot(0, self._start_entrance_animation)
     def hide(self): self._remove_hooks(); self.uninstall_global_filter(); super().hide()
     def showEvent(self,e:QtGui.QShowEvent):  # type: ignore[override]
         super().showEvent(e)
@@ -710,12 +779,29 @@ class FanWindow(QtWidgets.QWidget):
                 self.setUpdatesEnabled(True)
             except Exception:
                 pass
+            # Force-reset every item's starting state in case a prior refresh or race left them visible.
+            # This addresses cases where icons appeared immediately while labels still animated on subsequent openings.
+            try:
+                for it in self.items:
+                    # Only reset if opacity not already near zero (avoid compounding transforms)
+                    try:
+                        if it.opacity() > 0.05:
+                            it.setOpacity(0.0)
+                        # Reset scale (extract current scale if already set to avoid accumulating)
+                        t=QtGui.QTransform(); t.scale(0.85,0.85); it.setTransform(t)
+                        lbl=getattr(it,'label',None)
+                        if lbl:
+                            if lbl.opacity() > 0.05: lbl.setOpacity(0.0)
+                            lt=QtGui.QTransform(); lt.scale(0.85,0.85); lbl.setTransform(lt)
+                    except Exception: pass
+            except Exception:
+                logger.exception('failed resetting entrance state')
             for a in list(self._anims):
                 try: a.stop()
                 except Exception: pass
             self._anims.clear()
-            # Faster animation per user request
-            base_duration=240; stagger=40
+            # Even faster animation per latest request
+            base_duration=180; stagger=30
             easing_scale=QtCore.QEasingCurve.Type.OutBack; easing_opacity=QtCore.QEasingCurve.Type.OutCubic
 
             def schedule_target(target, delay_ms:int):

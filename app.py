@@ -91,19 +91,48 @@ class TaskbarResidentApp(QtWidgets.QApplication):
         self.directory = directory
         self.max_items = int(max_items)
 
-        # tiny invisible main window that will create a taskbar entry
+        # Main window that owns the taskbar button. We keep it minimized & transparent so the user never
+        # sees it, but Windows still provides a taskbar button for activation.
         self.main = QtWidgets.QMainWindow()
         self.main.setWindowTitle("Windows Dir Fan")
-        self.main.setFixedSize(1, 1)
-        self.main.setWindowOpacity(0.0)
+        # Keep size modest but we will keep it minimized & fully transparent to avoid user distraction
         try:
-            self.main.setWindowFlags(QtCore.Qt.Window)  # type: ignore[attr-defined]
+            self.main.resize(320, 240)
         except Exception:
-            # fallback: leave default flags
             pass
-        self.main.move(-10000, -10000)
-        self.main.show()
-        logging.debug('Main window created and moved off-screen')
+        # Ensure standard window flags (no tool window) so it appears in taskbar.
+        try:
+            self.main.setWindowFlags(QtCore.Qt.Window | QtCore.Qt.WindowMinimizeButtonHint | QtCore.Qt.CustomizeWindowHint)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        # Set an explicit AppUserModelID so the taskbar button is stable/grouped (Windows only).
+        if sys.platform.startswith('win'):
+            try:
+                import ctypes  # type: ignore
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("win-dir-fan.app")  # type: ignore[attr-defined]
+            except Exception:
+                logging.exception('Failed to set AppUserModelID')
+        # Optionally set an application icon if available (fallback to none if missing)
+        try:
+            icon_path = Path(__file__).parent / 'app.ico'
+            if icon_path.exists():
+                self.main.setWindowIcon(QtGui.QIcon(str(icon_path)))
+        except Exception:
+            pass
+        # Start fully transparent, then show minimized immediately so no centered flash occurs.
+        try:
+            self.main.setWindowOpacity(0.0)
+        except Exception:
+            pass
+        try:
+            # showMinimized ensures taskbar button without flashing the window at center
+            self.main.showMinimized()
+        except Exception:
+            self.main.show()
+        logging.debug('Main window created minimized & transparent to avoid visual flash')
+
+        # Install an event filter to keep it minimized / hidden if Windows attempts to restore it.
+        self.main.installEventFilter(self)
 
         try:
             self._startup_time = QtCore.QDateTime.currentMSecsSinceEpoch()
@@ -168,32 +197,30 @@ class TaskbarResidentApp(QtWidgets.QApplication):
                 logging.exception('Failed taskbar heuristic check; proceeding')
             pos = QtGui.QCursor.pos()
 
-            if self.fan and self.fan.isVisible() and self._last_show_from_taskbar:
-                logging.debug('Hiding existing fan (toggle)')
-                self.fan.hide()
-                self._last_show_from_taskbar = False
-            else:
-                if not self.fan:
-                    logging.debug('Creating FanWindow instance')
-                    self.fan = FanWindow(self.directory, max_items=self.max_items)
-                logging.debug('Refreshing fan contents')
-                self.fan.refresh()
-                try:
-                    self.fan.set_anchor_x(pos.x())
-                except Exception:
-                    pass
-                self.fan.move(pos.x() - self.fan.width() // 2, pos.y() - self.fan.height() - 8)
-                logging.debug(f'Showing fan at {self.fan.x()},{self.fan.y()}')
-                self.fan.show()
-                try:
-                    self.fan.raise_()
-                except Exception:
-                    pass
-                try:
-                    self.fan.activateWindow()
-                except Exception:
-                    pass
-                self._last_show_from_taskbar = True
+            if self.fan and self.fan.isVisible():
+                logging.debug('Fan already visible; ignoring taskbar activation (no toggle)')
+                return True
+            if not self.fan:
+                logging.debug('Creating FanWindow instance')
+                self.fan = FanWindow(self.directory, max_items=self.max_items)
+            logging.debug('Refreshing fan contents')
+            self.fan.refresh()
+            try:
+                self.fan.set_anchor_x(pos.x())
+            except Exception:
+                pass
+            self.fan.move(pos.x() - self.fan.width() // 2, pos.y() - self.fan.height() - 8)
+            logging.debug(f'Showing fan at {self.fan.x()},{self.fan.y()}')
+            self.fan.show()
+            try:
+                self.fan.raise_()
+            except Exception:
+                pass
+            try:
+                self.fan.activateWindow()
+            except Exception:
+                pass
+            self._last_show_from_taskbar = True
 
             logging.debug('Handled activation; showing/hiding fan')
             QtCore.QTimer.singleShot(1, lambda: None)
