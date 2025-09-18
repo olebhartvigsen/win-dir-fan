@@ -195,8 +195,122 @@ class FanWindow(QtWidgets.QWidget):
         # feature flags / options
         self.show_filenames = True  # show filename labels to the left of icons
         self.include_home_arrow = True  # always show a top arrow icon to open the base directory
+        self.animate_show = True  # enable entrance animation
+        self._anims = []  # type: List[QtCore.QAbstractAnimation]
+        self._entrance_done = False
+        # Taskbar blank thumbnail support (Windows only)
+        self._blank_thumb_hbitmap = None  # type: ignore[assignment]
+        self._dwm_inited = False
+        if os.name == 'nt':
+            try:
+                # Force native window creation so we have a HWND
+                _ = int(self.winId())
+                self._init_blank_taskbar_thumbnail()
+            except Exception:
+                logger.exception('init blank taskbar thumbnail failed')
         # In future could be exposed via a config or hotkey.
         logger.debug(f'FanWindow created dir={self.directory} max_items={self.max_items}')
+
+    # --- Windows taskbar thumbnail suppression (blank iconic bitmap) ---
+    def _init_blank_taskbar_thumbnail(self):  # pragma: no cover (Windows specific UI behavior)
+        if self._dwm_inited:
+            return
+        try:
+            import ctypes
+            from ctypes import wintypes as _w
+            dwmapi = ctypes.windll.dwmapi
+            user32_local = ctypes.windll.user32
+            gdi32_local = ctypes.windll.gdi32
+            # Constants
+            self._WM_DWMSENDICONICTHUMBNAIL = 0x0323
+            self._WM_DWMSENDICONICLIVEPREVIEWBITMAP = 0x0326
+            self._DWMWA_FORCE_ICONIC_REPRESENTATION = 7
+            self._DWMWA_HAS_ICONIC_BITMAP = 10
+            self._DWMWA_DISALLOW_PEEK = 11
+            self._DWMWA_EXCLUDED_FROM_PEEK = 12
+            hwnd = _w.HWND(int(self.winId()))
+            def _set_attr(attr, value=1):
+                val = _w.DWORD(int(value))
+                dwmapi.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(val), ctypes.sizeof(val))
+            for a in (
+                self._DWMWA_FORCE_ICONIC_REPRESENTATION,
+                self._DWMWA_HAS_ICONIC_BITMAP,
+                self._DWMWA_DISALLOW_PEEK,
+                self._DWMWA_EXCLUDED_FROM_PEEK,
+            ):
+                _set_attr(a, 1)
+            # Create 1x1 fully transparent ARGB bitmap
+            bi = ctypes.create_string_buffer(40 + 16)  # BITMAPINFO + masks
+            ctypes.memset(bi, 0, len(bi))
+            # BITMAPINFOHEADER fields (little endian layout assumptions)
+            ctypes.cast(bi, ctypes.POINTER(ctypes.c_uint32))[0] = 40  # biSize
+            ctypes.cast(bi, ctypes.POINTER(ctypes.c_int))[1] = 1      # biWidth
+            ctypes.cast(bi, ctypes.POINTER(ctypes.c_int))[2] = 1      # biHeight
+            ctypes.cast(bi, ctypes.POINTER(ctypes.c_ushort))[6] = 1   # biPlanes
+            ctypes.cast(bi, ctypes.POINTER(ctypes.c_ushort))[7] = 32  # biBitCount
+            ctypes.cast(bi, ctypes.POINTER(ctypes.c_uint32))[5] = 3   # BI_BITFIELDS
+            mask_offset = 40 // 4
+            arr = ctypes.cast(bi, ctypes.POINTER(ctypes.c_uint32))
+            arr[mask_offset + 0] = 0x00FF0000  # R
+            arr[mask_offset + 1] = 0x0000FF00  # G
+            arr[mask_offset + 2] = 0x000000FF  # B
+            arr[mask_offset + 3] = 0xFF000000  # A
+            bits_ptr = ctypes.c_void_p()
+            hdc = user32_local.GetDC(0)
+            hbitmap = gdi32_local.CreateDIBSection(hdc, bi, 0, ctypes.byref(bits_ptr), None, 0)
+            user32_local.ReleaseDC(0, hdc)
+            self._blank_thumb_hbitmap = hbitmap
+            # Store function refs for later usage
+            self._DwmSetIconicThumbnail = dwmapi.DwmSetIconicThumbnail
+            self._DwmSetIconicLivePreviewBitmap = dwmapi.DwmSetIconicLivePreviewBitmap
+            self._dwm_inited = True
+        except Exception:
+            logger.exception('blank taskbar thumbnail setup failed')
+
+    def nativeEvent(self, eventType, message):  # type: ignore[override]
+        """Intercept Windows DWM iconic thumbnail requests to supply a transparent bitmap.
+
+        Keep signature minimal (Qt may pass a QByteArray for eventType); we only check for the
+        string literal 'windows_generic_MSG'. If types differ we silently ignore.
+        """
+        try:
+            if os.name == 'nt' and self._dwm_inited:
+                et = eventType if isinstance(eventType, str) else (eventType.data().decode() if hasattr(eventType, 'data') else None)  # type: ignore
+                if et == 'windows_generic_MSG':
+                    import ctypes
+                    from ctypes import wintypes as _w
+                    msg = ctypes.cast(message.__int__(), ctypes.POINTER(_w.MSG)).contents
+                    if msg.message == self._WM_DWMSENDICONICTHUMBNAIL and self._blank_thumb_hbitmap:
+                        try:
+                            self._DwmSetIconicThumbnail(_w.HWND(int(self.winId())), self._blank_thumb_hbitmap, 0)
+                        except Exception:
+                            pass
+                        return True, 0
+                    elif msg.message == self._WM_DWMSENDICONICLIVEPREVIEWBITMAP and self._blank_thumb_hbitmap:
+                        try:
+                            self._DwmSetIconicLivePreviewBitmap(_w.HWND(int(self.winId())), self._blank_thumb_hbitmap, None, 0)
+                        except Exception:
+                            pass
+                        return True, 0
+        except Exception:
+            pass
+        # Call base implementation only if eventType is a QByteArray-like; otherwise return default.
+        try:
+            from PySide6.QtCore import QByteArray  # type: ignore
+            if isinstance(eventType, (QByteArray, bytes, bytearray, memoryview)):
+                return QtWidgets.QWidget.nativeEvent(self, eventType, message)  # type: ignore
+        except Exception:
+            pass
+        return False, 0
+
+    def __del__(self):  # pragma: no cover
+        # Cleanup bitmap resource if created
+        try:
+            if os.name == 'nt' and self._blank_thumb_hbitmap:
+                import ctypes
+                ctypes.windll.gdi32.DeleteObject(self._blank_thumb_hbitmap)
+        except Exception:
+            pass
 
     def set_anchor_x(self,x:int):
         self._anchor_x=x
@@ -252,6 +366,21 @@ class FanWindow(QtWidgets.QWidget):
             else:
                 item.label=None  # type: ignore[attr-defined]
         self.relayout()
+        # Prepare items for entrance animation (hidden state) to avoid initial blink
+        if self.animate_show:
+            try:
+                for it in self.items:
+                    it.setOpacity(0.0)
+                    it.setTransformOriginPoint(it.boundingRect().center())
+                    t=QtGui.QTransform(); t.scale(0.85,0.85); it.setTransform(t)
+                    lbl=getattr(it,'label',None)
+                    if lbl:
+                        lbl.setOpacity(0.0)
+                        lbl.setTransformOriginPoint(lbl.boundingRect().center())
+                        lt=QtGui.QTransform(); lt.scale(0.85,0.85); lbl.setTransform(lt)
+                self._entrance_done=False
+            except Exception:
+                logger.exception('prepare animation failed')
     def _recent_files(self)->List[Path]:
         try:
             entries=[]
@@ -488,7 +617,14 @@ class FanWindow(QtWidgets.QWidget):
         if self.isVisible(): self._bottom_align_and_anchor()
     def show(self):
         now=QtCore.QDateTime.currentMSecsSinceEpoch(); self._ignore_mouse_until=now+self._initial_ignore_ms; self._ignore_focus_until=now+self._initial_ignore_ms; self._stay_open_until=now+self._stay_open_ms
+        if self.animate_show:
+            try: self.setUpdatesEnabled(False)
+            except Exception: pass
         super().show(); self.install_global_filter(); self._start_hooks(); QtCore.QTimer.singleShot(0,self._bottom_align_and_anchor)
+        if self.animate_show:
+            QtCore.QTimer.singleShot(5, lambda: self.setUpdatesEnabled(True))
+            if not self._entrance_done:
+                QtCore.QTimer.singleShot(25, self._start_entrance_animation)
     def hide(self): self._remove_hooks(); self.uninstall_global_filter(); super().hide()
     def showEvent(self,e:QtGui.QShowEvent):  # type: ignore[override]
         super().showEvent(e)
@@ -554,6 +690,46 @@ class FanWindow(QtWidgets.QWidget):
             if self._stay_open_until and now<self._stay_open_until: return
             if not self.geometry().contains(x,y): self.hide()
         except Exception: pass
+    def _start_entrance_animation(self):
+        if self._entrance_done or not getattr(self,'animate_show',False):
+            return
+        try:
+            for a in list(self._anims):
+                try: a.stop()
+                except Exception: pass
+            self._anims.clear()
+            # Faster animation per user request
+            base_duration=240; stagger=40
+            easing_scale=QtCore.QEasingCurve.Type.OutBack; easing_opacity=QtCore.QEasingCurve.Type.OutCubic
+
+            def schedule_target(target, delay_ms:int):
+                def begin():
+                    try:
+                        # Opacity animation
+                        opa_anim=QtCore.QVariantAnimation()
+                        opa_anim.setStartValue(0.0); opa_anim.setEndValue(1.0)
+                        opa_anim.setDuration(base_duration)
+                        opa_anim.setEasingCurve(easing_opacity)
+                        opa_anim.valueChanged.connect(lambda v, tgt=target: tgt.setOpacity(float(v)))  # type: ignore
+                        # Scale animation
+                        scale_anim=QtCore.QVariantAnimation(); scale_anim.setStartValue(0.85); scale_anim.setEndValue(1.0)
+                        scale_anim.setDuration(base_duration); scale_anim.setEasingCurve(easing_scale)
+                        scale_anim.valueChanged.connect(lambda v, tgt=target: tgt.setTransform(QtGui.QTransform().scale(float(v), float(v))))  # type: ignore
+                        opa_anim.start(); scale_anim.start(); self._anims.extend([opa_anim, scale_anim])
+                    except Exception: pass
+                QtCore.QTimer.singleShot(delay_ms, begin)
+
+            # Animate bottom-most (last) item first: reverse enumerate order
+            for rev_idx,it in enumerate(reversed(self.items)):
+                delay=rev_idx*stagger
+                schedule_target(it, delay)
+                lbl=getattr(it,'label',None)
+                if lbl: schedule_target(lbl, delay)
+            # Mark entrance done after total time (based on reversed indexing)
+            total_time = (len(self.items)-1)*stagger + base_duration + 30
+            QtCore.QTimer.singleShot(total_time, lambda: setattr(self,'_entrance_done',True))
+        except Exception:
+            logger.exception('entrance animation failed')
     @QtCore.Slot(str,bytes)
     def _on_worker_thumb(self,path:str,data:bytes):  # type: ignore
         try:
