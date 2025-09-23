@@ -1,14 +1,14 @@
 from __future__ import annotations
 """Clean consolidated fan widget implementation (after full replacement)."""
 
-import os, logging, hashlib, tempfile, time, threading
+import os, logging, hashlib, tempfile, time, threading, math
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import Qt
 
-from thumbnail_worker import ThumbnailWorker
+# (Removed ThumbnailWorker during cleanup; synchronous extraction is sufficient.)
 
 logger = logging.getLogger("windows-dir-fan.fan_widget")
 
@@ -125,6 +125,7 @@ class FanItem(QtWidgets.QGraphicsPixmapItem):
             sc=self.scene(); views=sc.views() if sc else []
             if views and views[0].window(): views[0].window().hide()
         except Exception: pass
+        e.accept()
         super().mousePressEvent(e)
     # --- Hover highlight ---
     def _ensure_glow(self):
@@ -186,74 +187,73 @@ class FanItem(QtWidgets.QGraphicsPixmapItem):
         super().hoverLeaveEvent(event)
 
 class _StrokeTextItem(QtWidgets.QGraphicsItem):
-    """Single-pass stroke/fill text for crisp readability (no repeated draws)."""
+    """Stroked text label (no background box) with slightly expanded bounding rect
+    to avoid clipping from stroke width and highlight scaling."""
     def __init__(self, text: str, base_font: QtGui.QFont):
         super().__init__()
-        self._text=text
-        self._font=QtGui.QFont(base_font)
-        # Make text bold as per user request
+        self._text = text
+        self._font = QtGui.QFont(base_font)
         self._font.setBold(True)
         self._font.setWeight(QtGui.QFont.Weight.Bold)
-        # Dark charcoal fill instead of pure black for slightly softer contrast (option #3)
-        self._fill=QtGui.QColor(25,25,25)
-        self._stroke=QtGui.QColor(255,255,255)
-        self._stroke_w=2.0
-        # Label background appearance
-        self._pad_h = 6.0   # horizontal padding around text path
-        self._pad_v = 3.5   # vertical padding
-        self._bg_base = QtGui.QColor(255,255,255,185)  # soft translucent white
-        self._bg_highlight = QtGui.QColor(255,255,255,230)
-        # Use smaller radius for clearer rounded-corner box instead of full pill
-        self._radius_factor = 0.25  # fraction of height -> softer corners
-        self._path,self._rect,self._bg_rect=self._make_path()
-        self._highlight=False
+        self._fill = QtGui.QColor(25,25,25)
+        self._stroke = QtGui.QColor(255,255,255)
+        self._stroke_w = 2.0
+        # Removed background box: retain padding vars only for potential future metrics
+        self._pad_h = 0.0
+        self._pad_v = 0.0
+        self._bg_base = None  # type: ignore[assignment]
+        self._bg_highlight = None  # type: ignore[assignment]
+        self._highlight = False
+        self._radius_factor = 0.25
+        self._path, self._text_rect, self._outer_rect = self._build_path_and_rects()
         self.setCacheMode(QtWidgets.QGraphicsItem.CacheMode.DeviceCoordinateCache)
-    def _make_path(self):
-        fm=QtGui.QFontMetrics(self._font)
-        p=QtGui.QPainterPath(); p.addText(0,fm.ascent(),self._font,self._text)
-        r=p.boundingRect()
-        # Expand for stroke
-        m=self._stroke_w*0.6
-        r=r.adjusted(-m,-m,m,m)
-        # Background rect with padding
-        bg=r.adjusted(-self._pad_h,-self._pad_v,self._pad_h,self._pad_v)
-        return p,r,bg
-    def boundingRect(self):  # type: ignore[override]
-        return self._bg_rect
-    def paint(self,p:QtGui.QPainter, option, widget=None):  # type: ignore[override]
-        p.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
-        p.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing, True)
-        # translate so bg rect origin aligns
-        p.translate(-self._bg_rect.left(), -self._bg_rect.top())
-        # Background rounded rect
-        bg_col = self._bg_highlight if self._highlight else self._bg_base
-        # Explicit corner radius (min to avoid over-rounding on very small labels)
-        radius = max(4.0, self._bg_rect.height() * self._radius_factor)
-        br=QtCore.QRectF(self._bg_rect)
-        br.moveTo(0,0)  # because we translated to bg origin
-        p.setPen(QtCore.Qt.PenStyle.NoPen)
-        p.setBrush(bg_col)
-        p.drawRoundedRect(br, radius, radius)
-        # Shift drawing for text path (since path rect may be smaller than bg rect)
-        p.translate(self._bg_rect.left()-self._rect.left(), self._bg_rect.top()-self._rect.top())
-        stroke=self._stroke
-        fill=self._fill
-        if self._highlight:
-            # brighten fill slightly
-            fill=QtGui.QColor(min(255,fill.red()+40),min(255,fill.green()+40),min(255,fill.blue()+40))
-        pen=QtGui.QPen(stroke); pen.setWidthF(self._stroke_w + (0.8 if self._highlight else 0.0)); pen.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin); pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
-        p.setPen(pen); p.setBrush(QtCore.Qt.BrushStyle.NoBrush); p.drawPath(self._path)
-        p.setPen(QtCore.Qt.PenStyle.NoPen); p.setBrush(fill); p.drawPath(self._path)
-    def set_highlighted(self,on:bool):
-        if self._highlight==on: return
-        self._highlight=on
-        # Slight scale bump including background for emphasis
+
+    def _build_path_and_rects(self):
+        fm = QtGui.QFontMetrics(self._font)
+        # Text path baseline at y = ascent to mimic normal drawText(0, ascent)
+        path = QtGui.QPainterPath(); path.addText(0, fm.ascent(), self._font, self._text)
+        text_rect = path.boundingRect()
+        stroke_exp = (self._stroke_w * 0.9)
+        text_ext = text_rect.adjusted(-stroke_exp, -stroke_exp, stroke_exp, stroke_exp)
+        # Slightly larger outer rect for highlight scale and AA safety.
+        # Provide a generous extra right margin to avoid clipping narrow trailing glyphs (e.g. 'l', 't', ')')
+        # during stroke + highlight scale. Store the extra so layout can compensate when horizontally positioning.
+        extra_right = 12  # was 4; increased to fully prevent right-edge cropping
+        outer = text_ext.adjusted(-3, -3, extra_right, 3)
+        # Expose for layout logic (used to avoid over-shifting label left when computing x)
         try:
-            factor = 1.06 if on else 1.0
-            self.setTransform(QtGui.QTransform().scale(factor, factor))
+            self._extra_right = extra_right  # type: ignore[attr-defined]
         except Exception:
             pass
-        # Invalidate cache so background repaint reflects highlight alpha
+        return path, text_rect, outer
+
+    def boundingRect(self):  # type: ignore[override]
+        return self._outer_rect
+
+    def paint(self, p: QtGui.QPainter, option, widget=None):  # type: ignore[override]
+        p.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+        p.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing, True)
+        # Translate so that outer rect top-left is (0,0)
+        p.translate(-self._outer_rect.left(), -self._outer_rect.top())
+        # Draw stroked then filled text only (background removed)
+        stroke_col = self._stroke
+        fill_col = self._fill
+        if self._highlight:
+            fill_col = QtGui.QColor(min(255, fill_col.red()+40), min(255, fill_col.green()+40), min(255, fill_col.blue()+40))
+        pen = QtGui.QPen(stroke_col); pen.setWidthF(self._stroke_w + (0.8 if self._highlight else 0.0))
+        pen.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin); pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
+        p.setPen(pen); p.setBrush(QtCore.Qt.BrushStyle.NoBrush); p.drawPath(self._path.translated(-self._outer_rect.left(), -self._outer_rect.top()))
+        p.setPen(QtCore.Qt.PenStyle.NoPen); p.setBrush(fill_col); p.drawPath(self._path.translated(-self._outer_rect.left(), -self._outer_rect.top()))
+
+    def set_highlighted(self, on: bool):
+        if self._highlight == on:
+            return
+        self._highlight = on
+        try:
+            scale = 1.06 if on else 1.0
+            self.setTransform(QtGui.QTransform().scale(scale, scale))
+        except Exception:
+            pass
         try: self.setCacheMode(QtWidgets.QGraphicsItem.CacheMode.NoCache)
         except Exception: pass
         self.update()
@@ -298,15 +298,27 @@ class FanWindow(QtWidgets.QWidget):
         self._ignore_focus_until=0
         self._stay_open_until=0
         self._filter_installed=False
-        self._worker=ThumbnailWorker()
-        self._worker.thumbnailReady.connect(self._on_worker_thumb)  # type: ignore
-        self._worker.start()
+    # ThumbnailWorker removed: previously handled async image thumbnails.
         # feature flags / options
         self.show_filenames = True  # show filename labels to the left of icons
         self.include_home_arrow = True  # always show a top arrow icon to open the base directory
-        self.animate_show = True  # enable entrance animation
-        self._anims = []  # type: List[QtCore.QAbstractAnimation]
-        self._entrance_done = False
+    # Animation system fully removed – fan appears instantly.
+        # Label font sizing parameters (allows slightly larger default text)
+        self.label_font_min = 9.5
+        self.label_font_max = 16.0
+        self.label_font_divisor = 8.0  # lower divisor => larger font for same thumb size
+        # Spacing between label text and icon (was fixed 8)
+        self.label_icon_gap = 14
+        # Vertical spacing tuning (factor applied to base thumb-derived spacing + additive extra)
+        self.vertical_spacing_factor = 1.10  # >1.0 increases space between rows
+        self.vertical_spacing_extra = 4       # constant extra pixels between icons
+        # Curvature tuning: allows smoother (more rounded) horizontal fan curve
+        # base_curve_factor: scales overall horizontal spread
+        # per_item_curve_factor: incremental growth per item count (kept from legacy 0.04 baseline)
+        # curve_style: 'quadratic' (legacy) or 'sine' (rounded) or 'exp'
+        self.base_curve_factor = 0.80
+        self.per_item_curve_factor = 0.045  # slightly higher than previous 0.04 to increase curvature
+        self.curve_style = 'sine'  # default to a more rounded appearance
         # Taskbar blank thumbnail support (Windows only)
         self._blank_thumb_hbitmap = None  # type: ignore[assignment]
         self._dwm_inited = False
@@ -425,6 +437,7 @@ class FanWindow(QtWidgets.QWidget):
         self._anchor_x=x
         self._recenter_to_anchor()
     def refresh(self):
+        logger.debug('FanWindow.refresh begin')
         for it in list(self.items):
             try:
                 # remove label first (if present) then icon item
@@ -453,7 +466,7 @@ class FanWindow(QtWidgets.QWidget):
             except Exception:
                 logger.exception('failed creating arrow item')
 
-        for p in files:
+        for idx, p in enumerate(files):
             pm=self._load_icon_for(p); item=FanItem(pm,p); self.scene.addItem(item); self.items.append(item)
             # add label (filename) to the left if enabled
             if self.show_filenames:
@@ -462,7 +475,10 @@ class FanWindow(QtWidgets.QWidget):
                     if getattr(item, 'is_arrow', False):
                         item.label=None  # type: ignore[attr-defined]
                     else:
-                        font=QtGui.QFont(); font.setPointSizeF(max(8.0, min(13.0, self.thumb_size/9.5)))
+                        font=QtGui.QFont()
+                        computed_size = self.thumb_size / self.label_font_divisor if self.label_font_divisor else 12.0
+                        font_size = max(self.label_font_min, min(self.label_font_max, computed_size))
+                        font.setPointSizeF(font_size)
                         metrics=QtGui.QFontMetrics(font)
                         max_display_width=280  # px cap to avoid ultra-wide window
                         name=p.name
@@ -474,22 +490,12 @@ class FanWindow(QtWidgets.QWidget):
                     item.label=None  # type: ignore[attr-defined]
             else:
                 item.label=None  # type: ignore[attr-defined]
+            # Stronger initial hide: set hidden animation state immediately per item addition
+            # (Animation prep removed)
         self.relayout()
-        # Prepare items for entrance animation (hidden state) to avoid initial blink
-        if self.animate_show:
-            try:
-                for it in self.items:
-                    it.setOpacity(0.0)
-                    it.setTransformOriginPoint(it.boundingRect().center())
-                    t=QtGui.QTransform(); t.scale(0.85,0.85); it.setTransform(t)
-                    lbl=getattr(it,'label',None)
-                    if lbl:
-                        lbl.setOpacity(0.0)
-                        lbl.setTransformOriginPoint(lbl.boundingRect().center())
-                        lt=QtGui.QTransform(); lt.scale(0.85,0.85); lbl.setTransform(lt)
-                self._entrance_done=False
-            except Exception:
-                logger.exception('prepare animation failed')
+    # Refresh complete.
+
+    # (Animation helpers removed)
     def _recent_files(self)->List[Path]:
         try:
             entries=[]
@@ -672,8 +678,17 @@ class FanWindow(QtWidgets.QWidget):
     def relayout(self):
         n=len(self.items)
         if n==0: return
-        left=4; top=2; v_spacing=max(4,int(self.thumb_size*0.85)); curve=self.thumb_size*(0.8+0.04*n)
-        label_gap=8 if self.show_filenames else 0
+        left=4; top=2
+        base_spacing = int(self.thumb_size*0.85)
+        try:
+            v_spacing = int(base_spacing * getattr(self, 'vertical_spacing_factor', 1.0) + getattr(self, 'vertical_spacing_extra', 0))
+        except Exception:
+            v_spacing = base_spacing
+        if v_spacing < 4:
+            v_spacing = 4
+        # Compute base curve magnitude using configurable factors
+        curve = self.thumb_size * (self.base_curve_factor + self.per_item_curve_factor * n)
+        label_gap=self.label_icon_gap if self.show_filenames else 0
         # compute max label width (if any)
         max_label_width=0
         if self.show_filenames:
@@ -681,14 +696,30 @@ class FanWindow(QtWidgets.QWidget):
                 lbl=getattr(it,'label',None)
                 if lbl:
                     try:
-                        # Use full background rect width for spacing now
+                        # Use full outer bounding rect width for spacing now (prevents clipping)
                         max_label_width=max(max_label_width, int(lbl.boundingRect().width()))
                     except Exception: pass
             # safety cap (should match elide width to remain consistent)
             max_label_width=min(max_label_width, 280)
-        offs=[]; max_off=0.0; denom=max(1.0,(n-1)**2)
-        for i in range(n):
-            dist=(n-1-i); norm=(dist**2)/denom; inv=1.0-norm; off=inv*curve; offs.append(off); max_off=max(max_off,off)
+        offs=[]; max_off=0.0
+        if n>1:
+            for i in range(n):
+                # Position index from top (0) to bottom (n-1); we want top to have smallest offset, bottom largest
+                t = i / (n-1)  # 0..1 top->bottom
+                if self.curve_style == 'sine':
+                    # Rounded: half sine wave easing (ease-in accelerating toward bottom)
+                    # Use sin(t * pi/2) to map 0->1 with smooth start
+                    weight = math.sin(t * math.pi / 2.0)
+                elif self.curve_style == 'exp':
+                    # Exponential emphasis toward bottom
+                    weight = (math.pow(t, 1.8))
+                else:  # 'quadratic' legacy
+                    weight = t * t  # ease-in quadratic
+                off = weight * curve
+                offs.append(off)
+                if off>max_off: max_off=off
+        else:
+            offs=[0.0]; max_off=0.0
         req=int(left+max_label_width+label_gap+max_off+self.thumb_size+left)
         if req>self.width():
             try: self.resize(req,self.height())
@@ -701,7 +732,13 @@ class FanWindow(QtWidgets.QWidget):
                 lbl=getattr(it,'label',None)
                 if lbl:
                     try:
-                        lb=lbl.boundingRect(); label_x=x-label_gap-int(lb.width()); label_y=y+max(0,(h-lb.height())/2)
+                        lb=lbl.boundingRect();
+                        # Compensate for artificially added right margin so label doesn't shift too far left.
+                        extra_right = getattr(lbl, '_extra_right', 0)
+                        effective_width = int(lb.width() - extra_right) if lb.width() > extra_right else int(lb.width())
+                        # Add a couple extra px to width to counter any AA/trailing stroke shape
+                        label_x=x-label_gap-effective_width-2
+                        label_y=y+max(0,(h-lb.height())/2)
                         lbl.setPos(label_x,label_y)
                     except Exception: pass
         # Assign Z-order so that items further from the taskbar (smaller y, higher vertically) appear above lower ones.
@@ -740,22 +777,10 @@ class FanWindow(QtWidgets.QWidget):
         if self.isVisible(): self._bottom_align_and_anchor()
     def show(self):
         now=QtCore.QDateTime.currentMSecsSinceEpoch(); self._ignore_mouse_until=now+self._initial_ignore_ms; self._ignore_focus_until=now+self._initial_ignore_ms; self._stay_open_until=now+self._stay_open_ms
-        if self.animate_show:
-            try:
-                # Start fully transparent & with updates disabled to avoid flash
-                self.setUpdatesEnabled(False)
-                self._pre_anim_window_opacity = self.windowOpacity()
-                self.setWindowOpacity(0.0)
-                # Re-arm entrance animation every time we show so subsequent openings animate
-                # (refresh normally resets this, but doing it here is a safety net if refresh was skipped)
-                self._entrance_done = False
-            except Exception:
-                pass
         super().show(); self.install_global_filter(); self._start_hooks(); QtCore.QTimer.singleShot(0,self._bottom_align_and_anchor)
-        if self.animate_show and not self._entrance_done:
-            # Start animation almost immediately; using 0ms posts event after current loop iteration.
-            QtCore.QTimer.singleShot(0, self._start_entrance_animation)
-    def hide(self): self._remove_hooks(); self.uninstall_global_filter(); super().hide()
+    def hide(self):
+        # (Animation removed) nothing special to cancel
+        self._remove_hooks(); self.uninstall_global_filter(); super().hide()
     def showEvent(self,e:QtGui.QShowEvent):  # type: ignore[override]
         super().showEvent(e)
         self.setFocus(QtCore.Qt.FocusReason.OtherFocusReason)
@@ -820,84 +845,5 @@ class FanWindow(QtWidgets.QWidget):
             if self._stay_open_until and now<self._stay_open_until: return
             if not self.geometry().contains(x,y): self.hide()
         except Exception: pass
-    def _start_entrance_animation(self):
-        if not getattr(self,'animate_show',False):
-            return
-        # Always re-run animation: reset flag
-        self._entrance_done = False
-        try:
-            # Restore window opacity & updates just before kicking off child item animations
-            try:
-                if hasattr(self, '_pre_anim_window_opacity'):
-                    self.setWindowOpacity(getattr(self, '_pre_anim_window_opacity') or 1.0)
-                else:
-                    self.setWindowOpacity(1.0)
-            except Exception:
-                pass
-            try:
-                self.setUpdatesEnabled(True)
-            except Exception:
-                pass
-            # Force-reset every item's starting state unconditionally (ensures icons animate every show)
-            try:
-                for it in self.items:
-                    try:
-                        it.setOpacity(0.0)
-                        it.setTransform(QtGui.QTransform().scale(0.85,0.85))
-                        lbl=getattr(it,'label',None)
-                        if lbl:
-                            lbl.setOpacity(0.0)
-                            lbl.setTransform(QtGui.QTransform().scale(0.85,0.85))
-                    except Exception: pass
-            except Exception:
-                logger.exception('failed resetting entrance state')
-            for a in list(self._anims):
-                try: a.stop()
-                except Exception: pass
-            self._anims.clear()
-            # Even faster animation per latest request (shorter duration & tighter stagger)
-            base_duration=130; stagger=18
-            easing_scale=QtCore.QEasingCurve.Type.OutBack; easing_opacity=QtCore.QEasingCurve.Type.OutCubic
-
-            def schedule_target(target, delay_ms:int):
-                def begin():
-                    try:
-                        # Opacity animation
-                        opa_anim=QtCore.QVariantAnimation()
-                        opa_anim.setStartValue(0.0); opa_anim.setEndValue(1.0)
-                        opa_anim.setDuration(base_duration)
-                        opa_anim.setEasingCurve(easing_opacity)
-                        opa_anim.valueChanged.connect(lambda v, tgt=target: tgt.setOpacity(float(v)))  # type: ignore
-                        # Scale animation
-                        scale_anim=QtCore.QVariantAnimation(); scale_anim.setStartValue(0.85); scale_anim.setEndValue(1.0)
-                        scale_anim.setDuration(base_duration); scale_anim.setEasingCurve(easing_scale)
-                        scale_anim.valueChanged.connect(lambda v, tgt=target: tgt.setTransform(QtGui.QTransform().scale(float(v), float(v))))  # type: ignore
-                        opa_anim.start(); scale_anim.start(); self._anims.extend([opa_anim, scale_anim])
-                    except Exception: pass
-                QtCore.QTimer.singleShot(delay_ms, begin)
-
-            # Animate bottom-most (last) item first: reverse enumerate order
-            for rev_idx,it in enumerate(reversed(self.items)):
-                delay=rev_idx*stagger
-                schedule_target(it, delay)
-                lbl=getattr(it,'label',None)
-                if lbl: schedule_target(lbl, delay)
-            # Mark entrance done after total time (based on reversed indexing)
-            total_time = (len(self.items)-1)*stagger + base_duration + 25
-            QtCore.QTimer.singleShot(total_time, lambda: setattr(self,'_entrance_done',True))
-        except Exception:
-            logger.exception('entrance animation failed')
-    @QtCore.Slot(str,bytes)
-    def _on_worker_thumb(self,path:str,data:bytes):  # type: ignore
-        try:
-            p=Path(path)
-            if not data: return
-            if any(it.path==p for it in self.items):
-                img=QtGui.QImage.fromData(data, b'PNG')
-                if not img.isNull():
-                    pm=QtGui.QPixmap.fromImage(img)
-                    for it in self.items:
-                        if it.path==p and it.pixmap().width()<pm.width():
-                            it.setPixmap(self._scale_square(pm)); self.view.viewport().update(); break
-        except Exception: pass
+    # Background worker callback removed.
 __all__=["FanWindow","FanItem"]

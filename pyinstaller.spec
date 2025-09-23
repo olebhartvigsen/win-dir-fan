@@ -1,15 +1,20 @@
 # PyInstaller spec for windows-dir-fan (onedir)
 # Build: pyinstaller --clean --onedir pyinstaller.spec
 
-from PyInstaller.utils.hooks import collect_all
-import sys
 block_cipher = None
+
+from pathlib import Path
+icon_datas = []
+if Path('app icon.png').exists():
+    icon_datas.append(('app icon.png', '.'))
+if Path('app.ico').exists():
+    icon_datas.append(('app.ico', '.'))
 
 a = Analysis([
     'app.py',
 ], pathex=['.'],
              binaries=[],
-             datas=[],
+             datas=icon_datas,
              hiddenimports=[],
              hookspath=[],
              runtime_hooks=[],
@@ -29,7 +34,8 @@ exe = EXE(pyz,
           bootloader_ignore_signals=False,
           strip=False,
           upx=True,
-          console=False )
+          console=False,
+          icon='app.ico' if Path('app.ico').exists() else None )
 
 coll = COLLECT(exe,
                a.binaries,

@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import platform
 import logging
+import time
 
 # Ensure logging is configured before importing other modules so their import-time logs are captured.
 LOG_PATH = Path(__file__).parent / "debug.log"
@@ -112,13 +113,16 @@ class TaskbarResidentApp(QtWidgets.QApplication):
                 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("win-dir-fan.app")  # type: ignore[attr-defined]
             except Exception:
                 logging.exception('Failed to set AppUserModelID')
-        # Optionally set an application icon if available (fallback to none if missing)
+        # Initialize multi-size icon generation & runtime watcher
         try:
-            icon_path = Path(__file__).parent / 'app.ico'
-            if icon_path.exists():
-                self.main.setWindowIcon(QtGui.QIcon(str(icon_path)))
+            self._base_dir = Path(__file__).parent
+            self._png_icon_path = self._base_dir / 'app icon.png'
+            self._ico_path = self._base_dir / 'app.ico'
+            self._icon_last_mtime = 0.0
+            self._apply_app_icon(initial=True)
+            self._init_icon_refresh_support()
         except Exception:
-            pass
+            logging.exception('Icon initialization failed')
         # Start fully transparent, then show minimized immediately so no centered flash occurs.
         try:
             self.main.setWindowOpacity(0.0)
@@ -227,6 +231,97 @@ class TaskbarResidentApp(QtWidgets.QApplication):
             return True
 
         return super().eventFilter(watched, event)
+
+    # ---------------- Icon Handling (multi-size + runtime refresh) -----------------
+    def _generate_multi_size_ico(self, png_path: Path, ico_path: Path):
+        """Generate multi-size ICO (16/32/48/64/128/256). Uses Pillow if available, else falls back to largest-only via Qt."""
+        sizes = [16,32,48,64,128,256]
+        try:
+            try:
+                from PIL import Image  # type: ignore
+                img = Image.open(str(png_path))
+                # Pillow multi-size saving
+                img.save(str(ico_path), format='ICO', sizes=[(s, s) for s in sizes])
+                logging.info('Generated multi-size ICO via Pillow: %s', ico_path)
+                return True
+            except Exception:
+                pm = QtGui.QPixmap(str(png_path))
+                if pm.isNull():
+                    return False
+                pm_largest = pm.scaled(256,256,QtCore.Qt.AspectRatioMode.KeepAspectRatio, QtCore.Qt.TransformationMode.SmoothTransformation)
+                if pm_largest.save(str(ico_path), 'ICO'):
+                    logging.info('Generated single-size ICO via Qt: %s', ico_path)
+                    return True
+                # Fallback try QImage variant
+                try:
+                    pm_largest.toImage().save(str(ico_path), b'ICO')  # type: ignore[arg-type]
+                    logging.info('Generated single-size ICO via Qt (QImage): %s', ico_path)
+                    return True
+                except Exception:
+                    return False
+        except Exception:
+            logging.exception('ICO generation failed')
+            return False
+
+    def _apply_app_icon(self, initial: bool=False):
+        try:
+            png = getattr(self, '_png_icon_path', None)
+            ico = getattr(self, '_ico_path', None)
+            if not png or not ico:
+                return
+            chosen = None
+            if png.exists():
+                png_mtime = png.stat().st_mtime
+                regen_needed = (not ico.exists()) or png_mtime > (ico.stat().st_mtime + 0.1)
+                if regen_needed:
+                    ok = self._generate_multi_size_ico(png, ico)
+                    if not ok:
+                        logging.warning('ICO regeneration failed; continuing with PNG only')
+                self._icon_last_mtime = png_mtime
+            if ico.exists():
+                chosen = QtGui.QIcon(str(ico))
+            elif png.exists():
+                pm = QtGui.QPixmap(str(png))
+                if not pm.isNull():
+                    chosen = QtGui.QIcon(pm)
+            if chosen:
+                self.setWindowIcon(chosen)
+                self.main.setWindowIcon(chosen)
+                logging.debug('Applied application icon (initial=%s)', initial)
+        except Exception:
+            logging.exception('Apply icon failed')
+
+    def _init_icon_refresh_support(self):
+        try:
+            # Timer-based polling watcher (every 2s) + manual shortcut (Ctrl+Shift+R)
+            self._icon_watch_timer = QtCore.QTimer(self)
+            self._icon_watch_timer.setInterval(2000)
+            self._icon_watch_timer.timeout.connect(self._check_icon_update)  # type: ignore
+            self._icon_watch_timer.start()
+            shortcut = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+Shift+R'), self.main)
+            shortcut.activated.connect(self._manual_icon_refresh)  # type: ignore
+            logging.info('Icon refresh watcher started (Ctrl+Shift+R to force refresh)')
+        except Exception:
+            logging.exception('Icon refresh support init failed')
+
+    def _check_icon_update(self):
+        try:
+            png = getattr(self, '_png_icon_path', None)
+            if not png or not png.exists():
+                return
+            mtime = png.stat().st_mtime
+            if mtime > getattr(self, '_icon_last_mtime', 0):
+                logging.info('Detected icon PNG change; refreshing')
+                self._apply_app_icon()
+        except Exception:
+            logging.exception('Icon update check failed')
+
+    def _manual_icon_refresh(self):  # triggered by shortcut
+        try:
+            logging.info('Manual icon refresh invoked')
+            self._apply_app_icon()
+        except Exception:
+            logging.exception('Manual icon refresh failed')
 
 
 def main():

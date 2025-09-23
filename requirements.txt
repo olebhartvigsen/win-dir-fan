@@ -1,7 +1,4 @@
 PySide6>=6.5
-watchdog
 Pillow
-pywin32; platform_system == "Windows"
-pywinauto; platform_system == "Windows"
-comtypes; platform_system == "Windows"
 numpy
+comtypes; platform_system == "Windows"
