@@ -27,7 +27,6 @@ Features
 - High‑resolution Windows icon extraction with caching (temp folder + in‑memory).
 - Curved fan layout using configurable sine/exp/quadratic style (default sine) with adjustable spacing.
 - Hover glow + subtle scale for icons and highlight adjustment for labels.
-- Native drag-and-drop: drag any item out of the fan to a target (Explorer, desktop, etc.).
 - Automatic dynamic thumbnail size based on screen height & item count.
 - Taskbar blank iconic thumbnail to avoid distracting preview.
 - Logging to `debug.log` (stdout/stderr can be redirected; see Env section).

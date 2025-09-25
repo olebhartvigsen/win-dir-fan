@@ -116,17 +116,41 @@ class FanItem(QtWidgets.QGraphicsPixmapItem):
         self.setAcceptHoverEvents(True)
         self._hover_anim_scale = None  # type: ignore[assignment]
         self._hover_glow = None  # type: ignore[assignment]
-    def mousePressEvent(self,e:QtWidgets.QGraphicsSceneMouseEvent):  # type: ignore[name-defined]
+
+    def mousePressEvent(self, e: QtWidgets.QGraphicsSceneMouseEvent):
+        """Opens the file or folder on click."""
         try:
-            if self.path.is_file(): os.startfile(str(self.path))  # type: ignore[attr-defined]
-            else: QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(self.path)))
-        except Exception: logger.exception('open failed')
+            if self.path.is_file():
+                os.startfile(str(self.path))
+            else:
+                QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(self.path)))
+        except Exception:
+            logger.exception('open failed')
+        
+        # Hide the window after opening
         try:
-            sc=self.scene(); views=sc.views() if sc else []
-            if views and views[0].window(): views[0].window().hide()
-        except Exception: pass
+            sc = self.scene()
+            if sc and sc.views():
+                sc.views()[0].window().hide()
+        except Exception:
+            pass
+        
         e.accept()
         super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e: QtWidgets.QGraphicsSceneMouseEvent):
+        """
+        This is a temporary event handler for Step 1 of debugging drag-and-drop.
+        It detects a drag gesture and prints a message to the console without
+        interfering with the click-to-open functionality in mousePressEvent.
+        """
+        # Check if the left mouse button is being held down
+        if e.buttons() & QtCore.Qt.MouseButton.LeftButton:
+            # Check if the mouse has moved more than the start-drag distance
+            if (e.pos() - e.buttonDownPos(QtCore.Qt.MouseButton.LeftButton)).manhattanLength() > QtWidgets.QApplication.startDragDistance():
+                print("Drag gesture detected!")
+        super().mouseMoveEvent(e)
+
     # --- Hover highlight ---
     def _ensure_glow(self):
         if self._hover_glow is None:
