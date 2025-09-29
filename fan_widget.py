@@ -636,7 +636,7 @@ class FanWindow(QtWidgets.QWidget):
     def _update_thumb_size(self,count:int):
         try:
             screen=QtWidgets.QApplication.primaryScreen(); avail=screen.availableGeometry() if screen else QtCore.QRect(0,0,1280,720)
-            target=int(avail.height()*0.5)
+            target=int(avail.height()*0.75)
             size=max(48,min(256,int(target/max(1,count+0.15)))) if count>0 else 96
             if size!=self.thumb_size: logger.debug(f'thumb {self.thumb_size}->{size} count={count}')
             self.thumb_size=size
