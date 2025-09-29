@@ -166,10 +166,10 @@ class TaskbarResidentApp(QtWidgets.QApplication):
         _EV_STATE = getattr(QtCore.QEvent, 'WindowStateChange', 105)
         if watched is self.main and etype in (_EV_ACTIVATE, _EV_STATE):
             now = QtCore.QDateTime.currentMSecsSinceEpoch()
-            if self._startup_time and now - self._startup_time < 800:
+            if self._startup_time and now - self._startup_time < 300:  # Reduced from 800ms to 300ms
                 logging.debug('Activation ignored due to startup grace period')
                 return True
-            if now - self._last_activation_time < 250:
+            if now - self._last_activation_time < 150:  # Reduced from 250ms to 150ms
                 logging.debug('Activation ignored due to debounce')
                 return True
             self._last_activation_time = now
@@ -201,14 +201,23 @@ class TaskbarResidentApp(QtWidgets.QApplication):
                 logging.exception('Failed taskbar heuristic check; proceeding')
             pos = QtGui.QCursor.pos()
 
+            # Check if fan is already visible - if so, hide it (toggle behavior)
             if self.fan and self.fan.isVisible():
-                logging.debug('Fan already visible; ignoring taskbar activation (no toggle)')
+                logging.debug('Fan already visible; hiding it (toggle behavior)')
+                self.fan.hide()
                 return True
+                
+            # Fan is not visible, so show it
             if not self.fan:
                 logging.debug('Creating FanWindow instance')
                 self.fan = FanWindow(self.directory, max_items=self.max_items)
+                
             logging.debug('Refreshing fan contents')
             self.fan.refresh()
+            
+            # Mark that this was opened from taskbar for better focus behavior
+            self.fan.set_taskbar_opened(True)
+            
             try:
                 self.fan.set_anchor_x(pos.x())
             except Exception:
