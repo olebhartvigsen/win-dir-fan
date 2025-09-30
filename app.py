@@ -334,7 +334,7 @@ class TaskbarResidentApp(QtWidgets.QApplication):
 
 
 def main():
-    directory = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.home()
+    directory = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.home() / "Downloads"
     max_items = int(sys.argv[2]) if len(sys.argv) > 2 else 15
     logging.info(f'Launching application with directory={directory} max_items={max_items}')
     app = TaskbarResidentApp(sys.argv, directory, max_items=max_items)

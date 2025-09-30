@@ -308,6 +308,7 @@ class FanWindow(QtWidgets.QWidget):
             | QtCore.Qt.WindowType.FramelessWindowHint
             | QtCore.Qt.WindowType.WindowStaysOnTopHint
             | QtCore.Qt.WindowType.NoDropShadowWindowHint
+            | QtCore.Qt.WindowType.BypassWindowManagerHint
         )
         self.setWindowFlags(flags)
         try:
@@ -863,8 +864,8 @@ class FanWindow(QtWidgets.QWidget):
         
         # For taskbar-opened windows, use longer ignore periods to prevent flashing
         if self._taskbar_opened:
-            ignore_period = 1500  # 1.5 seconds for taskbar-opened windows
-            stay_period = 5000    # 5 seconds minimum stay open
+            ignore_period = 500   # 0.8 seconds for taskbar-opened windows
+            stay_period = 800    # 1.2 seconds minimum stay open (much more responsive)
         else:
             ignore_period = self._initial_ignore_ms
             stay_period = self._stay_open_ms
@@ -873,11 +874,37 @@ class FanWindow(QtWidgets.QWidget):
         self._ignore_focus_until = now + ignore_period
         self._stay_open_until = now + stay_period
         
+        # Force layout update to ensure accurate dimensions before positioning
+        try:
+            if self.items:  # Only if we have content to layout
+                # Process any pending layout changes
+                QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+                # Ensure scene geometry is updated
+                self.scene.invalidate()
+        except Exception:
+            pass
+        
+        # Calculate and set correct position AFTER ensuring layout is complete
+        try:
+            screen=QtWidgets.QApplication.primaryScreen()
+            if screen:
+                avail=screen.availableGeometry()
+                new_y=avail.bottom()-self.height()+1
+                new_x=self.x()
+                if self._anchor_x is not None and self.items:
+                    bottom=self.items[-1]
+                    pix=bottom.pixmap()
+                    center_local=bottom.pos().x()+pix.width()/2
+                    new_x=self.x()+int(self._anchor_x-(self.x()+center_local))
+                new_x=max(avail.left(), min(new_x, avail.right()-self.width()))
+                self.move(new_x,new_y)
+        except Exception:
+            logger.exception('pre-show positioning failed')
+        
         super().show()
         
         # Delay the global filter installation and hook setup to avoid immediate interference
         QtCore.QTimer.singleShot(100, self._delayed_setup)
-        QtCore.QTimer.singleShot(0, self._bottom_align_and_anchor)
     
     def _delayed_setup(self):
         """Delayed setup of global filters and hooks to prevent interference during show."""
@@ -899,10 +926,11 @@ class FanWindow(QtWidgets.QWidget):
         super().showEvent(e)
         
         # For taskbar-opened windows, delay focus to prevent immediate focus loss
+        # Use a longer delay to avoid conflicts with positioning and setup
         if self._taskbar_opened:
-            QtCore.QTimer.singleShot(200, lambda: self.setFocus(QtCore.Qt.FocusReason.OtherFocusReason))
+            QtCore.QTimer.singleShot(300, lambda: self.setFocus(QtCore.Qt.FocusReason.OtherFocusReason))
         else:
-            self.setFocus(QtCore.Qt.FocusReason.OtherFocusReason)
+            QtCore.QTimer.singleShot(50, lambda: self.setFocus(QtCore.Qt.FocusReason.OtherFocusReason))
     def focusOutEvent(self,e:QtGui.QFocusEvent):  # type: ignore[override]
         now=QtCore.QDateTime.currentMSecsSinceEpoch()
         
@@ -910,20 +938,57 @@ class FanWindow(QtWidgets.QWidget):
         if self._ignore_focus_until and now < self._ignore_focus_until: 
             return super().focusOutEvent(e)
         
-        # For taskbar-opened windows, be much more lenient about focus loss
-        if self._taskbar_opened:
-            # For taskbar-opened windows, give a much longer grace period before allowing auto-hide
-            extended_stay_open = self._stay_open_until + 2000  # Additional 2 seconds beyond already extended stay-open time
-            if now < extended_stay_open:
-                return super().focusOutEvent(e)
-        else:
-            # Original behavior for other triggers
-            if self._stay_open_until and now < self._stay_open_until: 
-                return super().focusOutEvent(e)
+        # Check if the focus loss is due to Windows system UI (like taskbar thumbnails)
+        # These should not cause the menu to hide
+        if self._is_system_focus_loss(e):
+            # Try to regain focus after a short delay to counteract system UI interference
+            QtCore.QTimer.singleShot(50, lambda: self.setFocus(QtCore.Qt.FocusReason.OtherFocusReason))
+            return super().focusOutEvent(e)
         
-        # Only hide if we're past all protection periods
+        # Use consistent timing for both taskbar and non-taskbar opened windows
+        # This prevents blinking from different focus handling behaviors
+        if self._stay_open_until and now < self._stay_open_until: 
+            return super().focusOutEvent(e)
+        
+        # Only hide if we're past all protection periods and it's a genuine focus loss
         self.hide()
         super().focusOutEvent(e)
+    
+    def _is_system_focus_loss(self, event: QtGui.QFocusEvent) -> bool:
+        """Check if focus loss is due to Windows system UI elements like taskbar thumbnails."""
+        try:
+            # Check the focus reason - certain reasons indicate system UI interference
+            reason = event.reason()
+            
+            # ActiveWindow reason often indicates taskbar thumbnail or other system UI
+            if reason == QtCore.Qt.FocusReason.ActiveWindowFocusReason:
+                return True
+                
+            # For taskbar-opened windows, be more lenient about focus changes
+            # as they're more likely to be affected by taskbar UI
+            if self._taskbar_opened:
+                # Other potentially problematic reasons for taskbar-opened windows
+                if reason in [QtCore.Qt.FocusReason.OtherFocusReason,
+                             QtCore.Qt.FocusReason.NoFocusReason]:
+                    return True
+                    
+                # Also check if no specific widget is gaining focus (system UI)
+                app = QtWidgets.QApplication.instance()
+                if app:
+                    try:
+                        focus_widget = app.focusWidget()  # type: ignore
+                        if focus_widget is None:
+                            return True
+                    except Exception:
+                        pass
+                    
+        except Exception:
+            # If we can't determine the reason, err on the side of not hiding
+            # This prevents accidental closure due to system UI interference
+            if self._taskbar_opened:
+                return True
+                
+        return False
     def install_global_filter(self):
         if self._filter_installed: return
         app = QtWidgets.QApplication.instance()
@@ -976,16 +1041,10 @@ class FanWindow(QtWidgets.QWidget):
                 # If taskbar check fails, continue with normal logic
                 pass
             
-            # Apply timing-based hiding logic
+            # Apply timing-based hiding logic - use consistent timing for all cases
             try:
-                if self._taskbar_opened:
-                    # Use the same extended timing as other methods
-                    extended_stay_open = self._stay_open_until + 2000  # Match focusOutEvent timing
-                    if now < extended_stay_open:
-                        return super().eventFilter(obj,event)
-                else:
-                    if self._stay_open_until and now < self._stay_open_until:
-                        return super().eventFilter(obj,event)
+                if self._stay_open_until and now < self._stay_open_until:
+                    return super().eventFilter(obj,event)
                 
                 # Hide the fan for clicks outside
                 self.hide()
@@ -1029,42 +1088,32 @@ class FanWindow(QtWidgets.QWidget):
             now=QtCore.QDateTime.currentMSecsSinceEpoch()
             if self._ignore_mouse_until and now<self._ignore_mouse_until: return
             
-            # Check if click is in taskbar area - if so, always close (even for taskbar-opened windows)
+            # Check if click is in taskbar area - if so, always close
             if self._is_click_in_taskbar(x, y):
                 self.hide()
                 return
             
-            # For non-taskbar clicks, apply the normal timing logic
-            # For taskbar-opened windows, be much more lenient about mouse clicks outside
-            if self._taskbar_opened:
-                extended_stay_open = self._stay_open_until + 3000  # Additional 3 seconds beyond normal stay-open time
-                if now < extended_stay_open: return
-            else:
-                # Original behavior for other triggers
-                if self._stay_open_until and now<self._stay_open_until: return
+            # For clicks outside the menu area, close after the basic stay-open period
+            if self._stay_open_until and now<self._stay_open_until: return
                 
-            if not self.geometry().contains(x,y): self.hide()
+            if not self.geometry().contains(x,y): 
+                self.hide()
         except Exception: pass
     def _on_poll_click(self,x:int,y:int):
         try:
             now=QtCore.QDateTime.currentMSecsSinceEpoch()
             if self._ignore_mouse_until and now<self._ignore_mouse_until: return
             
-            # Check if click is in taskbar area - if so, always close (even for taskbar-opened windows)
+            # Check if click is in taskbar area - if so, always close
             if self._is_click_in_taskbar(x, y):
                 self.hide()
                 return
             
-            # For non-taskbar clicks, apply the normal timing logic
-            # For taskbar-opened windows, be much more lenient about mouse clicks outside
-            if self._taskbar_opened:
-                extended_stay_open = self._stay_open_until + 3000  # Additional 3 seconds beyond normal stay-open time
-                if now < extended_stay_open: return
-            else:
-                # Original behavior for other triggers
-                if self._stay_open_until and now<self._stay_open_until: return
+            # For clicks outside the menu area, close after the basic stay-open period
+            if self._stay_open_until and now<self._stay_open_until: return
                 
-            if not self.geometry().contains(x,y): self.hide()
+            if not self.geometry().contains(x,y):
+                self.hide()
         except Exception: pass
     # Background worker callback removed.
 __all__=["FanWindow","FanItem"]
