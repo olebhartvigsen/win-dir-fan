@@ -554,9 +554,7 @@ internal sealed class FanForm : Form
                 var item = _items[_mouseDownIndex];
                 if (!string.IsNullOrEmpty(item.FullPath))
                 {
-                    var data = new DataObject(DataFormats.FileDrop,
-                        new[] { item.FullPath });
-                    var result = DoDragDrop(data,
+                    ShellDragHelper.DoDragDrop(this, item.FullPath,
                         DragDropEffects.Move | DragDropEffects.Copy);
                     // After drop completes, close the fan
                     Close();

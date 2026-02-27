@@ -219,4 +219,54 @@ internal static class NativeMethods
     internal const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
     internal const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
     internal const int DWMWCP_ROUND = 2;
+
+    // ─── Shell PIDL Functions ──────────────────────────────────────────
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    internal static extern IntPtr ILCreateFromPath(string pszPath);
+
+    [DllImport("shell32.dll")]
+    internal static extern void ILFree(IntPtr pidl);
+
+    [DllImport("shell32.dll")]
+    internal static extern IntPtr ILClone(IntPtr pidl);
+
+    [DllImport("shell32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool ILRemoveLastID(IntPtr pidl);
+
+    [DllImport("shell32.dll")]
+    internal static extern IntPtr ILFindLastID(IntPtr pidl);
+
+    [DllImport("shell32.dll")]
+    internal static extern int SHCreateDataObject(
+        IntPtr pidlFolder,
+        uint cidl,
+        [MarshalAs(UnmanagedType.LPArray)] IntPtr[] apidl,
+        IntPtr pdtInner,
+        ref Guid riid,
+        out IntPtr ppv);
+
+    // ─── OLE32 Drag-and-Drop ───────────────────────────────────────────
+
+    [DllImport("ole32.dll")]
+    internal static extern int DoDragDrop(
+        IntPtr pDataObj,
+        IDropSource pDropSource,
+        int dwOKEffects,
+        out int pdwEffect);
+
+    [ComImport]
+    [Guid("00000121-0000-0000-C000-000000000046")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IDropSource
+    {
+        [PreserveSig]
+        int QueryContinueDrag(
+            [MarshalAs(UnmanagedType.Bool)] bool fEscapePressed,
+            int grfKeyState);
+
+        [PreserveSig]
+        int GiveFeedback(int dwEffect);
+    }
 }
