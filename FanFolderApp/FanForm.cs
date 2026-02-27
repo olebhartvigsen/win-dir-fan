@@ -373,34 +373,47 @@ internal sealed class FanForm : Form
     {
         base.OnPaint(e);
 
-        var g = e.Graphics;
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
-        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        // Render everything onto a transparent offscreen bitmap so that
+        // anti-aliased edges never blend with the magenta TransparencyKey.
+        using var offscreen = new Bitmap(
+            ClientSize.Width, ClientSize.Height,
+            System.Drawing.Imaging.PixelFormat.Format32bppArgb);
 
-        using var font = CreateItemFont();
-        using var textFill = new SolidBrush(TextNormal);
-        float outlineW = _fontSize / 5f;
-        using var outlinePen = new Pen(Color.Black, outlineW) { LineJoin = LineJoin.Round };
-        using var haloBrush = new SolidBrush(Color.FromArgb(180, 0, 0, 0));
-
-        var sf = new StringFormat
+        using (var g = Graphics.FromImage(offscreen))
         {
-            Alignment = StringAlignment.Far,
-            LineAlignment = StringAlignment.Center,
-            Trimming = StringTrimming.EllipsisCharacter,
-            FormatFlags = StringFormatFlags.NoWrap
-        };
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
 
-        // Build sorted draw order: items with higher animProgress drawn later (on top)
-        var drawOrder = Enumerable.Range(0, _items.Count)
-            .OrderBy(i => _animProgress.Length > i ? _animProgress[i] : 0f)
-            .ToList();
+            using var font = CreateItemFont();
+            using var textFill = new SolidBrush(TextNormal);
+            float outlineW = _fontSize / 5f;
+            using var outlinePen = new Pen(Color.Black, outlineW) { LineJoin = LineJoin.Round };
+            using var haloBrush = new SolidBrush(Color.FromArgb(180, 0, 0, 0));
 
-        foreach (int i in drawOrder)
-        {
-            DrawItem(g, i, font, textFill, outlinePen, haloBrush, sf);
+            var sf = new StringFormat
+            {
+                Alignment = StringAlignment.Far,
+                LineAlignment = StringAlignment.Center,
+                Trimming = StringTrimming.EllipsisCharacter,
+                FormatFlags = StringFormatFlags.NoWrap
+            };
+
+            // Build sorted draw order: items with higher animProgress drawn later (on top)
+            var drawOrder = Enumerable.Range(0, _items.Count)
+                .OrderBy(i => _animProgress.Length > i ? _animProgress[i] : 0f)
+                .ToList();
+
+            foreach (int i in drawOrder)
+            {
+                DrawItem(g, i, font, textFill, outlinePen, haloBrush, sf);
+            }
         }
+
+        // Threshold alpha on the entire frame to eliminate semi-transparent
+        // pixels that would blend with magenta and produce a pink fringe.
+        using var clean = RemoveAlphaFringe(offscreen);
+        e.Graphics.DrawImageUnscaled(clean, 0, 0);
     }
 
     private void DrawItem(Graphics g, int i, Font font, Brush textFill,
@@ -416,13 +429,11 @@ internal sealed class FanForm : Form
         float drawX = iconPos.X - (_iconSize * (scale - 1f) / 2f);
         float drawY = iconPos.Y - (_iconSize * (scale - 1f) / 2f);
 
-        // ── Icon (alpha-thresholded to eliminate magenta TransparencyKey fringe) ──
+        // ── Icon ──
         if (item.Icon != null)
         {
             using var bmp = item.Icon.ToBitmap();
-            using var clean = RemoveAlphaFringe(bmp);
-            g.DrawImage(clean,
-                new RectangleF(drawX, drawY, drawSize, drawSize));
+            g.DrawImage(bmp, new RectangleF(drawX, drawY, drawSize, drawSize));
         }
 
         // ── Text label to the left of the icon (outlined) ──
