@@ -1,3 +1,5 @@
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 
 namespace FanFolderApp;
@@ -15,11 +17,11 @@ internal static class ShellDragHelper
 
     /// <summary>
     /// Performs an OLE drag-and-drop using a Shell data object for the
-    /// given file.  Falls back to WinForms DoDragDrop if the Shell data
-    /// object creation fails.
+    /// given file with the actual file icon as the drag image.
     /// </summary>
     public static DragDropEffects DoDragDrop(
-        Control source, string filePath, DragDropEffects allowedEffects)
+        Control source, string filePath, DragDropEffects allowedEffects,
+        Icon? dragIcon = null)
     {
         IntPtr pidlFull = NativeMethods.ILCreateFromPath(filePath);
         if (pidlFull == IntPtr.Zero)
@@ -45,6 +47,10 @@ internal static class ShellDragHelper
             if (hr != 0 || pDataObj == IntPtr.Zero)
                 return FallbackDragDrop(source, filePath, allowedEffects);
 
+            // Set custom drag image using the file's actual icon
+            if (dragIcon != null)
+                SetDragImage(pDataObj, dragIcon);
+
             var dropSource = new DropSourceImpl();
             NativeMethods.DoDragDrop(
                 pDataObj, dropSource,
@@ -57,6 +63,62 @@ internal static class ShellDragHelper
             if (pDataObj != IntPtr.Zero) Marshal.Release(pDataObj);
             if (pidlFolder != IntPtr.Zero) NativeMethods.ILFree(pidlFolder);
             NativeMethods.ILFree(pidlFull);
+        }
+    }
+
+    // ─── Drag Image ──────────────────────────────────────────────────
+
+    private static void SetDragImage(IntPtr pDataObj, Icon icon)
+    {
+        try
+        {
+            // Convert icon to a 32-bit ARGB bitmap (premultiplied alpha
+            // is required by IDragSourceHelper for proper transparency).
+            using var bmp = icon.ToBitmap();
+            int w = bmp.Width;
+            int h = bmp.Height;
+
+            // Create a premultiplied-alpha copy
+            using var pma = new Bitmap(w, h, PixelFormat.Format32bppPArgb);
+            using (var g = Graphics.FromImage(pma))
+            {
+                g.DrawImage(bmp, 0, 0, w, h);
+            }
+
+            IntPtr hBmp = pma.GetHbitmap(Color.Empty); // preserves alpha
+            try
+            {
+                var shdi = new NativeMethods.SHDRAGIMAGE
+                {
+                    sizeDragImage = new NativeMethods.SIZE { cx = w, cy = h },
+                    ptOffset = new Point(w / 2, h / 2),
+                    hbmpDragImage = hBmp,
+                    crColorKey = 0  // no colour key — use alpha
+                };
+
+                var helper = (NativeMethods.IDragSourceHelper)
+                    new NativeMethods.DragDropHelper();
+
+                // Wrap the raw COM pointer in a managed object for the interface call
+                object dataObj = Marshal.GetObjectForIUnknown(pDataObj);
+                int hr = helper.InitializeFromBitmap(ref shdi, dataObj);
+
+                // If successful, the helper takes ownership of the HBITMAP
+                if (hr != 0)
+                    NativeMethods.DeleteObject(hBmp);
+
+                // Release our extra COM ref
+                Marshal.ReleaseComObject(dataObj);
+                Marshal.ReleaseComObject(helper);
+            }
+            catch
+            {
+                NativeMethods.DeleteObject(hBmp);
+            }
+        }
+        catch
+        {
+            // Non-critical: drag still works, just with default icon
         }
     }
 

@@ -220,6 +220,10 @@ internal static class NativeMethods
     internal const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
     internal const int DWMWCP_ROUND = 2;
 
+    // DWM peek / thumbnail control
+    internal const int DWMWA_DISALLOW_PEEK = 11;
+    internal const int DWMWA_EXCLUDED_FROM_PEEK = 12;
+
     // ─── Shell PIDL Functions ──────────────────────────────────────────
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
@@ -269,4 +273,94 @@ internal static class NativeMethods
         [PreserveSig]
         int GiveFeedback(int dwEffect);
     }
+
+    // ─── IDragSourceHelper – custom drag image ─────────────────────────
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct SIZE
+    {
+        public int cx;
+        public int cy;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct SHDRAGIMAGE
+    {
+        public SIZE sizeDragImage;
+        public Point ptOffset;
+        public IntPtr hbmpDragImage;
+        public uint crColorKey;
+    }
+
+    [ComImport]
+    [Guid("DE5BF786-477A-11D2-839D-00C04FD918D0")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IDragSourceHelper
+    {
+        [PreserveSig]
+        int InitializeFromBitmap(ref SHDRAGIMAGE pshdi,
+            [MarshalAs(UnmanagedType.Interface)] object pDataObject);
+
+        [PreserveSig]
+        int InitializeFromWindow(IntPtr hwnd, ref Point ppt,
+            [MarshalAs(UnmanagedType.Interface)] object pDataObject);
+    }
+
+    // CLSID for DragDropHelper
+    [ComImport]
+    [Guid("4657278A-411B-11D2-839A-00C04FD918D0")]
+    [ClassInterface(ClassInterfaceType.None)]
+    internal class DragDropHelper { }
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool DeleteObject(IntPtr hObject);
+
+    // ─── GDI DC helpers (for UpdateLayeredWindow) ──────────────────────
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr GetDC(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    internal static extern int ReleaseDC(IntPtr hwnd, IntPtr hdc);
+
+    [DllImport("gdi32.dll")]
+    internal static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool DeleteDC(IntPtr hdc);
+
+    [DllImport("gdi32.dll")]
+    internal static extern IntPtr SelectObject(IntPtr hdc, IntPtr h);
+
+    // ─── UpdateLayeredWindow (per-pixel alpha transparency) ────────────
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct BLENDFUNCTION
+    {
+        public byte BlendOp;              // AC_SRC_OVER = 0
+        public byte BlendFlags;           // must be 0
+        public byte SourceConstantAlpha;  // 0 = transparent, 255 = opaque
+        public byte AlphaFormat;          // AC_SRC_ALPHA = 1 (use per-pixel alpha)
+    }
+
+    internal const uint ULW_ALPHA = 2;
+
+    /// <summary>
+    /// Updates a layered window's position, size, shape, content, and translucency.
+    /// Pass <see cref="IntPtr.Zero"/> for <paramref name="pptDst"/> to keep the current position.
+    /// </summary>
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool UpdateLayeredWindow(
+        IntPtr hwnd,
+        IntPtr hdcDst,
+        IntPtr pptDst,       // POINT* — IntPtr.Zero keeps current position
+        ref SIZE psize,
+        IntPtr hdcSrc,
+        ref POINT pptSrc,
+        uint crKey,
+        ref BLENDFUNCTION pblend,
+        uint dwFlags);
 }

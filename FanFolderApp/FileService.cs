@@ -31,9 +31,11 @@ internal sealed class FileService
     }
 
     /// <summary>
-    /// Extracts a shell icon for the given path using the native IImageList
-    /// obtained via SHGetImageList.  Tries SHIL_JUMBO (256×256) first, then
-    /// SHIL_EXTRALARGE (48×48), then SHIL_LARGE (32×32) as fallback.
+    /// Extracts a shell icon for the given path.  Tries SHIL_JUMBO (256×256),
+    /// SHIL_EXTRALARGE (48×48), then SHIL_LARGE (32×32) in sequence, skipping
+    /// any size that produces a blank icon (some file types such as .zip have
+    /// no registered icon at SHIL_JUMBO and the shell returns an empty HICON).
+    /// Falls back to <see cref="Icon.ExtractAssociatedIcon"/> as a last resort.
     /// The returned Icon is owned by the caller and must be disposed.
     /// </summary>
     public static Icon? GetShellIcon(string path)
@@ -50,42 +52,32 @@ internal sealed class FileService
                 return FallbackIcon(path);
 
             int iconIndex = shinfo.iIcon;
-
-            // Try progressively smaller image lists until one works
-            Guid iidImageList = NativeMethods.IID_IImageList;
-            int result = NativeMethods.SHGetImageList(
-                NativeMethods.SHIL_JUMBO, ref iidImageList, out var imageList);
-
-            if (result != 0 || imageList == null)
-            {
-                iidImageList = NativeMethods.IID_IImageList;
-                result = NativeMethods.SHGetImageList(
-                    NativeMethods.SHIL_EXTRALARGE, ref iidImageList, out imageList);
-            }
-
-            if (result != 0 || imageList == null)
-            {
-                iidImageList = NativeMethods.IID_IImageList;
-                result = NativeMethods.SHGetImageList(
-                    NativeMethods.SHIL_LARGE, ref iidImageList, out imageList);
-            }
-
-            if (result != 0 || imageList == null)
-                return FallbackIcon(path);
-
-            IntPtr hIcon = IntPtr.Zero;
             const int ILD_TRANSPARENT = 0x00000001;
-            result = imageList.GetIcon(iconIndex, ILD_TRANSPARENT, ref hIcon);
 
-            if (result != 0 || hIcon == IntPtr.Zero)
-                return FallbackIcon(path);
+            // Try each image list from largest to smallest.
+            // SHIL_JUMBO always succeeds on Win10+ but some file types (e.g. .zip)
+            // return a blank HICON at that size — skip those and try a smaller list.
+            ReadOnlySpan<int> sizes = [NativeMethods.SHIL_JUMBO, NativeMethods.SHIL_EXTRALARGE, NativeMethods.SHIL_LARGE];
+            foreach (int shil in sizes)
+            {
+                Guid iid = NativeMethods.IID_IImageList;
+                if (NativeMethods.SHGetImageList(shil, ref iid, out var imageList) != 0 || imageList == null)
+                    continue;
 
-            // Clone the icon so we can immediately release the native handle
-            Icon tempIcon = Icon.FromHandle(hIcon);
-            Icon cloned = (Icon)tempIcon.Clone();
-            NativeMethods.DestroyIcon(hIcon);
+                IntPtr hIcon = IntPtr.Zero;
+                if (imageList.GetIcon(iconIndex, ILD_TRANSPARENT, ref hIcon) != 0 || hIcon == IntPtr.Zero)
+                    continue;
 
-            return cloned;
+                Icon cloned = (Icon)Icon.FromHandle(hIcon).Clone();
+                NativeMethods.DestroyIcon(hIcon);
+
+                if (HasVisiblePixels(cloned))
+                    return cloned;
+
+                cloned.Dispose(); // blank — try next size
+            }
+
+            return FallbackIcon(path);
         }
         catch
         {
@@ -93,7 +85,35 @@ internal sealed class FileService
         }
     }
 
-    private static Icon? FallbackIcon(string path)
+    /// <summary>
+    /// Scans every 8th pixel for any alpha value &gt; 8.
+    /// Quickly detects blank HICON instances (e.g. SHIL_JUMBO for .zip files)
+    /// without scanning the full bitmap.
+    /// </summary>
+    private static unsafe bool HasVisiblePixels(Icon icon)
+    {
+        try
+        {
+            using var bmp = icon.ToBitmap();
+            var rect = new Rectangle(0, 0, bmp.Width, bmp.Height);
+            var data = bmp.LockBits(rect,
+                System.Drawing.Imaging.ImageLockMode.ReadOnly,
+                System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            try
+            {
+                byte* p = (byte*)data.Scan0;
+                int n = bmp.Width * bmp.Height;
+                // Step 8 pixels at a time; alpha is byte 3 of each 4-byte pixel.
+                for (int i = 0; i < n; i += 8)
+                    if (p[i * 4 + 3] > 8) return true;
+                return false;
+            }
+            finally { bmp.UnlockBits(data); }
+        }
+        catch { return true; } // assume valid if check fails
+    }
+
+    public static Icon? FallbackIcon(string path)
     {
         try
         {
@@ -105,3 +125,4 @@ internal sealed class FileService
         }
     }
 }
+
