@@ -27,12 +27,11 @@ internal sealed class FanForm : Form
     // ─── Colours ─────────────────────────────────────────────
     private static readonly Color TextNormal = Color.White;
     private static readonly Color TextShadow = Color.FromArgb(200, 0, 0, 0);
-    private static readonly Color HoverTint = Color.FromArgb(60, 255, 255, 255);
-    private static readonly Color TranspKey = Color.Magenta;
+    private static readonly Color HoverTint  = Color.FromArgb(60, 255, 255, 255);
 
     // ─── Animation ──────────────────────────────────────────────
     private const float HoverScaleMax = 1.4f;
-    private const float AnimSpeed = 0.45f;  // progress per tick (≈ 2-3 ticks to full)
+    private const float AnimSpeed = 0.53f;  // progress per tick (≈ 2 ticks / ~30 ms to full)
     private static readonly Color TextHover = Color.FromArgb(255, 255, 230, 120); // warm gold
 
     // ─── Fade-in / slide-up ─────────────────────────────────────
@@ -58,13 +57,22 @@ internal sealed class FanForm : Form
     private float _fontSize;               // adaptive
     private int _maxStackHeight;           // 75 % of screen height
 
+    // ─── Rendering Cache ─────────────────────────────────────────────
+    private Bitmap? _offscreenBmp;
+    private byte    _currentAlpha;   // 0–255; drives UpdateLayeredWindow fade
+    private Font?   _font;
+    private StringFormat? _sf;
+    private int[] _drawOrder = [];
+
     // ─── Inner Model ─────────────────────────────────────────
     private sealed class FanItem
     {
         public required string Name { get; init; }
         public required string FullPath { get; init; }
         public required bool IsDirectory { get; init; }
+        public bool IsArrow { get; init; }
         public Icon? Icon { get; set; }
+        public Bitmap? Bmp { get; set; }   // cached bitmap from Icon, avoids ToBitmap() per frame
     }
 
     // ═════════════════════════════════════════════════════════
@@ -79,17 +87,22 @@ internal sealed class FanForm : Form
         ShowInTaskbar = false;
         TopMost = true;
         StartPosition = FormStartPosition.Manual;
-        DoubleBuffered = true;
-
-        TransparencyKey = TranspKey;
-        BackColor = TranspKey;
+        // WS_EX_LAYERED is set via CreateParams; per-pixel alpha via UpdateLayeredWindow.
+        // Do NOT set TransparencyKey, BackColor=Magenta, or Opacity here — they conflict.
         KeyPreview = true;
-        Opacity = 0; // start invisible for fade-in
 
         ComputeAdaptiveSizes();
         LoadItems();
         CalculateArcLayout();
+        _ = LoadIconsAsync(); // fire-and-forget: icons fill in as they load
         InitAnimation();
+        _sf = new StringFormat
+        {
+            Alignment = StringAlignment.Far,
+            LineAlignment = StringAlignment.Center,
+            Trimming = StringTrimming.EllipsisCharacter,
+            FormatFlags = StringFormatFlags.NoWrap
+        };
     }
 
     protected override void OnShown(EventArgs e)
@@ -98,6 +111,8 @@ internal sealed class FanForm : Form
         // Capture final position and offset downward for slide-up
         _targetTop = Top;
         Top += SlideDistance;
+        _currentAlpha = 0;
+        DrawToLayeredWindow();  // establish transparent layered surface before fade starts
         _fadeProgress = 0f;
         _fadeTimer = new System.Windows.Forms.Timer { Interval = 16 };
         _fadeTimer.Tick += OnFadeTick;
@@ -115,11 +130,12 @@ internal sealed class FanForm : Form
             _fadeTimer = null;
         }
 
-        // Ease-out: fast start, smooth deceleration
+        // Ease-out cubic: fast start, smooth deceleration
         float t = 1f - MathF.Pow(1f - _fadeProgress, 3f);
 
-        Opacity = t;
+        _currentAlpha = (byte)Math.Clamp((int)(t * 255f), 0, 255);
         Top = _targetTop + (int)(SlideDistance * (1f - t));
+        DrawToLayeredWindow();
     }
 
     private void InitAnimation()
@@ -133,6 +149,7 @@ internal sealed class FanForm : Form
     private void OnAnimTick(object? sender, EventArgs e)
     {
         bool needsRepaint = false;
+        bool allSettled   = true;
 
         for (int i = 0; i < _animProgress.Length; i++)
         {
@@ -145,21 +162,23 @@ internal sealed class FanForm : Form
                 continue;
             }
 
+            allSettled = false;
             // Move linearly; easing is applied when reading the value
             _animProgress[i] += (target > cur) ? AnimSpeed : -AnimSpeed;
             _animProgress[i] = Math.Clamp(_animProgress[i], 0f, 1f);
             needsRepaint = true;
         }
 
-        if (needsRepaint) Invalidate();
+        if (needsRepaint) DrawToLayeredWindow();
+
+        // Stop timer when all animations have settled; restarts on mouse enter/move.
+        if (allSettled) _animTimer?.Stop();
     }
 
-    /// <summary>Cubic ease-in-out: smooth acceleration and deceleration.</summary>
+    /// <summary>Ease-out cubic: fast start, smooth deceleration — no initial delay.</summary>
     private static float EaseInOut(float t)
     {
-        return t < 0.5f
-            ? 4f * t * t * t
-            : 1f - MathF.Pow(-2f * t + 2f, 3f) / 2f;
+        return 1f - MathF.Pow(1f - t, 3f);
     }
 
     // ═════════════════════════════════════════════════════════
@@ -207,7 +226,7 @@ internal sealed class FanForm : Form
                 Name = entry.Name,
                 FullPath = entry.FullName,
                 IsDirectory = entry is DirectoryInfo,
-                Icon = FileService.GetShellIcon(entry.FullName)
+                // Icons are loaded asynchronously via LoadIconsAsync()
             });
         }
 
@@ -219,6 +238,41 @@ internal sealed class FanForm : Form
                 FullPath = string.Empty,
                 IsDirectory = false
             });
+        }
+
+        // Top-most item: an arrow that opens the folder (like macOS fan)
+        _items.Add(new FanItem
+        {
+            Name = "Open in Explorer",
+            FullPath = _folderPath,
+            IsDirectory = true,
+            IsArrow = true
+        });
+    }
+
+    /// <summary>
+    /// Loads shell icons for all non-arrow items in parallel on background threads.
+    /// Each icon is applied to its item and redraws the window as it arrives,
+    /// so the form appears immediately and icons fill in within milliseconds.
+    /// </summary>
+    private async Task LoadIconsAsync()
+    {
+        var tasks = _items
+            .Where(item => !item.IsArrow && !string.IsNullOrEmpty(item.FullPath))
+            .Select(item =>
+            {
+                var path = item.FullPath;
+                return Task.Run(() => (item, icon: FileService.GetShellIcon(path)));
+            })
+            .ToList();
+
+        foreach (var loadTask in tasks)
+        {
+            var (item, icon) = await loadTask;
+            if (IsDisposed) return;
+            item.Icon = icon;
+            item.Bmp  = icon?.ToBitmap();
+            DrawToLayeredWindow();
         }
     }
 
@@ -286,7 +340,7 @@ internal sealed class FanForm : Form
         }
 
         // Measure text widths for label positioning
-        using var font = CreateItemFont();
+        var font = EnsureFont();
         float maxLabelW = 0;
         foreach (var item in _items)
         {
@@ -369,51 +423,120 @@ internal sealed class FanForm : Form
     //  Painting
     // ═════════════════════════════════════════════════════════
 
-    protected override void OnPaint(PaintEventArgs e)
+    // WS_EX_LAYERED windows are composited via UpdateLayeredWindow.
+    // Suppress WinForms' default GDI painting entirely.
+    protected override void OnPaintBackground(PaintEventArgs e) { }
+    protected override void OnPaint(PaintEventArgs e) { }
+
+    // ═════════════════════════════════════════════════════════
+    //  Layered-window rendering (per-pixel alpha via UpdateLayeredWindow)
+    // ═════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Renders the current frame into <see cref="_offscreenBmp"/> and pushes it
+    /// to the compositor via <c>UpdateLayeredWindow</c>.  This replaces the old
+    /// TransparencyKey + RemoveAlphaFringe approach and gives perfectly smooth,
+    /// anti-aliased edges without any alpha quantisation.
+    /// </summary>
+    private void DrawToLayeredWindow()
     {
-        base.OnPaint(e);
+        if (!IsHandleCreated || IsDisposed) return;
 
-        // Render everything onto a transparent offscreen bitmap so that
-        // anti-aliased edges never blend with the magenta TransparencyKey.
-        using var offscreen = new Bitmap(
-            ClientSize.Width, ClientSize.Height,
-            System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        int w = ClientSize.Width, h = ClientSize.Height;
+        if (w <= 0 || h <= 0) return;
 
-        using (var g = Graphics.FromImage(offscreen))
+        if (_offscreenBmp == null || _offscreenBmp.Width != w || _offscreenBmp.Height != h)
         {
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
-            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-
-            using var font = CreateItemFont();
-            using var textFill = new SolidBrush(TextNormal);
-            float outlineW = _fontSize / 5f;
-            using var outlinePen = new Pen(Color.Black, outlineW) { LineJoin = LineJoin.Round };
-            using var haloBrush = new SolidBrush(Color.FromArgb(180, 0, 0, 0));
-
-            var sf = new StringFormat
-            {
-                Alignment = StringAlignment.Far,
-                LineAlignment = StringAlignment.Center,
-                Trimming = StringTrimming.EllipsisCharacter,
-                FormatFlags = StringFormatFlags.NoWrap
-            };
-
-            // Build sorted draw order: items with higher animProgress drawn later (on top)
-            var drawOrder = Enumerable.Range(0, _items.Count)
-                .OrderBy(i => _animProgress.Length > i ? _animProgress[i] : 0f)
-                .ToList();
-
-            foreach (int i in drawOrder)
-            {
-                DrawItem(g, i, font, textFill, outlinePen, haloBrush, sf);
-            }
+            _offscreenBmp?.Dispose();
+            _offscreenBmp = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
         }
 
-        // Threshold alpha on the entire frame to eliminate semi-transparent
-        // pixels that would blend with magenta and produce a pink fringe.
-        using var clean = RemoveAlphaFringe(offscreen);
-        e.Graphics.DrawImageUnscaled(clean, 0, 0);
+        using (var g = Graphics.FromImage(_offscreenBmp))
+        {
+            g.Clear(Color.Transparent);
+            g.SmoothingMode      = SmoothingMode.AntiAlias;
+            g.TextRenderingHint  = TextRenderingHint.AntiAliasGridFit;
+            g.InterpolationMode  = InterpolationMode.HighQualityBicubic;
+
+            var font = EnsureFont();
+            using var textFill   = new SolidBrush(TextNormal);
+            float outlineW       = _fontSize / 5f;
+            using var outlinePen = new Pen(Color.Black, outlineW) { LineJoin = LineJoin.Round };
+            using var haloBrush  = new SolidBrush(Color.FromArgb(180, 0, 0, 0));
+
+            // Insertion sort draw order: lower animProgress drawn first (lower z-order).
+            if (_drawOrder.Length != _items.Count) _drawOrder = new int[_items.Count];
+            for (int i = 0; i < _drawOrder.Length; i++) _drawOrder[i] = i;
+            for (int i = 1; i < _drawOrder.Length; i++)
+            {
+                int   key  = _drawOrder[i];
+                float keyP = key < _animProgress.Length ? _animProgress[key] : 0f;
+                int   j    = i - 1;
+                while (j >= 0 && (_drawOrder[j] < _animProgress.Length
+                    ? _animProgress[_drawOrder[j]] : 0f) > keyP)
+                { _drawOrder[j + 1] = _drawOrder[j]; j--; }
+                _drawOrder[j + 1] = key;
+            }
+
+            foreach (int i in _drawOrder)
+                DrawItem(g, i, font, textFill, outlinePen, haloBrush, _sf!);
+        }
+
+        // UpdateLayeredWindow requires premultiplied alpha.
+        // Premultiply in-place (cleared on next call via g.Clear).
+        PremultiplyBitmap(_offscreenBmp);
+
+        IntPtr hdcScreen = NativeMethods.GetDC(IntPtr.Zero);
+        IntPtr hdcMem    = NativeMethods.CreateCompatibleDC(hdcScreen);
+        IntPtr hBmp      = _offscreenBmp.GetHbitmap(Color.FromArgb(0));
+        IntPtr oldBmp    = NativeMethods.SelectObject(hdcMem, hBmp);
+
+        var size  = new NativeMethods.SIZE  { cx = w, cy = h };
+        var ptSrc = new NativeMethods.POINT { X = 0, Y = 0 };
+        var blend = new NativeMethods.BLENDFUNCTION
+        {
+            BlendOp             = 0,             // AC_SRC_OVER
+            BlendFlags          = 0,
+            SourceConstantAlpha = _currentAlpha, // drives fade-in
+            AlphaFormat         = 1              // AC_SRC_ALPHA
+        };
+
+        NativeMethods.UpdateLayeredWindow(
+            Handle, hdcScreen, IntPtr.Zero,
+            ref size, hdcMem, ref ptSrc,
+            0, ref blend, NativeMethods.ULW_ALPHA);
+
+        NativeMethods.SelectObject(hdcMem, oldBmp);
+        NativeMethods.DeleteObject(hBmp);
+        NativeMethods.DeleteDC(hdcMem);
+        NativeMethods.ReleaseDC(IntPtr.Zero, hdcScreen);
+    }
+
+    /// <summary>
+    /// Premultiplies the alpha channel of <paramref name="bmp"/> in-place.
+    /// Required by <c>UpdateLayeredWindow</c> which expects premultiplied ARGB.
+    /// </summary>
+    private static unsafe void PremultiplyBitmap(Bitmap bmp)
+    {
+        var rect = new Rectangle(0, 0, bmp.Width, bmp.Height);
+        var data = bmp.LockBits(rect,
+            System.Drawing.Imaging.ImageLockMode.ReadWrite,
+            System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        byte* p = (byte*)data.Scan0;
+        int n = bmp.Width * bmp.Height;
+        for (int i = 0; i < n; i++)
+        {
+            int  off = i * 4;
+            byte a   = p[off + 3];
+            if (a == 0) { p[off] = p[off + 1] = p[off + 2] = 0; }
+            else if (a < 255)
+            {
+                p[off]     = (byte)(p[off]     * a / 255);
+                p[off + 1] = (byte)(p[off + 1] * a / 255);
+                p[off + 2] = (byte)(p[off + 2] * a / 255);
+            }
+        }
+        bmp.UnlockBits(data);
     }
 
     private void DrawItem(Graphics g, int i, Font font, Brush textFill,
@@ -429,11 +552,14 @@ internal sealed class FanForm : Form
         float drawX = iconPos.X - (_iconSize * (scale - 1f) / 2f);
         float drawY = iconPos.Y - (_iconSize * (scale - 1f) / 2f);
 
-        // ── Icon ──
-        if (item.Icon != null)
+        // ── Icon or Arrow ──
+        if (item.IsArrow)
         {
-            using var bmp = item.Icon.ToBitmap();
-            g.DrawImage(bmp, new RectangleF(drawX, drawY, drawSize, drawSize));
+            DrawArrow(g, drawX, drawY, drawSize);
+        }
+        else if (item.Bmp != null)
+        {
+            g.DrawImage(item.Bmp, new RectangleF(drawX, drawY, drawSize, drawSize));
         }
 
         // ── Text label to the left of the icon (outlined) ──
@@ -452,16 +578,17 @@ internal sealed class FanForm : Form
             var layoutRect = new RectangleF(labelLeft, textY, labelW, emSize + 4);
             int fontStyle = (int)FontStyle.Bold;
 
-            // Dark halo: draw the text shape offset in multiple
-            // directions to create a soft dark background glow
+            // Dark halo: draw text shape offset in 8 directions for a soft glow.
+            // Reuse a single GraphicsPath (Reset() clears figures without allocating).
             float haloOff = outlinePen.Width * 0.6f;
             float[] offsets = [-haloOff, 0, haloOff];
+            using var haloPath = new GraphicsPath();
             foreach (float dx in offsets)
             {
                 foreach (float dy in offsets)
                 {
                     if (dx == 0 && dy == 0) continue;
-                    using var haloPath = new GraphicsPath();
+                    haloPath.Reset();
                     var haloRect = layoutRect;
                     haloRect.Offset(dx, dy);
                     haloPath.AddString(item.Name, font.FontFamily, fontStyle,
@@ -486,53 +613,75 @@ internal sealed class FanForm : Form
         catch { return new Font("Segoe UI", _fontSize, FontStyle.Bold, GraphicsUnit.Point); }
     }
 
+    private Font EnsureFont() => _font ??= CreateItemFont();
+
     /// <summary>
-    /// Thresholds alpha: pixels with alpha &lt; 128 become fully transparent,
-    /// the rest become fully opaque.  This prevents semi-transparent edges
-    /// from blending with the magenta TransparencyKey and creating a pink halo.
+    /// Draws a macOS-style "open folder" button: a squircle with a dark blue-grey
+    /// gradient and a white upward-pointing chevron with rounded caps.
+    /// Corner radius is kept ≤ boxSz/2 to prevent arc overlap in GraphicsPath.
     /// </summary>
-    private static unsafe Bitmap RemoveAlphaFringe(Bitmap src)
+    private static void DrawArrow(Graphics g, float x, float y, float size)
     {
-        var dst = new Bitmap(src.Width, src.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        var rect = new Rectangle(0, 0, src.Width, src.Height);
+        float cx = x + size / 2f;
+        float cy = y + size / 2f;
+        float pad   = size * 0.08f;
+        float boxSz = size - pad * 2f;
+        // Corner radius must satisfy cr * 2 < boxSz to avoid arc overlap.
+        // 0.22 gives iOS-style proportions (~22 % of side length).
+        float cr = boxSz * 0.22f;
 
-        var srcData = src.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly,
-            System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        var dstData = dst.LockBits(rect, System.Drawing.Imaging.ImageLockMode.WriteOnly,
-            System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        var rect = new RectangleF(cx - boxSz / 2f, cy - boxSz / 2f, boxSz, boxSz);
 
-        int pixelCount = src.Width * src.Height;
-        byte* pSrc = (byte*)srcData.Scan0;
-        byte* pDst = (byte*)dstData.Scan0;
+        // ── Squircle background ───────────────────────────────────────────
+        using var bgPath = SquirclePath(rect, cr);
 
-        for (int i = 0; i < pixelCount; i++)
+        using var bgGrad = new System.Drawing.Drawing2D.LinearGradientBrush(
+            new PointF(rect.Left, rect.Top),
+            new PointF(rect.Left, rect.Bottom),
+            Color.FromArgb(255, 78,  88, 112),
+            Color.FromArgb(255, 36,  42,  62));
+        g.FillPath(bgGrad, bgPath);
+
+        // Thin dark border for definition
+        using var borderPen = new Pen(Color.FromArgb(255, 22, 26, 44), size * 0.018f);
+        g.DrawPath(borderPen, bgPath);
+
+        // ── White chevron: ^ drawn with two rounded strokes ───────────────
+        float chevW = boxSz * 0.27f;
+        float chevH = boxSz * 0.17f;
+        float chevCY = cy + chevH * 0.18f;  // slightly below centre
+
+        using var chevPen = new Pen(Color.White, size * 0.095f)
         {
-            int off = i * 4;
-            byte a = pSrc[off + 3];
-
-            if (a < 128)
-            {
-                // Fully transparent
-                pDst[off]     = 0;
-                pDst[off + 1] = 0;
-                pDst[off + 2] = 0;
-                pDst[off + 3] = 0;
-            }
-            else
-            {
-                // Fully opaque
-                pDst[off]     = pSrc[off];     // B
-                pDst[off + 1] = pSrc[off + 1]; // G
-                pDst[off + 2] = pSrc[off + 2]; // R
-                pDst[off + 3] = 255;
-            }
-        }
-
-        src.UnlockBits(srcData);
-        dst.UnlockBits(dstData);
-        return dst;
+            StartCap = System.Drawing.Drawing2D.LineCap.Round,
+            EndCap   = System.Drawing.Drawing2D.LineCap.Round,
+            LineJoin = System.Drawing.Drawing2D.LineJoin.Round
+        };
+        g.DrawLine(chevPen, cx - chevW, chevCY + chevH, cx, chevCY);
+        g.DrawLine(chevPen, cx,         chevCY,         cx + chevW, chevCY + chevH);
     }
 
+    /// <summary>
+    /// Builds a rounded-rectangle (squircle) GraphicsPath.
+    /// Requires cr * 2 &lt; rect.Width and cr * 2 &lt; rect.Height.
+    /// </summary>
+    private static GraphicsPath SquirclePath(RectangleF r, float cr)
+    {
+        float d = cr * 2f;
+        var p = new GraphicsPath();
+        p.AddArc(r.X,             r.Y,              d, d, 180, 90);
+        p.AddArc(r.Right - d,     r.Y,              d, d, 270, 90);
+        p.AddArc(r.Right - d,     r.Bottom - d,     d, d,   0, 90);
+        p.AddArc(r.X,             r.Bottom - d,     d, d,  90, 90);
+        p.CloseFigure();
+        return p;
+    }
+
+    /// <summary>
+    /// Writes <paramref name="src"/> into <paramref name="dst"/>, converting each pixel
+    /// to either fully transparent or fully opaque (required for TransparencyKey rendering).
+    /// <para>
+    /// The offscreen bitmap is rendered on a transparent (0,0,0,0) background, so
     // ═════════════════════════════════════════════════════════
     //  Mouse Interaction
     // ═════════════════════════════════════════════════════════
@@ -566,7 +715,8 @@ internal sealed class FanForm : Form
                 if (!string.IsNullOrEmpty(item.FullPath))
                 {
                     ShellDragHelper.DoDragDrop(this, item.FullPath,
-                        DragDropEffects.Move | DragDropEffects.Copy);
+                        DragDropEffects.Move | DragDropEffects.Copy,
+                        item.Icon);
                     // After drop completes, close the fan
                     Close();
                     return;
@@ -581,11 +731,9 @@ internal sealed class FanForm : Form
             if (_hoveredIndex >= 0 && _hoveredIndex < _animProgress.Length)
                 _animProgress[_hoveredIndex] = 0f;
             _hoveredIndex = idx;
-            // Snap hover-in instantly so it feels snappy
-            if (idx >= 0 && idx < _animProgress.Length)
-                _animProgress[idx] = 1f;
+            _animTimer?.Start(); // ensure running for hover animation
             Cursor = idx >= 0 ? Cursors.Hand : Cursors.Default;
-            Invalidate();
+            DrawToLayeredWindow();
         }
     }
 
@@ -607,7 +755,7 @@ internal sealed class FanForm : Form
                 _animProgress[_hoveredIndex] = 0f;
             _hoveredIndex = -1;
             Cursor = Cursors.Default;
-            Invalidate();
+            DrawToLayeredWindow();
         }
     }
 
@@ -687,6 +835,7 @@ internal sealed class FanForm : Form
         {
             var cp = base.CreateParams;
             cp.ExStyle |= 0x00000080; // WS_EX_TOOLWINDOW – hide from Alt+Tab
+            cp.ExStyle |= 0x00080000; // WS_EX_LAYERED    – per-pixel alpha via UpdateLayeredWindow
             return cp;
         }
     }
@@ -701,8 +850,16 @@ internal sealed class FanForm : Form
         {
             _animTimer?.Stop();
             _animTimer?.Dispose();
+            _fadeTimer?.Stop();
+            _fadeTimer?.Dispose();
+            _font?.Dispose();
+            _sf?.Dispose();
+            _offscreenBmp?.Dispose();
             foreach (var item in _items)
+            {
+                item.Bmp?.Dispose();
                 item.Icon?.Dispose();
+            }
         }
         base.Dispose(disposing);
     }
