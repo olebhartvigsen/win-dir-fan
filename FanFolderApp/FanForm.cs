@@ -35,8 +35,8 @@ internal sealed class FanForm : Form
     private static readonly Color TextHover = Color.FromArgb(255, 255, 230, 120); // warm gold
 
     // ─── Fade-in / slide-up ─────────────────────────────────────
-    private const float FadeDurationMs = 200f;
-    private const int SlideDistance = 24; // pixels to slide up
+    private const float FadeDurationMs = 80f;
+    private const int SlideDistance = 10; // pixels to slide up
     private System.Windows.Forms.Timer? _fadeTimer;
     private float _fadeProgress;           // 0 → 1
     private int _targetTop;                // final Y position
