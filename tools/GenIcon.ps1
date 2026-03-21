@@ -62,15 +62,15 @@ public static class IconGen
             fp.AddArc(fx, fy + fH - r, r, r, 90, 90);
             fp.CloseFigure();
 
-            using (SolidBrush s = new SolidBrush(Color.FromArgb(50, 0, 0, 0)))
-            { g.TranslateTransform(2, 4); g.FillPath(s, fp); g.TranslateTransform(-2, -4); }
+            using (SolidBrush s = new SolidBrush(Color.FromArgb(90, 0, 0, 0)))
+            { g.TranslateTransform(3, 4); g.FillPath(s, fp); g.TranslateTransform(-3, -4); }
 
             using (LinearGradientBrush grad = new LinearGradientBrush(
                 new PointF(fx, fy - tabH), new PointF(fx, fy + fH),
-                Color.FromArgb(100, 160, 235), Color.FromArgb(60, 120, 200)))
+                Color.FromArgb(255, 210, 60), Color.FromArgb(225, 148, 10)))
             { g.FillPath(grad, fp); }
 
-            using (Pen pen = new Pen(Color.FromArgb(50, 95, 170), size * 0.014f))
+            using (Pen pen = new Pen(Color.FromArgb(175, 100, 5), size * 0.022f))
             { g.DrawPath(pen, fp); }
 
             fp.Dispose();
@@ -79,16 +79,16 @@ public static class IconGen
         // Back document (tilted right)
         DrawDocument(g, w, h, pad, size,
             pad + w * 0.55f, pad + h * 0.30f, 12f,
-            Color.FromArgb(245, 245, 250),
-            Color.FromArgb(100, 115, 140),
-            Color.FromArgb(140, 155, 175));
+            Color.FromArgb(232, 236, 245),
+            Color.FromArgb(80, 85, 100),
+            Color.FromArgb(155, 160, 178));
 
         // Front document (tilted left)
         DrawDocument(g, w, h, pad, size,
             pad + w * 0.42f, pad + h * 0.28f, -8f,
             Color.White,
-            Color.FromArgb(90, 105, 130),
-            Color.FromArgb(130, 145, 165));
+            Color.FromArgb(70, 75, 90),
+            Color.FromArgb(148, 153, 170));
 
         MemoryStream ms = new MemoryStream();
         bmp.Save(ms, ImageFormat.Png);
@@ -114,16 +114,16 @@ public static class IconGen
         RectangleF rect = new RectangleF(cx - docW / 2, cy - docH / 2 + h * 0.02f, docW, docH);
         GraphicsPath path = RoundedDocPath(rect, corner, fold);
 
-        using (SolidBrush s = new SolidBrush(Color.FromArgb(60, 0, 0, 0)))
-        { g.TranslateTransform(2, 3); g.FillPath(s, path); g.TranslateTransform(-2, -3); }
+        using (SolidBrush s = new SolidBrush(Color.FromArgb(90, 0, 0, 0)))
+        { g.TranslateTransform(3, 4); g.FillPath(s, path); g.TranslateTransform(-3, -4); }
 
         using (SolidBrush fill = new SolidBrush(fillColor))
         { g.FillPath(fill, path); }
 
-        using (Pen pen = new Pen(penColor, size * 0.016f))
+        using (Pen pen = new Pen(penColor, size * 0.022f))
         { g.DrawPath(pen, path); }
 
-        using (Pen linePen = new Pen(lineColor, size * 0.016f))
+        using (Pen linePen = new Pen(lineColor, size * 0.022f))
         {
             float lx = rect.X + rect.Width * 0.15f;
             float lw = rect.Width * 0.7f;

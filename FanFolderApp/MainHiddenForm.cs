@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace FanFolderApp;
 
 /// <summary>
@@ -33,6 +35,21 @@ internal sealed class MainHiddenForm : Form
         SetTaskbarIcon();
     }
 
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+
+        // Disable the taskbar hover preview (Aero Peek) entirely —
+        // this window is invisible so there's nothing useful to show.
+        int trueVal = 1;
+        NativeMethods.DwmSetWindowAttribute(Handle,
+            NativeMethods.DWMWA_DISALLOW_PEEK,
+            ref trueVal, sizeof(int));
+        NativeMethods.DwmSetWindowAttribute(Handle,
+            NativeMethods.DWMWA_EXCLUDED_FROM_PEEK,
+            ref trueVal, sizeof(int));
+    }
+
     // ─── Taskbar Icon ────────────────────────────────────────
 
     private void SetTaskbarIcon()
@@ -45,6 +62,7 @@ internal sealed class MainHiddenForm : Form
     /// <summary>
     /// Draws a macOS-style "stack" icon: two document pages fanned behind
     /// a folder, giving the appearance of files stacked on each other.
+    /// High-contrast design: vivid amber folder, white documents, strong borders.
     /// </summary>
     private static Icon CreateStackIcon(int size)
     {
@@ -63,17 +81,15 @@ internal sealed class MainHiddenForm : Form
             float fH = h * 0.48f;
             float fx = pad + (w - fW) / 2;
             float fy = pad + h - fH - h * 0.04f;
-            float r = size * 0.04f; // corner radius
+            float r = size * 0.04f;
             float tabW = fW * 0.35f;
             float tabH = fH * 0.16f;
 
             using var folderPath = new System.Drawing.Drawing2D.GraphicsPath();
-            // Tab
             folderPath.AddArc(fx, fy - tabH, r, r, 180, 90);
             folderPath.AddLine(fx + r, fy - tabH, fx + tabW - r, fy - tabH);
             folderPath.AddArc(fx + tabW - r, fy - tabH, r, r, 270, 90);
             folderPath.AddLine(fx + tabW, fy - tabH + r, fx + tabW + tabH * 0.6f, fy);
-            // Body
             folderPath.AddLine(fx + tabW + tabH * 0.6f, fy, fx + fW - r, fy);
             folderPath.AddArc(fx + fW - r, fy, r, r, 270, 90);
             folderPath.AddLine(fx + fW, fy + r, fx + fW, fy + fH - r);
@@ -82,19 +98,21 @@ internal sealed class MainHiddenForm : Form
             folderPath.AddArc(fx, fy + fH - r, r, r, 90, 90);
             folderPath.CloseFigure();
 
-            // Shadow
-            using var shadow = new SolidBrush(Color.FromArgb(50, 0, 0, 0));
-            g.TranslateTransform(2, 4);
+            // Drop shadow
+            using var shadow = new SolidBrush(Color.FromArgb(90, 0, 0, 0));
+            g.TranslateTransform(3, 4);
             g.FillPath(shadow, folderPath);
-            g.TranslateTransform(-2, -4);
+            g.TranslateTransform(-3, -4);
 
-            // Gradient fill
+            // Vivid amber gradient — stands out clearly on dark taskbars
             using var grad = new System.Drawing.Drawing2D.LinearGradientBrush(
                 new PointF(fx, fy - tabH), new PointF(fx, fy + fH),
-                Color.FromArgb(100, 160, 235), Color.FromArgb(60, 120, 200));
+                Color.FromArgb(255, 210, 60),   // bright amber top
+                Color.FromArgb(225, 148, 10));   // deep amber bottom
             g.FillPath(grad, folderPath);
 
-            using var pen = new Pen(Color.FromArgb(50, 95, 170), size * 0.014f);
+            // Dark border for crisp definition
+            using var pen = new Pen(Color.FromArgb(175, 100, 5), size * 0.022f);
             g.DrawPath(pen, folderPath);
         }
 
@@ -114,18 +132,17 @@ internal sealed class MainHiddenForm : Form
             float fold = size * 0.09f;
 
             using var path = RoundedDocPath(r, corner, fold);
-            using var shadow = new SolidBrush(Color.FromArgb(60, 0, 0, 0));
-            g.TranslateTransform(2, 3);
+            using var shadow = new SolidBrush(Color.FromArgb(90, 0, 0, 0));
+            g.TranslateTransform(3, 4);
             g.FillPath(shadow, path);
-            g.TranslateTransform(-2, -3);
+            g.TranslateTransform(-3, -4);
 
-            using var fill = new SolidBrush(Color.FromArgb(245, 245, 250));
-            using var pen = new Pen(Color.FromArgb(100, 115, 140), size * 0.016f);
+            using var fill = new SolidBrush(Color.FromArgb(232, 236, 245));
+            using var pen = new Pen(Color.FromArgb(80, 85, 100), size * 0.022f);
             g.FillPath(fill, path);
             g.DrawPath(pen, path);
 
-            // Lines on document
-            using var linePen = new Pen(Color.FromArgb(140, 155, 175), size * 0.016f);
+            using var linePen = new Pen(Color.FromArgb(155, 160, 178), size * 0.022f);
             float lx = r.X + r.Width * 0.15f;
             float lw = r.Width * 0.7f;
             for (int i = 0; i < 3; i++)
@@ -153,17 +170,17 @@ internal sealed class MainHiddenForm : Form
             float fold = size * 0.09f;
 
             using var path = RoundedDocPath(r, corner, fold);
-            using var shadow = new SolidBrush(Color.FromArgb(60, 0, 0, 0));
-            g.TranslateTransform(2, 3);
+            using var shadow = new SolidBrush(Color.FromArgb(90, 0, 0, 0));
+            g.TranslateTransform(3, 4);
             g.FillPath(shadow, path);
-            g.TranslateTransform(-2, -3);
+            g.TranslateTransform(-3, -4);
 
             using var fill = new SolidBrush(Color.White);
-            using var pen = new Pen(Color.FromArgb(90, 105, 130), size * 0.016f);
+            using var pen = new Pen(Color.FromArgb(70, 75, 90), size * 0.022f);
             g.FillPath(fill, path);
             g.DrawPath(pen, path);
 
-            using var linePen = new Pen(Color.FromArgb(130, 145, 165), size * 0.016f);
+            using var linePen = new Pen(Color.FromArgb(148, 153, 170), size * 0.022f);
             float lx = r.X + r.Width * 0.15f;
             float lw = r.Width * 0.7f;
             for (int i = 0; i < 3; i++)
@@ -175,8 +192,10 @@ internal sealed class MainHiddenForm : Form
             g.ResetTransform();
         }
 
-        var handle = bmp.GetHicon();
-        return Icon.FromHandle(handle);
+        IntPtr handle = bmp.GetHicon();
+        Icon owned = (Icon)Icon.FromHandle(handle).Clone();
+        NativeMethods.DestroyIcon(handle);
+        return owned;
     }
 
     /// <summary>
@@ -253,8 +272,10 @@ internal sealed class MainHiddenForm : Form
         g.DrawLine(arrowPen, cx - aw, cy - ah, cx, cy + ah);
         g.DrawLine(arrowPen, cx + aw, cy - ah, cx, cy + ah);
 
-        var handle = bmp.GetHicon();
-        return Icon.FromHandle(handle);
+        IntPtr handle = bmp.GetHicon();
+        Icon owned = (Icon)Icon.FromHandle(handle).Clone();
+        NativeMethods.DestroyIcon(handle);
+        return owned;
     }
 
     // ─── Activation / Toggle ─────────────────────────────────
@@ -264,11 +285,16 @@ internal sealed class MainHiddenForm : Form
         const int WM_SYSCOMMAND = 0x0112;
         const int SC_RESTORE = 0xF120;
 
-        // Taskbar click fires SC_RESTORE on a minimized window
+        // Taskbar click fires SC_RESTORE on a minimized window.
+        // Alt+Tab also fires SC_RESTORE, so guard: only open the fan when
+        // the cursor is near the taskbar (real click), but always allow
+        // closing an already-open fan regardless of cursor position.
         if (m.Msg == WM_SYSCOMMAND &&
             (m.WParam.ToInt32() & 0xFFF0) == SC_RESTORE)
         {
-            ToggleFan();
+            bool fanIsOpen = _fanForm != null && _fanForm.Visible;
+            if (fanIsOpen || IsCursorNearTaskbar())
+                ToggleFan();
             // Keep the form minimized
             WindowState = FormWindowState.Minimized;
             return; // swallow
@@ -277,8 +303,25 @@ internal sealed class MainHiddenForm : Form
         base.WndProc(ref m);
     }
 
-    protected override void OnActivated(EventArgs e)
+    /// <summary>
+    /// Returns true when the cursor is within or very close to the taskbar rect.
+    /// Used to distinguish a real taskbar click from an Alt+Tab SC_RESTORE.
+    /// </summary>
+    private static bool IsCursorNearTaskbar()
     {
+        NativeMethods.GetCursorPos(out var cursor);
+        var abd = new NativeMethods.APPBARDATA
+        {
+            cbSize = Marshal.SizeOf<NativeMethods.APPBARDATA>()
+        };
+        NativeMethods.SHAppBarMessage(NativeMethods.ABM_GETTASKBARPOS, ref abd);
+        var tb = abd.rc;
+        const int margin = 48;
+        return cursor.X >= tb.Left - margin && cursor.X <= tb.Right  + margin
+            && cursor.Y >= tb.Top  - margin && cursor.Y <= tb.Bottom + margin;
+    }
+
+    protected override void OnActivated(EventArgs e)    {
         base.OnActivated(e);
 
         if (_suppressNextActivation)
