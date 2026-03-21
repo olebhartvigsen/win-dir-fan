@@ -42,18 +42,15 @@ internal sealed class MainHiddenForm : Form
     {
         base.OnHandleCreated(e);
 
-        // Disable the taskbar hover preview (Aero Peek) entirely —
-        // this window is invisible so there's nothing useful to show.
         int trueVal = 1;
-        NativeMethods.DwmSetWindowAttribute(Handle,
-            NativeMethods.DWMWA_DISALLOW_PEEK,
-            ref trueVal, sizeof(int));
-        NativeMethods.DwmSetWindowAttribute(Handle,
-            NativeMethods.DWMWA_EXCLUDED_FROM_PEEK,
-            ref trueVal, sizeof(int));
+        // Suppress Aero Peek
+        NativeMethods.DwmSetWindowAttribute(Handle, NativeMethods.DWMWA_DISALLOW_PEEK,     ref trueVal, sizeof(int));
+        NativeMethods.DwmSetWindowAttribute(Handle, NativeMethods.DWMWA_EXCLUDED_FROM_PEEK, ref trueVal, sizeof(int));
+        // Tell DWM we supply a custom iconic thumbnail — prevents it from showing
+        // the real (tiny, invisible) window as the hover preview.
+        NativeMethods.DwmSetWindowAttribute(Handle, NativeMethods.DWMWA_HAS_ICONIC_BITMAP,           ref trueVal, sizeof(int));
+        NativeMethods.DwmSetWindowAttribute(Handle, NativeMethods.DWMWA_FORCE_ICONIC_REPRESENTATION, ref trueVal, sizeof(int));
 
-        // Kick off the first pre-warm immediately so the cache is hot by the
-        // time the user clicks for the first time.
         StartPrewarm();
     }
 
@@ -81,9 +78,9 @@ internal sealed class MainHiddenForm : Form
     }
 
     /// <summary>
-    /// Draws a macOS-style "stack" icon: two document pages fanned behind
-    /// a folder, giving the appearance of files stacked on each other.
-    /// High-contrast design: vivid amber folder, white documents, strong borders.
+    /// Draws three document sheets fanning out from a bottom-centre pivot —
+    /// mimicking the macOS Dock "fan" stack.  Blue left, white centre (front),
+    /// amber right.  High-contrast design with thick borders and bold fills.
     /// </summary>
     private static Icon CreateStackIcon(int size)
     {
@@ -92,131 +89,76 @@ internal sealed class MainHiddenForm : Form
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         g.Clear(Color.Transparent);
 
-        float pad = size * 0.06f;
-        float w = size - pad * 2;
-        float h = size - pad * 2;
+        float cx     = size * 0.50f;
+        float pivotY = size * 0.86f;   // near the bottom
+        float dW     = size * 0.46f;
+        float dH     = size * 0.75f;
+        float cr     = size * 0.04f;
+        float fold   = size * 0.11f;
 
-        // ── Folder (drawn first, behind documents) ───────────
-        {
-            float fW = w * 0.88f;
-            float fH = h * 0.48f;
-            float fx = pad + (w - fW) / 2;
-            float fy = pad + h - fH - h * 0.04f;
-            float r = size * 0.04f;
-            float tabW = fW * 0.35f;
-            float tabH = fH * 0.16f;
+        // Left (sky blue) — behind centre
+        DrawFanDoc(g, cx, pivotY, dW, dH * 0.96f, cr, fold, size,
+            -22f,
+            Color.FromArgb(60, 165, 252),
+            Color.FromArgb(15, 75, 170),
+            Color.FromArgb(120, 175, 235));
 
-            using var folderPath = new System.Drawing.Drawing2D.GraphicsPath();
-            folderPath.AddArc(fx, fy - tabH, r, r, 180, 90);
-            folderPath.AddLine(fx + r, fy - tabH, fx + tabW - r, fy - tabH);
-            folderPath.AddArc(fx + tabW - r, fy - tabH, r, r, 270, 90);
-            folderPath.AddLine(fx + tabW, fy - tabH + r, fx + tabW + tabH * 0.6f, fy);
-            folderPath.AddLine(fx + tabW + tabH * 0.6f, fy, fx + fW - r, fy);
-            folderPath.AddArc(fx + fW - r, fy, r, r, 270, 90);
-            folderPath.AddLine(fx + fW, fy + r, fx + fW, fy + fH - r);
-            folderPath.AddArc(fx + fW - r, fy + fH - r, r, r, 0, 90);
-            folderPath.AddLine(fx + fW - r, fy + fH, fx + r, fy + fH);
-            folderPath.AddArc(fx, fy + fH - r, r, r, 90, 90);
-            folderPath.CloseFigure();
+        // Right (amber) — behind centre
+        DrawFanDoc(g, cx, pivotY, dW, dH * 0.96f, cr, fold, size,
+            22f,
+            Color.FromArgb(255, 198, 40),
+            Color.FromArgb(160, 96, 5),
+            Color.FromArgb(205, 162, 70));
 
-            // Drop shadow
-            using var shadow = new SolidBrush(Color.FromArgb(90, 0, 0, 0));
-            g.TranslateTransform(3, 4);
-            g.FillPath(shadow, folderPath);
-            g.TranslateTransform(-3, -4);
-
-            // Vivid amber gradient — stands out clearly on dark taskbars
-            using var grad = new System.Drawing.Drawing2D.LinearGradientBrush(
-                new PointF(fx, fy - tabH), new PointF(fx, fy + fH),
-                Color.FromArgb(255, 210, 60),   // bright amber top
-                Color.FromArgb(225, 148, 10));   // deep amber bottom
-            g.FillPath(grad, folderPath);
-
-            // Dark border for crisp definition
-            using var pen = new Pen(Color.FromArgb(175, 100, 5), size * 0.022f);
-            g.DrawPath(pen, folderPath);
-        }
-
-        // ── Back document (tilted right, on top of folder) ───
-        {
-            float docW = w * 0.52f;
-            float docH = h * 0.62f;
-            float cx = pad + w * 0.55f;
-            float cy = pad + h * 0.30f;
-
-            using var mx = new System.Drawing.Drawing2D.Matrix();
-            mx.RotateAt(12f, new PointF(cx, cy));
-            g.Transform = mx;
-
-            var r = new RectangleF(cx - docW / 2, cy - docH / 2 + h * 0.02f, docW, docH);
-            float corner = size * 0.04f;
-            float fold = size * 0.09f;
-
-            using var path = RoundedDocPath(r, corner, fold);
-            using var shadow = new SolidBrush(Color.FromArgb(90, 0, 0, 0));
-            g.TranslateTransform(3, 4);
-            g.FillPath(shadow, path);
-            g.TranslateTransform(-3, -4);
-
-            using var fill = new SolidBrush(Color.FromArgb(232, 236, 245));
-            using var pen = new Pen(Color.FromArgb(80, 85, 100), size * 0.022f);
-            g.FillPath(fill, path);
-            g.DrawPath(pen, path);
-
-            using var linePen = new Pen(Color.FromArgb(155, 160, 178), size * 0.022f);
-            float lx = r.X + r.Width * 0.15f;
-            float lw = r.Width * 0.7f;
-            for (int i = 0; i < 3; i++)
-            {
-                float ly = r.Y + r.Height * (0.40f + i * 0.14f);
-                g.DrawLine(linePen, lx, ly, lx + lw, ly);
-            }
-
-            g.ResetTransform();
-        }
-
-        // ── Front document (tilted left, topmost) ────────────
-        {
-            float docW = w * 0.52f;
-            float docH = h * 0.62f;
-            float cx = pad + w * 0.42f;
-            float cy = pad + h * 0.28f;
-
-            using var mx = new System.Drawing.Drawing2D.Matrix();
-            mx.RotateAt(-8f, new PointF(cx, cy));
-            g.Transform = mx;
-
-            var r = new RectangleF(cx - docW / 2, cy - docH / 2 + h * 0.02f, docW, docH);
-            float corner = size * 0.04f;
-            float fold = size * 0.09f;
-
-            using var path = RoundedDocPath(r, corner, fold);
-            using var shadow = new SolidBrush(Color.FromArgb(90, 0, 0, 0));
-            g.TranslateTransform(3, 4);
-            g.FillPath(shadow, path);
-            g.TranslateTransform(-3, -4);
-
-            using var fill = new SolidBrush(Color.White);
-            using var pen = new Pen(Color.FromArgb(70, 75, 90), size * 0.022f);
-            g.FillPath(fill, path);
-            g.DrawPath(pen, path);
-
-            using var linePen = new Pen(Color.FromArgb(148, 153, 170), size * 0.022f);
-            float lx = r.X + r.Width * 0.15f;
-            float lw = r.Width * 0.7f;
-            for (int i = 0; i < 3; i++)
-            {
-                float ly = r.Y + r.Height * (0.40f + i * 0.14f);
-                g.DrawLine(linePen, lx, ly, lx + lw, ly);
-            }
-
-            g.ResetTransform();
-        }
+        // Centre (white) — front
+        DrawFanDoc(g, cx, pivotY, dW * 1.06f, dH, cr, fold, size,
+            0f,
+            Color.White,
+            Color.FromArgb(35, 40, 58),
+            Color.FromArgb(162, 165, 180));
 
         IntPtr handle = bmp.GetHicon();
         Icon owned = (Icon)Icon.FromHandle(handle).Clone();
         NativeMethods.DestroyIcon(handle);
         return owned;
+    }
+
+    private static void DrawFanDoc(Graphics g,
+        float pivotX, float pivotY, float docW, float docH,
+        float cr, float fold, int size,
+        float angle, Color fillColor, Color borderColor, Color lineColor)
+    {
+        using var mx = new System.Drawing.Drawing2D.Matrix();
+        mx.RotateAt(angle, new PointF(pivotX, pivotY));
+        g.Transform = mx;
+
+        float rx   = pivotX - docW / 2f;
+        float ry   = pivotY - docH;
+        var rect   = new RectangleF(rx, ry, docW, docH);
+
+        // Drop shadow
+        using var sp = RoundedDocPath(rect, cr, fold);
+        using var sh = new SolidBrush(Color.FromArgb(90, 0, 0, 0));
+        g.TranslateTransform(3, 4); g.FillPath(sh, sp); g.TranslateTransform(-3, -4);
+
+        // Fill + border
+        using var dp = RoundedDocPath(rect, cr, fold);
+        using var fb = new SolidBrush(fillColor);
+        g.FillPath(fb, dp);
+        using var bp = new Pen(borderColor, size * 0.030f);
+        g.DrawPath(bp, dp);
+
+        // Content lines
+        using var lp = new Pen(lineColor, size * 0.026f);
+        float lx = rect.X + rect.Width * 0.14f;
+        float lw = rect.Width * 0.58f;    // leave fold corner clear
+        for (int i = 0; i < 3; i++)
+        {
+            float ly = rect.Y + rect.Height * (0.36f + i * 0.14f);
+            g.DrawLine(lp, lx, ly, lx + lw, ly);
+        }
+
+        g.ResetTransform();
     }
 
     /// <summary>
@@ -303,25 +245,70 @@ internal sealed class MainHiddenForm : Form
 
     protected override void WndProc(ref Message m)
     {
-        const int WM_SYSCOMMAND = 0x0112;
-        const int SC_RESTORE = 0xF120;
+        const int WM_SYSCOMMAND              = 0x0112;
+        const int SC_RESTORE                 = 0xF120;
+        const int WM_DWMSENDICONICTHUMBNAIL  = 0x0323;
 
-        // Taskbar click fires SC_RESTORE on a minimized window.
-        // Alt+Tab also fires SC_RESTORE, so guard: only open the fan when
-        // the cursor is near the taskbar (real click), but always allow
-        // closing an already-open fan regardless of cursor position.
-        if (m.Msg == WM_SYSCOMMAND &&
-            (m.WParam.ToInt32() & 0xFFF0) == SC_RESTORE)
+        if (m.Msg == WM_SYSCOMMAND && (m.WParam.ToInt32() & 0xFFF0) == SC_RESTORE)
         {
             bool fanIsOpen = _fanForm != null && _fanForm.Visible;
             if (fanIsOpen || IsCursorNearTaskbar())
                 ToggleFan();
-            // Keep the form minimized
             WindowState = FormWindowState.Minimized;
-            return; // swallow
+            return;
+        }
+
+        // DWM is asking for our custom hover-preview thumbnail.
+        if (m.Msg == WM_DWMSENDICONICTHUMBNAIL)
+        {
+            int maxW = (m.LParam.ToInt32() >> 16) & 0xFFFF;
+            int maxH =  m.LParam.ToInt32()        & 0xFFFF;
+            ProvideIconicThumbnail(maxW, maxH);
+            m.Result = IntPtr.Zero;
+            return;
         }
 
         base.WndProc(ref m);
+    }
+
+    /// <summary>
+    /// Renders the stack icon at the size requested by DWM and hands the
+    /// HBITMAP to <c>DwmSetIconicThumbnail</c> so the taskbar hover popup
+    /// shows a clean preview instead of the tiny invisible host window.
+    /// </summary>
+    private void ProvideIconicThumbnail(int maxW, int maxH)
+    {
+        int sz = Math.Min(Math.Min(maxW, maxH), 256);
+        if (sz <= 0) sz = 128;
+
+        // Render onto a premultiplied-alpha bitmap (required by DWM)
+        using var bmp = new Bitmap(sz, sz, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+        using (var g = System.Drawing.Graphics.FromImage(bmp))
+        {
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.Clear(Color.Transparent);
+
+            // Faint rounded-rect background so the icon is visible on any colour popup
+            float pad = sz * 0.06f;
+            using var bgBrush = new SolidBrush(Color.FromArgb(30, 255, 255, 255));
+            g.FillRectangle(bgBrush, pad, pad, sz - pad * 2, sz - pad * 2);
+
+            // Reuse the same drawing logic as the taskbar icon
+            float cx = sz * 0.50f, pivotY = sz * 0.86f;
+            float dW = sz * 0.46f, dH = sz * 0.75f;
+            float cr = sz * 0.04f, fold = sz * 0.11f;
+
+            DrawFanDoc(g, cx, pivotY, dW, dH * 0.96f, cr, fold, sz, -22f,
+                Color.FromArgb(60, 165, 252), Color.FromArgb(15, 75, 170), Color.FromArgb(120, 175, 235));
+            DrawFanDoc(g, cx, pivotY, dW, dH * 0.96f, cr, fold, sz, 22f,
+                Color.FromArgb(255, 198, 40), Color.FromArgb(160, 96, 5), Color.FromArgb(205, 162, 70));
+            DrawFanDoc(g, cx, pivotY, dW * 1.06f, dH, cr, fold, sz, 0f,
+                Color.White, Color.FromArgb(35, 40, 58), Color.FromArgb(162, 165, 180));
+        }
+
+        IntPtr hBmp = bmp.GetHbitmap(Color.FromArgb(0));
+        try   { NativeMethods.DwmSetIconicThumbnail(Handle, hBmp, 0); }
+        finally { NativeMethods.DeleteObject(hBmp); }
     }
 
     /// <summary>

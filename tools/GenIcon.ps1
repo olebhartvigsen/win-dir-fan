@@ -35,60 +35,33 @@ public static class IconGen
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.Clear(Color.Transparent);
 
-        float pad = size * 0.06f;
-        float w   = size - pad * 2;
-        float h   = size - pad * 2;
+        float cx     = size * 0.50f;
+        float pivotY = size * 0.86f;
+        float dW     = size * 0.46f;
+        float dH     = size * 0.75f;
+        float cr     = size * 0.04f;
+        float fold   = size * 0.11f;
 
-        // Folder (behind documents)
-        {
-            float fW   = w * 0.88f;
-            float fH   = h * 0.48f;
-            float fx   = pad + (w - fW) / 2;
-            float fy   = pad + h - fH - h * 0.04f;
-            float r    = size * 0.04f;
-            float tabW = fW * 0.35f;
-            float tabH = fH * 0.16f;
+        // Left (sky blue) — behind centre
+        DrawFanDoc(g, cx, pivotY, dW, dH * 0.96f, cr, fold, size,
+            -22f,
+            Color.FromArgb(60, 165, 252),
+            Color.FromArgb(15, 75, 170),
+            Color.FromArgb(120, 175, 235));
 
-            GraphicsPath fp = new GraphicsPath();
-            fp.AddArc(fx, fy - tabH, r, r, 180, 90);
-            fp.AddLine(fx + r, fy - tabH, fx + tabW - r, fy - tabH);
-            fp.AddArc(fx + tabW - r, fy - tabH, r, r, 270, 90);
-            fp.AddLine(fx + tabW, fy - tabH + r, fx + tabW + tabH * 0.6f, fy);
-            fp.AddLine(fx + tabW + tabH * 0.6f, fy, fx + fW - r, fy);
-            fp.AddArc(fx + fW - r, fy, r, r, 270, 90);
-            fp.AddLine(fx + fW, fy + r, fx + fW, fy + fH - r);
-            fp.AddArc(fx + fW - r, fy + fH - r, r, r, 0, 90);
-            fp.AddLine(fx + fW - r, fy + fH, fx + r, fy + fH);
-            fp.AddArc(fx, fy + fH - r, r, r, 90, 90);
-            fp.CloseFigure();
+        // Right (amber) — behind centre
+        DrawFanDoc(g, cx, pivotY, dW, dH * 0.96f, cr, fold, size,
+            22f,
+            Color.FromArgb(255, 198, 40),
+            Color.FromArgb(160, 96, 5),
+            Color.FromArgb(205, 162, 70));
 
-            using (SolidBrush s = new SolidBrush(Color.FromArgb(90, 0, 0, 0)))
-            { g.TranslateTransform(3, 4); g.FillPath(s, fp); g.TranslateTransform(-3, -4); }
-
-            using (LinearGradientBrush grad = new LinearGradientBrush(
-                new PointF(fx, fy - tabH), new PointF(fx, fy + fH),
-                Color.FromArgb(255, 210, 60), Color.FromArgb(225, 148, 10)))
-            { g.FillPath(grad, fp); }
-
-            using (Pen pen = new Pen(Color.FromArgb(175, 100, 5), size * 0.022f))
-            { g.DrawPath(pen, fp); }
-
-            fp.Dispose();
-        }
-
-        // Back document (tilted right)
-        DrawDocument(g, w, h, pad, size,
-            pad + w * 0.55f, pad + h * 0.30f, 12f,
-            Color.FromArgb(232, 236, 245),
-            Color.FromArgb(80, 85, 100),
-            Color.FromArgb(155, 160, 178));
-
-        // Front document (tilted left)
-        DrawDocument(g, w, h, pad, size,
-            pad + w * 0.42f, pad + h * 0.28f, -8f,
+        // Centre (white) — front
+        DrawFanDoc(g, cx, pivotY, dW * 1.06f, dH, cr, fold, size,
+            0f,
             Color.White,
-            Color.FromArgb(70, 75, 90),
-            Color.FromArgb(148, 153, 170));
+            Color.FromArgb(35, 40, 58),
+            Color.FromArgb(162, 165, 180));
 
         MemoryStream ms = new MemoryStream();
         bmp.Save(ms, ImageFormat.Png);
@@ -99,42 +72,42 @@ public static class IconGen
         return result;
     }
 
-    private static void DrawDocument(Graphics g, float w, float h, float pad, int size,
-        float cx, float cy, float angle, Color fillColor, Color penColor, Color lineColor)
+    private static void DrawFanDoc(Graphics g,
+        float pivotX, float pivotY, float docW, float docH,
+        float cr, float fold, int size,
+        float angle, Color fillColor, Color borderColor, Color lineColor)
     {
-        float docW   = w * 0.52f;
-        float docH   = h * 0.62f;
-        float corner = size * 0.04f;
-        float fold   = size * 0.09f;
-
         Matrix mx = new Matrix();
-        mx.RotateAt(angle, new PointF(cx, cy));
+        mx.RotateAt(angle, new PointF(pivotX, pivotY));
         g.Transform = mx;
 
-        RectangleF rect = new RectangleF(cx - docW / 2, cy - docH / 2 + h * 0.02f, docW, docH);
-        GraphicsPath path = RoundedDocPath(rect, corner, fold);
+        float rx = pivotX - docW / 2f;
+        float ry = pivotY - docH;
+        RectangleF rect = new RectangleF(rx, ry, docW, docH);
 
-        using (SolidBrush s = new SolidBrush(Color.FromArgb(90, 0, 0, 0)))
-        { g.TranslateTransform(3, 4); g.FillPath(s, path); g.TranslateTransform(-3, -4); }
+        GraphicsPath sp = RoundedDocPath(rect, cr, fold);
+        using (SolidBrush sh = new SolidBrush(Color.FromArgb(90, 0, 0, 0)))
+        { g.TranslateTransform(3, 4); g.FillPath(sh, sp); g.TranslateTransform(-3, -4); }
+        sp.Dispose();
 
-        using (SolidBrush fill = new SolidBrush(fillColor))
-        { g.FillPath(fill, path); }
+        GraphicsPath dp = RoundedDocPath(rect, cr, fold);
+        using (SolidBrush fb = new SolidBrush(fillColor))
+        { g.FillPath(fb, dp); }
+        using (Pen bp = new Pen(borderColor, size * 0.030f))
+        { g.DrawPath(bp, dp); }
+        dp.Dispose();
 
-        using (Pen pen = new Pen(penColor, size * 0.022f))
-        { g.DrawPath(pen, path); }
-
-        using (Pen linePen = new Pen(lineColor, size * 0.022f))
+        using (Pen lp = new Pen(lineColor, size * 0.026f))
         {
-            float lx = rect.X + rect.Width * 0.15f;
-            float lw = rect.Width * 0.7f;
+            float lx = rect.X + rect.Width * 0.14f;
+            float lw = rect.Width * 0.58f;
             for (int i = 0; i < 3; i++)
             {
-                float ly = rect.Y + rect.Height * (0.40f + i * 0.14f);
-                g.DrawLine(linePen, lx, ly, lx + lw, ly);
+                float ly = rect.Y + rect.Height * (0.36f + i * 0.14f);
+                g.DrawLine(lp, lx, ly, lx + lw, ly);
             }
         }
 
-        path.Dispose();
         mx.Dispose();
         g.ResetTransform();
     }

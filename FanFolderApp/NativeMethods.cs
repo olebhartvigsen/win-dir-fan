@@ -221,8 +221,13 @@ internal static class NativeMethods
     internal const int DWMWCP_ROUND = 2;
 
     // DWM peek / thumbnail control
-    internal const int DWMWA_DISALLOW_PEEK = 11;
-    internal const int DWMWA_EXCLUDED_FROM_PEEK = 12;
+    internal const int DWMWA_DISALLOW_PEEK              = 11;
+    internal const int DWMWA_EXCLUDED_FROM_PEEK         = 12;
+    internal const int DWMWA_FORCE_ICONIC_REPRESENTATION = 7;
+    internal const int DWMWA_HAS_ICONIC_BITMAP          = 10;
+
+    [DllImport("dwmapi.dll")]
+    internal static extern int DwmSetIconicThumbnail(IntPtr hwnd, IntPtr hbmp, uint dwSITFlags);
 
     // ─── Shell PIDL Functions ──────────────────────────────────────────
 
