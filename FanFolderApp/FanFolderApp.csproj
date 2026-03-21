@@ -7,6 +7,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
@@ -24,5 +25,27 @@
       <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
     </Content>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="app.ico" />
+  </ItemGroup>
+
+  <!--
+    After every Release publish, automatically copy the new exe into the
+    installed location so the Windows startup entry always runs the latest build.
+    Only runs if the app has previously been installed (install dir exists).
+  -->
+  <Target Name="UpdateInstalledApp" AfterTargets="Publish" Condition="'$(Configuration)' == 'Release'">
+    <PropertyGroup>
+      <_InstallDir>$(LOCALAPPDATA)\FanFolder</_InstallDir>
+      <_InstalledExe>$(_InstallDir)\FanFolderApp.exe</_InstalledExe>
+    </PropertyGroup>
+    <Message Text="Updating installed app at $(_InstallDir)..." Importance="high"
+             Condition="Exists('$(_InstalledExe)')" />
+    <Copy SourceFiles="$(PublishDir)FanFolderApp.exe"
+          DestinationFolder="$(_InstallDir)"
+          Condition="Exists('$(_InstalledExe)')" />
+    <Message Text="  → FanFolderApp.exe updated in $(_InstallDir)" Importance="high"
+             Condition="Exists('$(_InstalledExe)')" />
+  </Target>
 
 </Project>
