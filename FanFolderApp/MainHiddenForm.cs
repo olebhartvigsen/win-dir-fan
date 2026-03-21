@@ -376,27 +376,15 @@ internal sealed class MainHiddenForm : Form
 
     private void OpenFan()
     {
-        CloseFan(); // clean up any previous instance
+        CloseFan();
 
-        // Use pre-warmed items if ready; FanForm falls back to loading them if null.
         var items = _cachedItems;
-        _cachedItems = null;          // consume the cache
+        _cachedItems = null;
         _fanForm = new FanForm(_folderPath, items);
-        _fanForm.FormClosed += (_, _) =>
-        {
-            _fanForm = null;
-            Icon = _stackIcon;
-        };
-        _fanForm.Deactivate += (_, _) =>
-        {
-            // Dismiss when the user clicks outside
-            _suppressNextActivation = true;
-            _fanForm?.Close();
-        };
+        _fanForm.FormClosed += (_, _) => { _fanForm = null; Icon = _stackIcon; };
+        _fanForm.Deactivate += (_, _) => { _suppressNextActivation = true; _fanForm?.Close(); };
         _fanForm.Show();
         Icon = _arrowIcon;
-
-        // Refresh the cache in the background so the next click is instant too.
         StartPrewarm();
     }
 

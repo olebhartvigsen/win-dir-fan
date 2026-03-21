@@ -87,14 +87,12 @@ internal sealed class FanForm : Form
         ShowInTaskbar = false;
         TopMost = true;
         StartPosition = FormStartPosition.Manual;
-        // WS_EX_LAYERED is set via CreateParams; per-pixel alpha via UpdateLayeredWindow.
-        // Do NOT set TransparencyKey, BackColor=Magenta, or Opacity here — they conflict.
         KeyPreview = true;
 
         ComputeAdaptiveSizes();
         LoadItems(preloadedItems);
         CalculateArcLayout();
-        _ = LoadIconsAsync(); // fire-and-forget: icons fill in as they load
+        _ = LoadIconsAsync();
         InitAnimation();
         _sf = new StringFormat
         {
@@ -459,10 +457,7 @@ internal sealed class FanForm : Form
             g.InterpolationMode  = InterpolationMode.HighQualityBicubic;
 
             var font = EnsureFont();
-            using var textFill   = new SolidBrush(TextNormal);
-            float outlineW       = _fontSize / 5f;
-            using var outlinePen = new Pen(Color.Black, outlineW) { LineJoin = LineJoin.Round };
-            using var haloBrush  = new SolidBrush(Color.FromArgb(180, 0, 0, 0));
+            using var shadowBrush = new SolidBrush(Color.FromArgb(200, 0, 0, 0));
 
             // Insertion sort draw order: lower animProgress drawn first (lower z-order).
             if (_drawOrder.Length != _items.Count) _drawOrder = new int[_items.Count];
@@ -479,7 +474,7 @@ internal sealed class FanForm : Form
             }
 
             foreach (int i in _drawOrder)
-                DrawItem(g, i, font, textFill, outlinePen, haloBrush, _sf!);
+                DrawItem(g, i, font, shadowBrush, _sf!);
         }
 
         // UpdateLayeredWindow requires premultiplied alpha.
@@ -539,8 +534,7 @@ internal sealed class FanForm : Form
         bmp.UnlockBits(data);
     }
 
-    private void DrawItem(Graphics g, int i, Font font, Brush textFill,
-        Pen outlinePen, Brush haloBrush, StringFormat sf)
+    private void DrawItem(Graphics g, int i, Font font, Brush shadowBrush, StringFormat sf)
     {
         var item = _items[i];
         var iconPos = _iconPositions[i];
@@ -562,48 +556,48 @@ internal sealed class FanForm : Form
             g.DrawImage(item.Bmp, new RectangleF(drawX, drawY, drawSize, drawSize));
         }
 
-        // ── Text label to the left of the icon (outlined) ──
+        // ── Text label ──
         float labelRight = iconPos.X - LabelGap;
-        float labelLeft = labelRight - 270;
+        float labelLeft  = labelRight - 270;
         if (labelLeft < 0) labelLeft = 0;
         float labelW = labelRight - labelLeft;
+        if (labelW <= 0) return;
 
-        if (labelW > 0)
+        // Create a slightly larger font only for the one hovered item; reuse cached font otherwise.
+        float textScale = 1f + t * 0.08f;
+        bool ownFont = textScale > 1.005f;
+        Font drawFont = ownFont
+            ? new Font(font.FontFamily, _fontSize * textScale, FontStyle.Bold, GraphicsUnit.Point)
+            : font;
+
+        try
         {
-            // Interpolate font size: slightly larger when hovered
-            float textScale = 1f + t * 0.08f; // up to 8 % bigger
-            float emSize = g.DpiY * _fontSize * textScale / 72f; // pt → px
-            float textY = iconPos.Y + (_iconSize - emSize) / 2f;
+            float emPx = g.DpiY * (ownFont ? _fontSize * textScale : _fontSize) / 72f;
+            float textY = iconPos.Y + (_iconSize - emPx) / 2f;
+            var layoutRect = new RectangleF(labelLeft, textY, labelW, emPx + 4);
 
-            var layoutRect = new RectangleF(labelLeft, textY, labelW, emSize + 4);
-            int fontStyle = (int)FontStyle.Bold;
+            // Shadow: 3 DrawString calls with offset — replaces 8 expensive path fills.
+            float s = MathF.Max(1f, emPx * 0.07f);
+            var r = layoutRect;
+            r.Offset(-s, s); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
+            r = layoutRect;
+            r.Offset( 0, s); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
+            r = layoutRect;
+            r.Offset( s, s); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
 
-            // Dark halo: draw text shape offset in 8 directions for a soft glow.
-            // Reuse a single GraphicsPath (Reset() clears figures without allocating).
-            float haloOff = outlinePen.Width * 0.6f;
-            float[] offsets = [-haloOff, 0, haloOff];
-            using var haloPath = new GraphicsPath();
-            foreach (float dx in offsets)
-            {
-                foreach (float dy in offsets)
-                {
-                    if (dx == 0 && dy == 0) continue;
-                    haloPath.Reset();
-                    var haloRect = layoutRect;
-                    haloRect.Offset(dx, dy);
-                    haloPath.AddString(item.Name, font.FontFamily, fontStyle,
-                        emSize, haloRect, sf);
-                    g.FillPath(haloBrush, haloPath);
-                }
-            }
-
-            // Crisp outlined text on top
-            using var textPath = new GraphicsPath();
-            textPath.AddString(item.Name, font.FontFamily, fontStyle,
-                emSize, layoutRect, sf);
-
-            g.DrawPath(outlinePen, textPath);   // black outline
-            g.FillPath(textFill, textPath);     // white fill
+            // Text fill: white at rest, warm gold when hovered.
+            Color fc = t > 0.01f
+                ? Color.FromArgb(255,
+                    (int)(255 * 1f),
+                    (int)(255 * (1f - t * 0.10f)),
+                    (int)(255 * (1f - t * 0.53f)))  // white → warm gold
+                : TextNormal;
+            using var textBrush = new SolidBrush(fc);
+            g.DrawString(item.Name, drawFont, textBrush, layoutRect, sf);
+        }
+        finally
+        {
+            if (ownFont) drawFont.Dispose();
         }
     }
 
