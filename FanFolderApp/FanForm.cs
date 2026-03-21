@@ -457,7 +457,7 @@ internal sealed class FanForm : Form
             g.InterpolationMode  = InterpolationMode.HighQualityBicubic;
 
             var font = EnsureFont();
-            using var shadowBrush = new SolidBrush(Color.FromArgb(200, 0, 0, 0));
+            using var shadowBrush = new SolidBrush(Color.Black);
 
             // Insertion sort draw order: lower animProgress drawn first (lower z-order).
             if (_drawOrder.Length != _items.Count) _drawOrder = new int[_items.Count];
@@ -576,14 +576,18 @@ internal sealed class FanForm : Form
             float textY = iconPos.Y + (_iconSize - emPx) / 2f;
             var layoutRect = new RectangleF(labelLeft, textY, labelW, emPx + 4);
 
-            // Shadow: 3 DrawString calls with offset — replaces 8 expensive path fills.
-            float s = MathF.Max(1f, emPx * 0.07f);
-            var r = layoutRect;
-            r.Offset(-s, s); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
-            r = layoutRect;
-            r.Offset( 0, s); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
-            r = layoutRect;
-            r.Offset( s, s); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
+            // Border: 8-direction outline using DrawString offsets — opaque black for
+            // maximum readability on any background (white, light, dark).
+            float s = MathF.Max(1.5f, emPx * 0.08f);
+            RectangleF r;
+            r = layoutRect; r.Offset(-s, -s); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
+            r = layoutRect; r.Offset( 0, -s); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
+            r = layoutRect; r.Offset( s, -s); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
+            r = layoutRect; r.Offset(-s,  0); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
+            r = layoutRect; r.Offset( s,  0); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
+            r = layoutRect; r.Offset(-s,  s); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
+            r = layoutRect; r.Offset( 0,  s); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
+            r = layoutRect; r.Offset( s,  s); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
 
             // Text fill: white at rest, warm gold when hovered.
             Color fc = t > 0.01f
