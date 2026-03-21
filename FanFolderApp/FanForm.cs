@@ -829,6 +829,26 @@ internal sealed class FanForm : Form
 
     protected override bool ShowWithoutActivation => false;
 
+    /// <summary>
+    /// Make every pixel of the layered window hittable — including fully
+    /// transparent regions.  Without this, WS_EX_LAYERED windows only fire
+    /// mouse events over non-zero-alpha pixels, so hovering over the
+    /// transparent label background would fall through to the window below.
+    /// Returning HTCLIENT unconditionally routes all pointer messages to us;
+    /// the existing HitTest() logic still decides which item (if any) was hit.
+    /// </summary>
+    protected override void WndProc(ref Message m)
+    {
+        const int WM_NCHITTEST = 0x0084;
+        const int HTCLIENT     = 1;
+        if (m.Msg == WM_NCHITTEST)
+        {
+            m.Result = (IntPtr)HTCLIENT;
+            return;
+        }
+        base.WndProc(ref m);
+    }
+
     protected override CreateParams CreateParams
     {
         get
