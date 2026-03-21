@@ -16,6 +16,9 @@ internal sealed class MainHiddenForm : Form
     private Icon? _stackIcon;
     private Icon? _arrowIcon;
 
+    // Pre-warmed file listing — refreshed in the background after every open
+    private volatile List<FileSystemInfo>? _cachedItems;
+
     public MainHiddenForm(string folderPath)
     {
         _folderPath = folderPath;
@@ -48,6 +51,24 @@ internal sealed class MainHiddenForm : Form
         NativeMethods.DwmSetWindowAttribute(Handle,
             NativeMethods.DWMWA_EXCLUDED_FROM_PEEK,
             ref trueVal, sizeof(int));
+
+        // Kick off the first pre-warm immediately so the cache is hot by the
+        // time the user clicks for the first time.
+        StartPrewarm();
+    }
+
+    /// <summary>
+    /// Fetches the recent-items list on a background thread and stores it in
+    /// <see cref="_cachedItems"/> so <see cref="OpenFan"/> can use it instantly.
+    /// </summary>
+    private void StartPrewarm()
+    {
+        var path = _folderPath;
+        Task.Run(() => FileService.GetRecentItems(path))
+            .ContinueWith(t =>
+            {
+                if (!t.IsFaulted) _cachedItems = t.Result;
+            }, TaskScheduler.Default);
     }
 
     // ─── Taskbar Icon ────────────────────────────────────────
@@ -357,7 +378,10 @@ internal sealed class MainHiddenForm : Form
     {
         CloseFan(); // clean up any previous instance
 
-        _fanForm = new FanForm(_folderPath);
+        // Use pre-warmed items if ready; FanForm falls back to loading them if null.
+        var items = _cachedItems;
+        _cachedItems = null;          // consume the cache
+        _fanForm = new FanForm(_folderPath, items);
         _fanForm.FormClosed += (_, _) =>
         {
             _fanForm = null;
@@ -371,6 +395,9 @@ internal sealed class MainHiddenForm : Form
         };
         _fanForm.Show();
         Icon = _arrowIcon;
+
+        // Refresh the cache in the background so the next click is instant too.
+        StartPrewarm();
     }
 
     private void CloseFan()

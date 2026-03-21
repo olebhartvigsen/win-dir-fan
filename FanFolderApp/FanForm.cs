@@ -79,7 +79,7 @@ internal sealed class FanForm : Form
     //  Construction
     // ═════════════════════════════════════════════════════════
 
-    public FanForm(string folderPath)
+    public FanForm(string folderPath, IReadOnlyList<FileSystemInfo>? preloadedItems = null)
     {
         _folderPath = folderPath;
 
@@ -92,7 +92,7 @@ internal sealed class FanForm : Form
         KeyPreview = true;
 
         ComputeAdaptiveSizes();
-        LoadItems();
+        LoadItems(preloadedItems);
         CalculateArcLayout();
         _ = LoadIconsAsync(); // fire-and-forget: icons fill in as they load
         InitAnimation();
@@ -204,7 +204,7 @@ internal sealed class FanForm : Form
     //  Data Loading
     // ═════════════════════════════════════════════════════════
 
-    private void LoadItems()
+    private void LoadItems(IReadOnlyList<FileSystemInfo>? preloadedItems)
     {
         if (!Directory.Exists(_folderPath))
         {
@@ -217,7 +217,7 @@ internal sealed class FanForm : Form
             return;
         }
 
-        var entries = FileService.GetRecentItems(_folderPath);
+        var entries = preloadedItems ?? FileService.GetRecentItems(_folderPath);
 
         foreach (var entry in entries)
         {
