@@ -35,8 +35,8 @@ internal sealed class FanForm : Form
     private static readonly Color TextHover = Color.FromArgb(255, 255, 230, 120); // warm gold
 
     // ─── Fade-in / slide-up ─────────────────────────────────────
-    private const float FadeDurationMs = 80f;
-    private const int SlideDistance = 10; // pixels to slide up
+    private const float FadeDurationMs = 20f;
+    private const int SlideDistance = 0; // pixels to slide up
     private System.Windows.Forms.Timer? _fadeTimer;
     private float _fadeProgress;           // 0 → 1
     private int _targetTop;                // final Y position
@@ -56,9 +56,12 @@ internal sealed class FanForm : Form
     private float _itemSpacing;            // adaptive
     private float _fontSize;               // adaptive
     private int _maxStackHeight;           // 75 % of screen height
+    private float _layoutMinX;            // saved arc origin→form-edge offset for Reposition()
+    private float _layoutMinY;
 
     // ─── Rendering Cache ─────────────────────────────────────────────
-    private Bitmap? _offscreenBmp;
+    private Bitmap? _offscreenBmp;  // 1× final bitmap fed to UpdateLayeredWindow
+    private Bitmap? _hiresBmp;      // 2× super-sampled render buffer (SSAA)
     private byte    _currentAlpha;   // 0–255; drives UpdateLayeredWindow fade
     private Font?   _font;
     private StringFormat? _sf;
@@ -106,15 +109,15 @@ internal sealed class FanForm : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        // Capture final position and offset downward for slide-up
         _targetTop = Top;
-        Top += SlideDistance;
         _currentAlpha = 0;
-        DrawToLayeredWindow();  // establish transparent layered surface before fade starts
         _fadeProgress = 0f;
         _fadeTimer = new System.Windows.Forms.Timer { Interval = 16 };
         _fadeTimer.Tick += OnFadeTick;
         _fadeTimer.Start();
+        // Render one frame immediately so the window appears without waiting
+        // for the first timer tick (~16 ms).
+        OnFadeTick(null, EventArgs.Empty);
     }
 
     private void OnFadeTick(object? sender, EventArgs e)
@@ -269,9 +272,30 @@ internal sealed class FanForm : Form
             var (item, icon) = await loadTask;
             if (IsDisposed) return;
             item.Icon = icon;
-            item.Bmp  = icon?.ToBitmap();
+            // Pre-scale to 2× the display size so the icon lands 1:1 in the
+            // SSAA hires buffer — avoids per-frame upscaling of small icons.
+            item.Bmp  = icon != null ? PreScaleIcon(icon, (int)(_iconSize * 2)) : null;
             DrawToLayeredWindow();
         }
+    }
+
+    /// <summary>
+    /// Renders <paramref name="icon"/> into a new bitmap at exactly
+    /// <paramref name="size"/>×<paramref name="size"/> pixels using
+    /// high-quality bicubic resampling.  Pre-scaling at load time means
+    /// large JUMBO icons (256 px) are downscaled once to the display size,
+    /// and small icons (32–48 px) are upscaled once rather than per frame.
+    /// </summary>
+    private static Bitmap PreScaleIcon(Icon icon, int size)
+    {
+        var dst = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+        using var g = Graphics.FromImage(dst);
+        g.Clear(Color.Transparent);
+        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        g.PixelOffsetMode   = PixelOffsetMode.HighQuality;
+        using var src = icon.ToBitmap();
+        g.DrawImage(src, 0, 0, size, size);
+        return dst;
     }
 
     // ═════════════════════════════════════════════════════════
@@ -337,15 +361,11 @@ internal sealed class FanForm : Form
             };
         }
 
-        // Measure text widths for label positioning
-        var font = EnsureFont();
-        float maxLabelW = 0;
-        foreach (var item in _items)
-        {
-            var sz = TextRenderer.MeasureText(item.Name, font);
-            maxLabelW = Math.Max(maxLabelW, sz.Width);
-        }
-        maxLabelW = Math.Min(maxLabelW, 280); // cap label width
+        // Use the maximum label width cap directly — measuring every item via
+        // TextRenderer.MeasureText is expensive (~15 ms for 15 items) and the
+        // value is capped at 280 anyway.  The form is slightly wider for short
+        // filenames but the extra space is transparent and unnoticeable.
+        float maxLabelW = 280f;
 
         // ── Bounding box ────
         float extentLeft = maxLabelW + LabelGap; // labels extend to the left of icons
@@ -370,6 +390,8 @@ internal sealed class FanForm : Form
         ClientSize = new Size(formW, formH);
 
         // Screen position
+        _layoutMinX = minX;
+        _layoutMinY = minY;
         int formX = (int)(screenOrigin.X + minX);
         int formY = (int)(screenOrigin.Y + minY);
 
@@ -417,6 +439,32 @@ internal sealed class FanForm : Form
         };
     }
 
+    /// <summary>
+    /// Re-snaps the form to the current cursor position using the saved layout
+    /// offsets — no TextRenderer, no arc math, just a cursor read + SetWindowPos.
+    /// Call this on a pre-warmed form just before Show().
+    /// </summary>
+    public void Reposition()
+    {
+        var edge = DetectTaskbarEdge(out var taskbarRect);
+        NativeMethods.GetCursorPos(out var cursor);
+
+        PointF origin = edge switch
+        {
+            TaskbarEdge.Top   => new(cursor.X, taskbarRect.Bottom),
+            TaskbarEdge.Left  => new(taskbarRect.Right, cursor.Y),
+            TaskbarEdge.Right => new(taskbarRect.Left, cursor.Y),
+            _                 => new(cursor.X, taskbarRect.Top)
+        };
+
+        int formX = (int)(origin.X + _layoutMinX);
+        int formY = (int)(origin.Y + _layoutMinY);
+        var screen = Screen.FromPoint(new Point(cursor.X, cursor.Y));
+        formX = Math.Max(screen.Bounds.Left, Math.Min(formX, screen.Bounds.Right  - Width));
+        formY = Math.Max(screen.Bounds.Top,  Math.Min(formY, screen.Bounds.Bottom - Height));
+        Location = new Point(formX, formY);
+    }
+
     // ═════════════════════════════════════════════════════════
     //  Painting
     // ═════════════════════════════════════════════════════════
@@ -443,21 +491,27 @@ internal sealed class FanForm : Form
         int w = ClientSize.Width, h = ClientSize.Height;
         if (w <= 0 || h <= 0) return;
 
-        if (_offscreenBmp == null || _offscreenBmp.Width != w || _offscreenBmp.Height != h)
+        // ── 2× super-sampling (SSAA) ─────────────────────────────────────
+        // Render into a 2× bitmap so each final pixel is the average of 4
+        // high-res samples — eliminates the jagged edges of the old approach.
+        const int SS = 2;
+        int ws = w * SS, hs = h * SS;
+
+        if (_hiresBmp == null || _hiresBmp.Width != ws || _hiresBmp.Height != hs)
         {
-            _offscreenBmp?.Dispose();
-            _offscreenBmp = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            _hiresBmp?.Dispose();
+            _hiresBmp = new Bitmap(ws, hs, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
         }
 
-        using (var g = Graphics.FromImage(_offscreenBmp))
+        using (var g = Graphics.FromImage(_hiresBmp))
         {
             g.Clear(Color.Transparent);
-            g.SmoothingMode      = SmoothingMode.AntiAlias;
-            g.TextRenderingHint  = TextRenderingHint.AntiAliasGridFit;
-            g.InterpolationMode  = InterpolationMode.HighQualityBicubic;
+            g.SmoothingMode     = SmoothingMode.AntiAlias;
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            g.PixelOffsetMode   = PixelOffsetMode.HighQuality;
+            g.ScaleTransform(SS, SS); // all DrawItem coordinates stay in 1× space
 
             var font = EnsureFont();
-            using var shadowBrush = new SolidBrush(Color.Black);
 
             // Insertion sort draw order: lower animProgress drawn first (lower z-order).
             if (_drawOrder.Length != _items.Count) _drawOrder = new int[_items.Count];
@@ -474,12 +528,23 @@ internal sealed class FanForm : Form
             }
 
             foreach (int i in _drawOrder)
-                DrawItem(g, i, font, shadowBrush, _sf!);
+                DrawItem(g, i, font, _sf!);
         }
 
-        // UpdateLayeredWindow requires premultiplied alpha.
-        // Premultiply in-place (cleared on next call via g.Clear).
-        PremultiplyBitmap(_offscreenBmp);
+        // ── Downscale 2× → 1× with bicubic filtering ──────────────────────
+        if (_offscreenBmp == null || _offscreenBmp.Width != w || _offscreenBmp.Height != h)
+        {
+            _offscreenBmp?.Dispose();
+            _offscreenBmp = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+        }
+
+        using (var gOut = Graphics.FromImage(_offscreenBmp))
+        {
+            gOut.Clear(Color.Transparent);
+            gOut.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            gOut.PixelOffsetMode   = PixelOffsetMode.HighQuality;
+            gOut.DrawImage(_hiresBmp, 0, 0, w, h);
+        }
 
         IntPtr hdcScreen = NativeMethods.GetDC(IntPtr.Zero);
         IntPtr hdcMem    = NativeMethods.CreateCompatibleDC(hdcScreen);
@@ -534,7 +599,7 @@ internal sealed class FanForm : Form
         bmp.UnlockBits(data);
     }
 
-    private void DrawItem(Graphics g, int i, Font font, Brush shadowBrush, StringFormat sf)
+    private void DrawItem(Graphics g, int i, Font font, StringFormat sf)
     {
         var item = _items[i];
         var iconPos = _iconPositions[i];
@@ -576,20 +641,21 @@ internal sealed class FanForm : Form
             float textY = iconPos.Y + (_iconSize - emPx) / 2f;
             var layoutRect = new RectangleF(labelLeft, textY, labelW, emPx + 4);
 
-            // Border: 8-direction outline using DrawString offsets — opaque black for
-            // maximum readability on any background (white, light, dark).
-            float s = MathF.Max(1.5f, emPx * 0.08f);
-            RectangleF r;
-            r = layoutRect; r.Offset(-s, -s); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
-            r = layoutRect; r.Offset( 0, -s); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
-            r = layoutRect; r.Offset( s, -s); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
-            r = layoutRect; r.Offset(-s,  0); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
-            r = layoutRect; r.Offset( s,  0); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
-            r = layoutRect; r.Offset(-s,  s); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
-            r = layoutRect; r.Offset( 0,  s); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
-            r = layoutRect; r.Offset( s,  s); g.DrawString(item.Name, drawFont, shadowBrush, r, sf);
+            // Vector path for the text.
+            // Draw order: outline → white fill → white edge stroke.
+            // The edge stroke re-traces the glyph boundary in the fill colour,
+            // which covers the inner half of the outline pen and eliminates the
+            // rough seam where two anti-aliased transitions used to meet.
+            using var path = new GraphicsPath();
+            path.AddString(item.Name, drawFont.FontFamily, (int)drawFont.Style, emPx, layoutRect, sf);
 
-            // Text fill: white at rest, warm gold when hovered.
+            // 1. Black outline (drawn behind everything)
+            float outlineW = MathF.Max(2.5f, emPx * 0.14f);
+            using var outlinePen = new Pen(Color.FromArgb(220, 0, 0, 0), outlineW)
+                { LineJoin = LineJoin.Round };
+            g.DrawPath(outlinePen, path);
+
+            // 2. White fill (covers the inside half of the outline stroke)
             Color fc = t > 0.01f
                 ? Color.FromArgb(255,
                     (int)(255 * 1f),
@@ -597,7 +663,12 @@ internal sealed class FanForm : Form
                     (int)(255 * (1f - t * 0.53f)))  // white → warm gold
                 : TextNormal;
             using var textBrush = new SolidBrush(fc);
-            g.DrawString(item.Name, drawFont, textBrush, layoutRect, sf);
+            g.FillPath(textBrush, path);
+
+            // 3. Thin fill-coloured edge stroke — seals the boundary between fill
+            //    and outline so no dark fringe bleeds through on the inside.
+            using var edgePen = new Pen(fc, 1f) { LineJoin = LineJoin.Round };
+            g.DrawPath(edgePen, path);
         }
         finally
         {
@@ -873,6 +944,7 @@ internal sealed class FanForm : Form
             _font?.Dispose();
             _sf?.Dispose();
             _offscreenBmp?.Dispose();
+            _hiresBmp?.Dispose();
             foreach (var item in _items)
             {
                 item.Bmp?.Dispose();

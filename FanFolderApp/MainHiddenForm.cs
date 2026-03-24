@@ -11,6 +11,7 @@ internal sealed class MainHiddenForm : Form
 {
     private readonly string _folderPath;
     private FanForm? _fanForm;
+    private FanForm? _prewarmFanForm;
     private bool _suppressNextActivation;
     private DateTime _lastFanCloseTime = DateTime.MinValue;
     private Icon? _stackIcon;
@@ -64,8 +65,22 @@ internal sealed class MainHiddenForm : Form
         Task.Run(() => FileService.GetRecentItems(path))
             .ContinueWith(t =>
             {
-                if (!t.IsFaulted) _cachedItems = t.Result;
+                if (!t.IsFaulted)
+                {
+                    _cachedItems = t.Result;
+                    // Pre-build FanForm + force HWND creation on the UI thread so
+                    // the next OpenFan() only needs Show() — not CreateWindowEx.
+                    if (IsHandleCreated && !IsDisposed)
+                        BeginInvoke(() => BuildPrewarmForm(t.Result));
+                }
             }, TaskScheduler.Default);
+    }
+
+    private void BuildPrewarmForm(IReadOnlyList<FileSystemInfo> items)
+    {
+        _prewarmFanForm?.Dispose();
+        _prewarmFanForm = new FanForm(_folderPath, items);
+        _ = _prewarmFanForm.Handle; // force HWND creation now, not on click
     }
 
     // ─── Taskbar Icon ────────────────────────────────────────
@@ -254,6 +269,11 @@ internal sealed class MainHiddenForm : Form
             bool fanIsOpen = _fanForm != null && _fanForm.Visible;
             if (fanIsOpen || IsCursorNearTaskbar())
                 ToggleFan();
+            // Let DefWindowProc process SC_RESTORE so the Windows Shell registers
+            // a successful restore and does NOT re-send SC_RESTORE 1-2 s later.
+            // The window briefly becomes "normal" (it is off-screen, Opacity=0)
+            // and is immediately re-minimized below.
+            base.WndProc(ref m);
             WindowState = FormWindowState.Minimized;
             return;
         }
@@ -365,11 +385,22 @@ internal sealed class MainHiddenForm : Form
     {
         CloseFan();
 
-        var items = _cachedItems;
-        _cachedItems = null;
-        _fanForm = new FanForm(_folderPath, items);
+        // Use the pre-warmed form if ready (HWND already created — much faster).
+        var form = _prewarmFanForm;
+        _prewarmFanForm = null;
+
+        if (form == null || form.IsDisposed)
+        {
+            // Fallback: pre-warm wasn't ready yet.
+            var items = _cachedItems;
+            _cachedItems = null;
+            form = new FanForm(_folderPath, items);
+        }
+
+        form.Reposition(); // snap to current cursor — fast (no arc recalc)
+        _fanForm = form;
         _fanForm.FormClosed += (_, _) => { _fanForm = null; Icon = _stackIcon; };
-        _fanForm.Deactivate += (_, _) => { _suppressNextActivation = true; _fanForm?.Close(); };
+        _fanForm.Deactivate += (_, _) => { _suppressNextActivation = true; CloseFan(); };
         _fanForm.Show();
         Icon = _arrowIcon;
         StartPrewarm();
@@ -377,12 +408,19 @@ internal sealed class MainHiddenForm : Form
 
     private void CloseFan()
     {
+        // Stamp the close time FIRST so any SC_RESTORE arriving during Close()
+        // (WinForms processes queued messages synchronously inside Close())
+        // will see a recent timestamp and skip re-opening the fan.
+        _lastFanCloseTime = DateTime.UtcNow;
+
         if (_fanForm != null && !_fanForm.IsDisposed)
         {
-            _fanForm.Close();
+            // Null the field before calling Close() so re-entrant calls
+            // from the Deactivate event (fired inside Close()) are no-ops.
+            var form = _fanForm;
             _fanForm = null;
+            form.Close();
         }
-        _lastFanCloseTime = DateTime.UtcNow;
         Icon = _stackIcon;
     }
 
@@ -391,8 +429,10 @@ internal sealed class MainHiddenForm : Form
     protected override void Dispose(bool disposing)
     {
         if (disposing)
+        {
             CloseFan();
-
+            _prewarmFanForm?.Dispose();
+        }
         base.Dispose(disposing);
     }
 }
