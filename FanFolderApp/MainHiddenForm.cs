@@ -267,12 +267,13 @@ internal sealed class MainHiddenForm : Form
         if (m.Msg == WM_SYSCOMMAND && (m.WParam.ToInt32() & 0xFFF0) == SC_RESTORE)
         {
             bool fanIsOpen = _fanForm != null && _fanForm.Visible;
+            // Toggle the fan FIRST so it is already shown before base.WndProc
+            // activates MainHiddenForm.  The 250 ms grace period in the Deactivate
+            // handler absorbs the resulting spurious Deactivate event.
             if (fanIsOpen || IsCursorNearTaskbar())
                 ToggleFan();
-            // Let DefWindowProc process SC_RESTORE so the Windows Shell registers
-            // a successful restore and does NOT re-send SC_RESTORE 1-2 s later.
-            // The window briefly becomes "normal" (it is off-screen, Opacity=0)
-            // and is immediately re-minimized below.
+            // Call base.WndProc so Shell registers a successful restore and does
+            // NOT re-send SC_RESTORE 1-2 s later.
             base.WndProc(ref m);
             WindowState = FormWindowState.Minimized;
             return;
@@ -400,7 +401,18 @@ internal sealed class MainHiddenForm : Form
         form.Reposition(); // snap to current cursor — fast (no arc recalc)
         _fanForm = form;
         _fanForm.FormClosed += (_, _) => { _fanForm = null; Icon = _stackIcon; };
-        _fanForm.Deactivate += (_, _) => { _suppressNextActivation = true; CloseFan(); };
+
+        // Record when we opened the fan so the Deactivate handler can ignore the
+        // spurious event that fires when base.WndProc(SC_RESTORE) briefly activates
+        // MainHiddenForm (which in turn deactivates the FanForm).  Any Deactivate
+        // arriving within 250 ms of Show() is treated as noise and suppressed.
+        var openedAt = DateTime.UtcNow;
+        _fanForm.Deactivate += (_, _) =>
+        {
+            if ((DateTime.UtcNow - openedAt).TotalMilliseconds < 250) return;
+            _suppressNextActivation = true;
+            CloseFan();
+        };
         _fanForm.Show();
         Icon = _arrowIcon;
         StartPrewarm();

@@ -31,32 +31,125 @@ internal sealed class FileService
     }
 
     /// <summary>
-    /// Extracts a shell icon for the given path.  Tries SHIL_JUMBO (256×256),
-    /// SHIL_EXTRALARGE (48×48), then SHIL_LARGE (32×32) in sequence, skipping
-    /// any size that produces a blank icon (some file types such as .zip have
-    /// no registered icon at SHIL_JUMBO and the shell returns an empty HICON).
-    /// Falls back to <see cref="Icon.ExtractAssociatedIcon"/> as a last resort.
+    /// Returns the best-quality <see cref="Bitmap"/> for display at
+    /// <paramref name="targetSize"/>×<paramref name="targetSize"/> pixels.
+    ///
+    /// Primary path: <c>IShellItemImageFactory::GetImage</c> with
+    /// <c>SIIGBF_ICONONLY</c> — the modern Shell API that always returns the
+    /// registered icon (never a thumbnail preview), at exactly the requested
+    /// size, for every file type including .zip and .7z.
+    ///
+    /// Fallback: <see cref="GetShellIcon"/> + bicubic scaling.
+    /// </summary>
+    public static Bitmap? GetShellBitmap(string path, int targetSize)
+    {
+        // ── Primary: IShellItemImageFactory ─────────────────────────────
+        var direct = TryShellItemImage(path, targetSize);
+        if (direct != null) return direct;
+
+        // ── Fallback: existing SHIL / SHDefExtractIcon chain ────────────
+        using var icon = GetShellIcon(path);
+        if (icon == null) return null;
+
+        var dst = new Bitmap(targetSize, targetSize,
+            System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+        using var g = Graphics.FromImage(dst);
+        g.Clear(Color.Transparent);
+        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+        g.PixelOffsetMode   = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+        using var src = icon.ToBitmap();
+        g.DrawImage(src, 0, 0, targetSize, targetSize);
+        return dst;
+    }
+
+    /// <summary>
+    /// Calls <c>IShellItemImageFactory::GetImage</c> with
+    /// <c>SIIGBF_ICONONLY</c> to retrieve the shell icon as a
+    /// <see cref="Bitmap"/> at exactly <paramref name="size"/>×<paramref name="size"/>
+    /// pixels.  Returns null on any failure.
+    /// </summary>
+    private static Bitmap? TryShellItemImage(string path, int size)
+    {
+        try
+        {
+            var iid = NativeMethods.IID_IShellItemImageFactory;
+            int hr = NativeMethods.SHCreateItemFromParsingName(
+                path, IntPtr.Zero, ref iid, out var obj);
+            if (hr != 0 || obj is not NativeMethods.IShellItemImageFactory factory)
+                return null;
+
+            var sz = new NativeMethods.SIZE { cx = size, cy = size };
+            hr = factory.GetImage(sz, NativeMethods.SIIGBF_ICONONLY, out IntPtr hbm);
+            if (hr != 0 || hbm == IntPtr.Zero) return null;
+
+            try   { return HBitmapToBitmap(hbm, size); }
+            finally { NativeMethods.DeleteObject(hbm); }
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Reads the raw premultiplied-BGRA bytes from a 32 bpp HBITMAP via
+    /// <c>GetDIBits</c> and wraps them in a <see cref="Bitmap"/> using
+    /// <c>Format32bppPArgb</c> so per-pixel alpha is preserved correctly.
+    /// </summary>
+    private static Bitmap? HBitmapToBitmap(IntPtr hbm, int size)
+    {
+        var bmi = new NativeMethods.BITMAPINFO
+        {
+            bmiHeader = new NativeMethods.BITMAPINFOHEADER
+            {
+                biSize        = Marshal.SizeOf<NativeMethods.BITMAPINFOHEADER>(),
+                biWidth       = size,
+                biHeight      = -size, // top-down (positive = bottom-up)
+                biPlanes      = 1,
+                biBitCount    = 32,
+                biCompression = 0,     // BI_RGB
+            },
+            bmiColors = new int[1]
+        };
+
+        byte[] bits = new byte[size * size * 4];
+        IntPtr hdc = NativeMethods.GetDC(IntPtr.Zero);
+        int rows = NativeMethods.GetDIBits(hdc, hbm, 0, (uint)size, bits, ref bmi, 0);
+        NativeMethods.ReleaseDC(IntPtr.Zero, hdc);
+        if (rows == 0) return null;
+
+        // Copy raw premultiplied BGRA bytes straight into a PArgb bitmap.
+        // GDI and GDI+ both use BGRA byte order for 32 bpp bitmaps so no
+        // channel-swapping is needed.
+        var dst = new Bitmap(size, size,
+            System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+        var rect = new Rectangle(0, 0, size, size);
+        var data = dst.LockBits(rect,
+            System.Drawing.Imaging.ImageLockMode.WriteOnly,
+            System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+        try   { Marshal.Copy(bits, 0, data.Scan0, bits.Length); }
+        finally { dst.UnlockBits(data); }
+        return dst;
+    }
+
+
+    /// <summary>
+    /// Returns a shell icon for use in drag-and-drop operations.
+    /// Uses the SHIL image-list chain (JUMBO → EXTRALARGE → LARGE) and
+    /// falls back to <see cref="Icon.ExtractAssociatedIcon"/>.
     /// The returned Icon is owned by the caller and must be disposed.
     /// </summary>
     public static Icon? GetShellIcon(string path)
     {
         try
         {
-            var shinfo = new NativeMethods.SHFILEINFO();
-            uint flags = NativeMethods.SHGFI_SYSICONINDEX;
-
+            var info = new NativeMethods.SHFILEINFO();
             IntPtr hr = NativeMethods.SHGetFileInfo(
-                path, 0, ref shinfo, (uint)Marshal.SizeOf(shinfo), flags);
+                path, 0, ref info, (uint)Marshal.SizeOf(info),
+                NativeMethods.SHGFI_SYSICONINDEX);
 
-            if (hr == IntPtr.Zero)
-                return FallbackIcon(path);
+            if (hr == IntPtr.Zero) return FallbackIcon(path);
 
-            int iconIndex = shinfo.iIcon;
+            int iconIndex = info.iIcon;
             const int ILD_TRANSPARENT = 0x00000001;
 
-            // Try each image list from largest to smallest.
-            // SHIL_JUMBO always succeeds on Win10+ but some file types (e.g. .zip)
-            // return a blank HICON at that size — skip those and try a smaller list.
             ReadOnlySpan<int> sizes = [NativeMethods.SHIL_JUMBO, NativeMethods.SHIL_EXTRALARGE, NativeMethods.SHIL_LARGE];
             foreach (int shil in sizes)
             {
@@ -71,10 +164,15 @@ internal sealed class FileService
                 Icon cloned = (Icon)Icon.FromHandle(hIcon).Clone();
                 NativeMethods.DestroyIcon(hIcon);
 
-                if (HasVisiblePixels(cloned))
-                    return cloned;
+                // Only apply the stub check for SHIL_JUMBO — smaller image lists
+                // always fill their canvas and must never be rejected.
+                if (shil == NativeMethods.SHIL_JUMBO && !HasVisiblePixels(cloned))
+                {
+                    cloned.Dispose();
+                    continue;
+                }
 
-                cloned.Dispose(); // blank — try next size
+                return cloned;
             }
 
             return FallbackIcon(path);
@@ -86,11 +184,9 @@ internal sealed class FileService
     }
 
     /// <summary>
-    /// Returns true only when the icon's visible pixels span a meaningful
-    /// portion of the canvas.  A "stub" HICON (e.g. SHIL_JUMBO for .zip on
-    /// some Windows versions) places a tiny 32×32 image inside a 256×256
-    /// canvas; the bounding box of its visible pixels is ≈ 12 % of the width,
-    /// which is well below the 25 % threshold and correctly rejected.
+    /// Returns true only when the icon's visible pixels span ≥ 50 % of the canvas
+    /// in each dimension.  Rejects "stub" HICONs that place a tiny graphic inside
+    /// a large canvas (e.g. SHIL_JUMBO for .zip on some Windows versions).
     /// </summary>
     private static unsafe bool HasVisiblePixels(Icon icon)
     {
@@ -107,7 +203,6 @@ internal sealed class FileService
                 byte* p = (byte*)data.Scan0;
                 int minX = w, maxX = 0, minY = h, maxY = 0;
 
-                // Sample every 4th pixel; alpha is byte index 3 of each ARGB dword.
                 for (int y = 0; y < h; y += 4)
                 {
                     byte* row = p + y * w * 4;
@@ -123,28 +218,17 @@ internal sealed class FileService
                     }
                 }
 
-                if (minX > maxX || minY > maxY) return false; // fully blank
-
-                // Require the bounding box to cover ≥ 25 % of each dimension.
-                int bboxW = maxX - minX + 1;
-                int bboxH = maxY - minY + 1;
-                return bboxW * 4 >= w && bboxH * 4 >= h;
+                if (minX > maxX || minY > maxY) return false;
+                return (maxX - minX + 1) * 2 >= w && (maxY - minY + 1) * 2 >= h;
             }
             finally { bmp.UnlockBits(data); }
         }
-        catch { return true; } // assume valid if check fails
+        catch { return true; }
     }
 
     public static Icon? FallbackIcon(string path)
     {
-        try
-        {
-            return Icon.ExtractAssociatedIcon(path);
-        }
-        catch
-        {
-            return null;
-        }
+        try   { return Icon.ExtractAssociatedIcon(path); }
+        catch { return null; }
     }
 }
-

@@ -29,8 +29,63 @@ internal static class NativeMethods
     internal const int SHIL_EXTRALARGE = 0x2;  // 48x48
 
     // SHGFI flags
-    internal const uint SHGFI_SYSICONINDEX = 0x000004000;
+    internal const uint SHGFI_SYSICONINDEX   = 0x000004000;
     internal const uint SHGFI_USEFILEATTRIBUTES = 0x000000010;
+    internal const uint SHGFI_ICONLOCATION   = 0x000001000;
+
+    // ─── IShellItemImageFactory (modern icon/thumbnail at any size) ────
+
+    internal static readonly Guid IID_IShellItemImageFactory =
+        new("BCC18B79-BA16-442F-80C4-8A59C30C463B");
+
+    /// <summary>
+    /// Creates a shell item from a file-system path.  Pass
+    /// <see cref="IID_IShellItemImageFactory"/> as <paramref name="riid"/> to
+    /// get an <see cref="IShellItemImageFactory"/> directly.
+    /// </summary>
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    internal static extern int SHCreateItemFromParsingName(
+        string  pszPath,
+        IntPtr  pbc,
+        ref Guid riid,
+        [MarshalAs(UnmanagedType.Interface)] out object? ppv);
+
+    [ComImport]
+    [Guid("BCC18B79-BA16-442F-80C4-8A59C30C463B")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IShellItemImageFactory
+    {
+        [PreserveSig]
+        int GetImage(SIZE size, uint flags, out IntPtr phbm);
+    }
+
+    /// <summary>Return the icon for the item; never a thumbnail.</summary>
+    internal const uint SIIGBF_ICONONLY = 0x04;
+
+    // ─── GetDIBits – read raw pixel bytes from an HBITMAP ─────────────
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct BITMAPINFOHEADER
+    {
+        public int   biSize, biWidth, biHeight;
+        public short biPlanes, biBitCount;
+        public int   biCompression, biSizeImage,
+                     biXPelsPerMeter, biYPelsPerMeter,
+                     biClrUsed, biClrImportant;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct BITMAPINFO
+    {
+        public BITMAPINFOHEADER bmiHeader;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 1)]
+        public int[] bmiColors;
+    }
+
+    [DllImport("gdi32.dll")]
+    internal static extern int GetDIBits(
+        IntPtr hdc, IntPtr hbm, uint uStartScan, uint cScanLines,
+        [Out] byte[]? lpvBits, ref BITMAPINFO lpbmi, uint uUsage);
 
     // ─── IImageList COM Interface ───────────────────────────────────────
 
