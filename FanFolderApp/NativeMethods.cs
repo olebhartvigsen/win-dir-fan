@@ -423,4 +423,37 @@ internal static class NativeMethods
         uint crKey,
         ref BLENDFUNCTION pblend,
         uint dwFlags);
+
+    // ─── Global Mouse Hook (WH_MOUSE_LL) ───────────────────────────────
+
+    internal const int WH_MOUSE_LL     = 14;
+    internal const int WM_LBUTTONDOWN  = 0x0201;
+    internal const int WM_RBUTTONDOWN  = 0x0204;
+    internal const int WM_MBUTTONDOWN  = 0x0207;
+
+    internal delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MSLLHOOKSTRUCT
+    {
+        public POINT pt;
+        public uint  mouseData;
+        public uint  flags;
+        public uint  time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern IntPtr SetWindowsHookEx(
+        int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    internal static extern IntPtr GetModuleHandle(string? lpModuleName);
 }

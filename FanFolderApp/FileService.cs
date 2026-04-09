@@ -43,6 +43,11 @@ internal sealed class FileService
     /// </summary>
     public static Bitmap? GetShellBitmap(string path, int targetSize)
     {
+        // ── Custom icon for archive files (always used, no shell fallback) ──
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        if (ext is ".zip" or ".7z")
+            return TryLoadZipIcon(targetSize);
+
         // ── Primary: IShellItemImageFactory ─────────────────────────────
         var direct = TryShellItemImage(path, targetSize);
         if (direct != null) return direct;
@@ -63,6 +68,33 @@ internal sealed class FileService
     }
 
     /// <summary>
+    /// Loads the embedded zip-icon.png, renders it onto a white background
+    /// (the source is a black-on-transparent vector), scales to
+    /// <paramref name="size"/>×<paramref name="size"/> and returns it.
+    /// </summary>
+    private static Bitmap? TryLoadZipIcon(int size)
+    {
+        try
+        {
+            var asm = System.Reflection.Assembly.GetExecutingAssembly();
+            using var stream = asm.GetManifestResourceStream(
+                "FanFolderApp.zip-icon.png");
+            if (stream == null) return null;
+
+            using var src = new Bitmap(stream);
+            var dst = new Bitmap(size, size,
+                System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+            using var g = Graphics.FromImage(dst);
+            g.Clear(Color.Transparent);
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            g.PixelOffsetMode   = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            g.DrawImage(src, 0, 0, size, size);
+            return dst;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
     /// Calls <c>IShellItemImageFactory::GetImage</c> with
     /// <c>SIIGBF_ICONONLY</c> to retrieve the shell icon as a
     /// <see cref="Bitmap"/> at exactly <paramref name="size"/>×<paramref name="size"/>
@@ -78,12 +110,16 @@ internal sealed class FileService
             if (hr != 0 || obj is not NativeMethods.IShellItemImageFactory factory)
                 return null;
 
-            var sz = new NativeMethods.SIZE { cx = size, cy = size };
-            hr = factory.GetImage(sz, NativeMethods.SIIGBF_ICONONLY, out IntPtr hbm);
-            if (hr != 0 || hbm == IntPtr.Zero) return null;
+            try
+            {
+                var sz = new NativeMethods.SIZE { cx = size, cy = size };
+                hr = factory.GetImage(sz, NativeMethods.SIIGBF_ICONONLY, out IntPtr hbm);
+                if (hr != 0 || hbm == IntPtr.Zero) return null;
 
-            try   { return HBitmapToBitmap(hbm, size); }
-            finally { NativeMethods.DeleteObject(hbm); }
+                try   { return HBitmapToBitmap(hbm, size); }
+                finally { NativeMethods.DeleteObject(hbm); }
+            }
+            finally { Marshal.ReleaseComObject(factory); }
         }
         catch { return null; }
     }
@@ -157,22 +193,26 @@ internal sealed class FileService
                 if (NativeMethods.SHGetImageList(shil, ref iid, out var imageList) != 0 || imageList == null)
                     continue;
 
-                IntPtr hIcon = IntPtr.Zero;
-                if (imageList.GetIcon(iconIndex, ILD_TRANSPARENT, ref hIcon) != 0 || hIcon == IntPtr.Zero)
-                    continue;
-
-                Icon cloned = (Icon)Icon.FromHandle(hIcon).Clone();
-                NativeMethods.DestroyIcon(hIcon);
-
-                // Only apply the stub check for SHIL_JUMBO — smaller image lists
-                // always fill their canvas and must never be rejected.
-                if (shil == NativeMethods.SHIL_JUMBO && !HasVisiblePixels(cloned))
+                try
                 {
-                    cloned.Dispose();
-                    continue;
-                }
+                    IntPtr hIcon = IntPtr.Zero;
+                    if (imageList.GetIcon(iconIndex, ILD_TRANSPARENT, ref hIcon) != 0 || hIcon == IntPtr.Zero)
+                        continue;
 
-                return cloned;
+                    Icon cloned = (Icon)Icon.FromHandle(hIcon).Clone();
+                    NativeMethods.DestroyIcon(hIcon);
+
+                    // Only apply the stub check for SHIL_JUMBO — smaller image lists
+                    // always fill their canvas and must never be rejected.
+                    if (shil == NativeMethods.SHIL_JUMBO && !HasVisiblePixels(cloned))
+                    {
+                        cloned.Dispose();
+                        continue;
+                    }
+
+                    return cloned;
+                }
+                finally { Marshal.ReleaseComObject(imageList); }
             }
 
             return FallbackIcon(path);

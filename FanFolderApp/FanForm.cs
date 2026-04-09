@@ -73,6 +73,8 @@ internal sealed class FanForm : Form
     private Font?   _font;
     private StringFormat? _sf;
     private int[] _drawOrder = [];
+    private CancellationTokenSource _iconLoadCts = new();
+    private bool _dirty;   // render needed on next timer tick
 
     // ─── Inner Model ─────────────────────────────────────────
     private sealed class FanItem
@@ -82,7 +84,8 @@ internal sealed class FanForm : Form
         public required bool IsDirectory { get; init; }
         public bool IsArrow { get; init; }
         public Icon? Icon { get; set; }
-        public Bitmap? Bmp { get; set; }   // cached bitmap from Icon, avoids ToBitmap() per frame
+        public Bitmap? Bmp { get; set; }
+        public float MeasuredTextWidth { get; set; } = -1f; // cached pill width (-1 = uncached)
     }
 
     // ═════════════════════════════════════════════════════════
@@ -177,10 +180,10 @@ internal sealed class FanForm : Form
             needsRepaint = true;
         }
 
-        if (needsRepaint) DrawToLayeredWindow();
+        if (needsRepaint || _dirty) { _dirty = false; DrawToLayeredWindow(); }
 
-        // Stop timer when all animations have settled; restarts on mouse enter/move.
-        if (allSettled) _animTimer?.Stop();
+        // Stop timer when all animations have settled and no pending repaint.
+        if (allSettled && !_dirty) _animTimer?.Stop();
     }
 
     /// <summary>Ease-out cubic: fast start, smooth deceleration — no initial delay.</summary>
@@ -289,7 +292,7 @@ internal sealed class FanForm : Form
         foreach (var loadTask in tasks)
         {
             var (item, icon, bmp) = await loadTask;
-            if (IsDisposed)
+            if (IsDisposed || _iconLoadCts.IsCancellationRequested)
             {
                 icon?.Dispose();
                 bmp?.Dispose();
@@ -297,7 +300,8 @@ internal sealed class FanForm : Form
             }
             item.Icon = icon;
             item.Bmp  = bmp;
-            DrawToLayeredWindow();
+            _dirty = true;
+            _animTimer?.Start();
         }
     }
 
@@ -385,7 +389,7 @@ internal sealed class FanForm : Form
 
         using var lp = new GraphicsPath();
         using var lf = new Font("Arial", em, FontStyle.Bold, GraphicsUnit.Pixel);
-        var sf = new StringFormat
+        using var sf = new StringFormat
         {
             Alignment = StringAlignment.Center,
             LineAlignment = StringAlignment.Center
@@ -596,7 +600,8 @@ internal sealed class FanForm : Form
         int w = ClientSize.Width, h = ClientSize.Height;
         if (w <= 0 || h <= 0) return;
 
-        // ── 2× super-sampling (SSAA) ─────────────────────────────────────
+        try
+        {
         // Render into a 2× bitmap so each final pixel is the average of 4
         // high-res samples — eliminates the jagged edges of the old approach.
         const int SS = 2;
@@ -675,6 +680,11 @@ internal sealed class FanForm : Form
         NativeMethods.DeleteObject(hBmp);
         NativeMethods.DeleteDC(hdcMem);
         NativeMethods.ReleaseDC(IntPtr.Zero, hdcScreen);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"DrawToLayeredWindow error: {ex}");
+        }
     }
 
     /// <summary>
@@ -727,13 +737,8 @@ internal sealed class FanForm : Form
         }
 
         // ── Text label ──
-        float labelRight = iconPos.X - LabelGap;
-        float labelLeft  = labelRight - 270;
-        if (labelLeft < 0) labelLeft = 0;
-        float labelW = labelRight - labelLeft;
-        if (labelW <= 0) return;
+        if (item.IsArrow) return; // arrow item has no label
 
-        // Create a slightly larger font only for the one hovered item; reuse cached font otherwise.
         float textScale = 1f + t * 0.08f;
         bool ownFont = textScale > 1.005f;
         Font drawFont = ownFont
@@ -743,37 +748,43 @@ internal sealed class FanForm : Form
         try
         {
             float emPx = g.DpiY * (ownFont ? _fontSize * textScale : _fontSize) / 72f;
-            float textY = iconPos.Y + (_iconSize - emPx) / 2f;
-            var layoutRect = new RectangleF(labelLeft, textY, labelW, emPx + 4);
 
-            // Vector path for the text.
-            // Draw order: outline → white fill → white edge stroke.
-            // The edge stroke re-traces the glyph boundary in the fill colour,
-            // which covers the inner half of the outline pen and eliminates the
-            // rough seam where two anti-aliased transitions used to meet.
-            using var path = new GraphicsPath();
-            path.AddString(item.Name, drawFont.FontFamily, (int)drawFont.Style, emPx, layoutRect, sf);
+            const float PillPadH = 8f;   // horizontal padding inside pill
+            const float PillPadV = 3f;   // vertical padding inside pill
+            const float MaxPillW = 260f; // cap for very long names
 
-            // 1. Black outline (drawn behind everything)
-            float outlineW = MathF.Max(2.5f, emPx * 0.14f);
-            using var outlinePen = new Pen(Color.FromArgb(220, 0, 0, 0), outlineW)
-                { LineJoin = LineJoin.Round };
-            g.DrawPath(outlinePen, path);
+            // Measure actual text width (cached per item — font only changes on hover scale
+            // which is capped at 8%, so we invalidate if item hasn't been measured yet).
+            if (item.MeasuredTextWidth < 0f)
+            {
+                var measSize = TextRenderer.MeasureText(item.Name, drawFont,
+                    new Size(int.MaxValue, 32),
+                    TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
+                item.MeasuredTextWidth = measSize.Width;
+            }
+            float textW = MathF.Min(item.MeasuredTextWidth, MaxPillW - PillPadH * 2f);
 
-            // 2. White fill (covers the inside half of the outline stroke)
-            Color fc = t > 0.01f
-                ? Color.FromArgb(255,
-                    (int)(255 * 1f),
-                    (int)(255 * (1f - t * 0.10f)),
-                    (int)(255 * (1f - t * 0.53f)))  // white → warm gold
-                : TextNormal;
-            using var textBrush = new SolidBrush(fc);
-            g.FillPath(textBrush, path);
+            float pillW     = textW + PillPadH * 2f;
+            float pillH     = emPx + PillPadV * 2f;
+            float pillRight = iconPos.X - LabelGap;
+            float pillLeft  = MathF.Max(0f, pillRight - pillW);
+            pillW = pillRight - pillLeft; // recompute in case clamped at left edge
+            if (pillW < PillPadH * 2f + 4f) return;
+            float pillTop = iconPos.Y + (_iconSize - pillH) / 2f;
+            float radius  = MathF.Min(pillH / 2f - 0.5f, pillW / 2f - 0.5f);
 
-            // 3. Thin fill-coloured edge stroke — seals the boundary between fill
-            //    and outline so no dark fringe bleeds through on the inside.
-            using var edgePen = new Pen(fc, 1f) { LineJoin = LineJoin.Round };
-            g.DrawPath(edgePen, path);
+            // ── Pill background (dark, semi-transparent → readable on any bg) ──
+            using var pillPath = SquirclePath(new RectangleF(pillLeft, pillTop, pillW, pillH), radius);
+            int bgAlpha = (int)(190 + t * 30);
+            using var pillBrush = new SolidBrush(Color.FromArgb(bgAlpha, 20, 20, 20));
+            g.FillPath(pillBrush, pillPath);
+
+            // ── White text drawn into the pill ──
+            float textAreaW = pillW - PillPadH * 2f;
+            var layoutRect = new RectangleF(pillLeft + PillPadH, pillTop + PillPadV, textAreaW, emPx + 2);
+
+            using var textBrush = new SolidBrush(Color.White);
+            g.DrawString(item.Name, drawFont, textBrush, layoutRect, sf);
         }
         finally
         {
@@ -907,7 +918,7 @@ internal sealed class FanForm : Form
             _hoveredIndex = idx;
             _animTimer?.Start(); // ensure running for hover animation
             Cursor = idx >= 0 ? Cursors.Hand : Cursors.Default;
-            DrawToLayeredWindow();
+            _dirty = true;   // timer will repaint; no blocking render on mouse-move thread
         }
     }
 
@@ -929,7 +940,8 @@ internal sealed class FanForm : Form
                 _animProgress[_hoveredIndex] = 0f;
             _hoveredIndex = -1;
             Cursor = Cursors.Default;
-            DrawToLayeredWindow();
+            _dirty = true;
+            _animTimer?.Start();
         }
     }
 
@@ -1001,23 +1013,26 @@ internal sealed class FanForm : Form
     //  Window Style
     // ═════════════════════════════════════════════════════════
 
-    protected override bool ShowWithoutActivation => false;
+    protected override bool ShowWithoutActivation => true;
 
     /// <summary>
-    /// Make every pixel of the layered window hittable — including fully
-    /// transparent regions.  Without this, WS_EX_LAYERED windows only fire
-    /// mouse events over non-zero-alpha pixels, so hovering over the
-    /// transparent label background would fall through to the window below.
-    /// Returning HTCLIENT unconditionally routes all pointer messages to us;
-    /// the existing HitTest() logic still decides which item (if any) was hit.
+    /// For areas with items: return HTCLIENT so mouse events are routed here.
+    /// For empty/transparent areas: return HTTRANSPARENT so clicks pass through
+    /// to the window below. The global mouse hook in MainHiddenForm handles closing.
     /// </summary>
     protected override void WndProc(ref Message m)
     {
-        const int WM_NCHITTEST = 0x0084;
-        const int HTCLIENT     = 1;
+        const int WM_NCHITTEST   = 0x0084;
+        const int HTCLIENT       = 1;
+        const int HTTRANSPARENT  = -1;
         if (m.Msg == WM_NCHITTEST)
         {
-            m.Result = (IntPtr)HTCLIENT;
+            int screenX = (short)(m.LParam.ToInt32() & 0xFFFF);
+            int screenY = (short)((m.LParam.ToInt32() >> 16) & 0xFFFF);
+            var client  = PointToClient(new Point(screenX, screenY));
+            m.Result    = HitTest(client) >= 0
+                ? (IntPtr)HTCLIENT
+                : (IntPtr)HTTRANSPARENT;
             return;
         }
         base.WndProc(ref m);
@@ -1028,8 +1043,9 @@ internal sealed class FanForm : Form
         get
         {
             var cp = base.CreateParams;
-            cp.ExStyle |= 0x00000080; // WS_EX_TOOLWINDOW – hide from Alt+Tab
-            cp.ExStyle |= 0x00080000; // WS_EX_LAYERED    – per-pixel alpha via UpdateLayeredWindow
+            cp.ExStyle |= 0x00000080; // WS_EX_TOOLWINDOW  – hide from Alt+Tab
+            cp.ExStyle |= 0x00080000; // WS_EX_LAYERED     – per-pixel alpha via UpdateLayeredWindow
+            cp.ExStyle |= 0x08000000; // WS_EX_NOACTIVATE  – never steal focus from other windows
             return cp;
         }
     }
@@ -1042,6 +1058,8 @@ internal sealed class FanForm : Form
     {
         if (disposing)
         {
+            _iconLoadCts.Cancel();
+            _iconLoadCts.Dispose();
             _animTimer?.Stop();
             _animTimer?.Dispose();
             _fadeTimer?.Stop();

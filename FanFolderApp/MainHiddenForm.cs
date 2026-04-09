@@ -17,6 +17,10 @@ internal sealed class MainHiddenForm : Form
     private Icon? _stackIcon;
     private Icon? _arrowIcon;
 
+    // ─── Global mouse hook — closes fan on outside click ──────────────
+    private IntPtr _mouseHook = IntPtr.Zero;
+    private NativeMethods.LowLevelMouseProc? _mouseHookProc; // keep delegate alive (prevent GC)
+
     // Pre-warmed file listing — refreshed in the background after every open
     private volatile List<FileSystemInfo>? _cachedItems;
 
@@ -415,11 +419,13 @@ internal sealed class MainHiddenForm : Form
         };
         _fanForm.Show();
         Icon = _arrowIcon;
+        InstallMouseHook();
         StartPrewarm();
     }
 
     private void CloseFan()
     {
+        UninstallMouseHook();
         // Stamp the close time FIRST so any SC_RESTORE arriving during Close()
         // (WinForms processes queued messages synchronously inside Close())
         // will see a recent timestamp and skip re-opening the fan.
@@ -436,14 +442,58 @@ internal sealed class MainHiddenForm : Form
         Icon = _stackIcon;
     }
 
+    // ─── Global mouse hook ────────────────────────────────────────────
+
+    private void InstallMouseHook()
+    {
+        if (_mouseHook != IntPtr.Zero) return;
+        _mouseHookProc = MouseHookCallback;
+        using var module = System.Diagnostics.Process.GetCurrentProcess().MainModule!;
+        _mouseHook = NativeMethods.SetWindowsHookEx(
+            NativeMethods.WH_MOUSE_LL, _mouseHookProc,
+            NativeMethods.GetModuleHandle(module.ModuleName), 0);
+    }
+
+    private void UninstallMouseHook()
+    {
+        if (_mouseHook == IntPtr.Zero) return;
+        NativeMethods.UnhookWindowsHookEx(_mouseHook);
+        _mouseHook = IntPtr.Zero;
+        _mouseHookProc = null;
+    }
+
+    private IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0)
+        {
+            int msg = wParam.ToInt32();
+            if (msg == NativeMethods.WM_LBUTTONDOWN ||
+                msg == NativeMethods.WM_RBUTTONDOWN ||
+                msg == NativeMethods.WM_MBUTTONDOWN)
+            {
+                var fan = _fanForm;
+                if (fan != null && !fan.IsDisposed && fan.Visible)
+                {
+                    var hs = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
+                    var clickPt = new Point(hs.pt.X, hs.pt.Y);
+                    if (!fan.Bounds.Contains(clickPt))
+                        BeginInvoke(CloseFan);
+                }
+            }
+        }
+        return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
+    }
+
     // ─── Cleanup ─────────────────────────────────────────────
 
     protected override void Dispose(bool disposing)
     {
         if (disposing)
         {
-            CloseFan();
+            CloseFan(); // also calls UninstallMouseHook
             _prewarmFanForm?.Dispose();
+            _stackIcon?.Dispose();
+            _arrowIcon?.Dispose();
         }
         base.Dispose(disposing);
     }
