@@ -18,8 +18,13 @@ internal sealed class MainHiddenForm : Form
     private Icon? _arrowIcon;
 
     // ─── Global mouse hook — closes fan on outside click ──────────────
-    private IntPtr _mouseHook = IntPtr.Zero;
+    // The hook runs on a dedicated background thread so its callback is never
+    // delayed by UI-thread rendering (UpdateLayeredWindow).  Blocking the hook
+    // callback on the UI thread was the root cause of cursor jitter.
     private NativeMethods.LowLevelMouseProc? _mouseHookProc; // keep delegate alive (prevent GC)
+    private IntPtr   _mouseHook     = IntPtr.Zero;
+    private Thread?  _hookThread;
+    private volatile int _hookThreadId;
 
     // Pre-warmed file listing — refreshed in the background after every open
     private volatile List<FileSystemInfo>? _cachedItems;
@@ -446,20 +451,45 @@ internal sealed class MainHiddenForm : Form
 
     private void InstallMouseHook()
     {
-        if (_mouseHook != IntPtr.Zero) return;
+        if (_hookThread is { IsAlive: true }) return;
+        _hookThread = new Thread(HookThreadProc) { IsBackground = true, Name = "MouseHookThread" };
+        _hookThread.Start();
+    }
+
+    /// <summary>
+    /// Runs a minimal Win32 message loop on a dedicated background thread so the
+    /// WH_MOUSE_LL callback is never blocked by UI-thread rendering work.
+    /// </summary>
+    private void HookThreadProc()
+    {
+        _hookThreadId  = NativeMethods.GetCurrentThreadId();
         _mouseHookProc = MouseHookCallback;
         using var module = System.Diagnostics.Process.GetCurrentProcess().MainModule!;
         _mouseHook = NativeMethods.SetWindowsHookEx(
             NativeMethods.WH_MOUSE_LL, _mouseHookProc,
             NativeMethods.GetModuleHandle(module.ModuleName), 0);
+
+        while (NativeMethods.GetMessage(out var msg, IntPtr.Zero, 0, 0) > 0)
+        {
+            NativeMethods.TranslateMessage(ref msg);
+            NativeMethods.DispatchMessage(ref msg);
+        }
+
+        if (_mouseHook != IntPtr.Zero)
+        {
+            NativeMethods.UnhookWindowsHookEx(_mouseHook);
+            _mouseHook = IntPtr.Zero;
+        }
+        _mouseHookProc = null;
+        _hookThreadId  = 0;
     }
 
     private void UninstallMouseHook()
     {
-        if (_mouseHook == IntPtr.Zero) return;
-        NativeMethods.UnhookWindowsHookEx(_mouseHook);
-        _mouseHook = IntPtr.Zero;
-        _mouseHookProc = null;
+        int tid = _hookThreadId;
+        if (tid != 0)
+            NativeMethods.PostThreadMessage(tid, NativeMethods.WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+        _hookThread = null;
     }
 
     private IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
@@ -474,10 +504,10 @@ internal sealed class MainHiddenForm : Form
                 var fan = _fanForm;
                 if (fan != null && !fan.IsDisposed && fan.Visible)
                 {
-                    var hs = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
-                    var clickPt = new Point(hs.pt.X, hs.pt.Y);
+                    var hs       = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
+                    var clickPt  = new Point(hs.pt.X, hs.pt.Y);
                     if (!fan.Bounds.Contains(clickPt))
-                        BeginInvoke(CloseFan);
+                        BeginInvoke(CloseFan); // marshal back to UI thread
                 }
             }
         }
