@@ -27,7 +27,6 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="app.ico" />
-    <EmbeddedResource Include="zip-icon.png" />
   </ItemGroup>
 
   <!--
