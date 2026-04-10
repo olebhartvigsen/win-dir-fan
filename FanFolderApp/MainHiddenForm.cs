@@ -28,6 +28,7 @@ internal sealed class MainHiddenForm : Form
 
     // Pre-warmed file listing — refreshed in the background after every open
     private volatile List<FileSystemInfo>? _cachedItems;
+    private int _prewarmGeneration; // incremented each time a new prewarm is started
 
     public MainHiddenForm(string folderPath)
     {
@@ -71,17 +72,21 @@ internal sealed class MainHiddenForm : Form
     private void StartPrewarm()
     {
         var path = _folderPath;
+        int gen = ++_prewarmGeneration;
         Task.Run(() => FileService.GetRecentItems(path))
             .ContinueWith(t =>
             {
-                if (!t.IsFaulted)
-                {
-                    _cachedItems = t.Result;
-                    // Pre-build FanForm + force HWND creation on the UI thread so
-                    // the next OpenFan() only needs Show() — not CreateWindowEx.
-                    if (IsHandleCreated && !IsDisposed)
-                        BeginInvoke(() => BuildPrewarmForm(t.Result));
-                }
+                // If a newer prewarm was started, discard this stale result.
+                if (t.IsFaulted || gen != _prewarmGeneration) return;
+                _cachedItems = t.Result;
+                // Pre-build FanForm + force HWND creation on the UI thread so
+                // the next OpenFan() only needs Show() — not CreateWindowEx.
+                if (IsHandleCreated && !IsDisposed)
+                    BeginInvoke(() =>
+                    {
+                        if (gen == _prewarmGeneration)
+                            BuildPrewarmForm(t.Result);
+                    });
             }, TaskScheduler.Default);
     }
 
@@ -409,7 +414,28 @@ internal sealed class MainHiddenForm : Form
 
         form.Reposition(); // snap to current cursor — fast (no arc recalc)
         _fanForm = form;
-        _fanForm.FormClosed += (_, _) => { _fanForm = null; Icon = _stackIcon; StartPrewarm(); };
+        _fanForm.FormClosed += (_, _) =>
+        {
+            _fanForm = null;
+            Icon = _stackIcon;
+            // Invalidate stale preload so if the user reopens before the next
+            // prewarm scan completes, FanForm falls back to a live scan.
+            _prewarmFanForm?.Dispose();
+            _prewarmFanForm = null;
+            _cachedItems = null;
+            StartPrewarm();
+        };
+        _fanForm.FileSystemModified += (_, _) =>
+        {
+            // A shell command (e.g. Delete) just executed. Restart the prewarm
+            // immediately so the next open reflects the post-operation state.
+            // The generation counter ensures any in-flight pre-operation prewarm
+            // (started when the fan opened) is discarded.
+            _prewarmFanForm?.Dispose();
+            _prewarmFanForm = null;
+            _cachedItems = null;
+            StartPrewarm();
+        };
 
         // Record when we opened the fan so the Deactivate handler can ignore the
         // spurious event that fires when base.WndProc(SC_RESTORE) briefly activates
@@ -419,6 +445,10 @@ internal sealed class MainHiddenForm : Form
         _fanForm.Deactivate += (_, _) =>
         {
             if ((DateTime.UtcNow - openedAt).TotalMilliseconds < 250) return;
+            // Don't close while the shell context menu is open — ShowItemContextMenu
+            // calls Close() itself after InvokeCommand, ensuring prewarm starts only
+            // after any file-system operations (e.g. delete) have completed.
+            if (_fanForm?.IsContextMenuOpen == true) return;
             _suppressNextActivation = true;
             CloseFan();
         };

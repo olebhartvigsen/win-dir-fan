@@ -87,6 +87,11 @@ internal sealed class FanForm : Form
     /// mouse hook to suppress fan close on clicks that land on the menu.</summary>
     internal bool IsContextMenuOpen => _contextMenuOpen;
 
+    /// <summary>Raised after a shell context-menu command modifies the file system
+    /// (e.g. Delete, Rename).  MainHiddenForm subscribes to this to restart the
+    /// prewarm scan after the operation completes.</summary>
+    internal event EventHandler? FileSystemModified;
+
     // ═════════════════════════════════════════════════════════
     //  Construction
     // ═════════════════════════════════════════════════════════
@@ -959,6 +964,7 @@ internal sealed class FanForm : Form
                         };
                         if (pcm2 != null) pcm2.InvokeCommand(ref ici);
                         else              pcm.InvokeCommand(ref ici);
+                        FileSystemModified?.Invoke(this, EventArgs.Empty);
                     }
                     Close();
                 }
@@ -1122,9 +1128,10 @@ internal sealed class FanForm : Form
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing)
+        if (disposing && !IsDisposed)
         {
-            _iconLoadCts.Cancel();
+            if (!_iconLoadCts.IsCancellationRequested)
+                _iconLoadCts.Cancel();
             _iconLoadCts.Dispose();
             _animTimer?.Stop();
             _animTimer?.Dispose();
