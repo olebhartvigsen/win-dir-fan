@@ -14,7 +14,6 @@ namespace FanFolderApp;
 internal sealed class FanForm : Form
 {
     // ─── Layout ──────────────────────────────────────────────
-    private const int MaxItems = 15;
     private const int FormMargin = 20;
     private const int LabelGap = 6;         // gap between label and icon
 
@@ -34,18 +33,21 @@ internal sealed class FanForm : Form
     private const float AnimSpeed = 0.53f;  // progress per tick (≈ 2 ticks / ~30 ms to full)
     private static readonly Color TextHover = Color.FromArgb(255, 255, 230, 120); // warm gold
 
-    // ─── Fade-in / slide-up ─────────────────────────────────────
-    private const float FadeDurationMs = 20f;
-    private const int SlideDistance = 0; // pixels to slide up
-    private System.Windows.Forms.Timer? _fadeTimer;
-    private float _fadeProgress;           // 0 → 1
-    private int _targetTop;                // final Y position
+    // ─── Entry Animation ────────────────────────────────────────
+    private System.Diagnostics.Stopwatch _entrySw = new();
+    private float   _entryElapsed;          // ms since OnShown (real time)
+    private bool    _entryDone;
+    private float[] _entryProgress = [];    // per-item 0→1
+    private PointF  _arcOriginInForm;       // arc hinge in form-local coords
+    private readonly AnimStyle _animStyle;
 
     // ─── State ───────────────────────────────────────────────────
     private readonly List<FanItem> _items = [];
     private readonly string   _folderPath;
     private readonly SortMode _sortMode;
     private readonly int      _maxItems;
+    private readonly bool     _includeDirs;
+    private readonly string?  _filterRegex;
     private RectangleF[] _hitRects = [];   // icon hit area per item
     private PointF[] _iconPositions = [];  // top-left of each icon
     private int _hoveredIndex = -1;
@@ -60,6 +62,7 @@ internal sealed class FanForm : Form
     private int _maxStackHeight;           // 75 % of screen height
     private float _layoutMinX;            // saved arc origin→form-edge offset for Reposition()
     private float _layoutMinY;
+    private static int _lastTaskbarAnchorX = -1; // updated on real taskbar clicks; reused for Alt+Tab
 
     // ─── Rendering Cache ─────────────────────────────────────────────
     private Bitmap? _offscreenBmp;  // 1× final bitmap fed to UpdateLayeredWindow
@@ -98,14 +101,20 @@ internal sealed class FanForm : Form
     //  Construction
     // ═════════════════════════════════════════════════════════
 
-    public FanForm(string folderPath,
-                   SortMode sortMode = SortMode.DateModifiedDesc,
-                   int maxItems = 15,
-                   IReadOnlyList<FileSystemInfo>? preloadedItems = null)
+    public FanForm(string   folderPath,
+                   SortMode sortMode    = SortMode.DateModifiedDesc,
+                   int      maxItems    = 15,
+                   bool     includeDirs = true,
+                   string?  filterRegex = null,
+                   IReadOnlyList<FileSystemInfo>? preloadedItems = null,
+                   AnimStyle animStyle  = AnimStyle.Fan)
     {
-        _folderPath = folderPath;
-        _sortMode   = sortMode;
-        _maxItems   = maxItems;
+        _folderPath  = folderPath;
+        _sortMode    = sortMode;
+        _maxItems    = maxItems;
+        _includeDirs = includeDirs;
+        _filterRegex = filterRegex;
+        _animStyle   = animStyle;
 
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
@@ -120,45 +129,86 @@ internal sealed class FanForm : Form
         InitAnimation();
         _sf = new StringFormat
         {
-            Alignment = StringAlignment.Far,
+            Alignment     = StringAlignment.Far,
             LineAlignment = StringAlignment.Center,
-            Trimming = StringTrimming.EllipsisCharacter,
-            FormatFlags = StringFormatFlags.NoWrap
+            Trimming      = StringTrimming.None,      // never ellipsize — pill is sized to fit
+            FormatFlags   = StringFormatFlags.NoWrap | StringFormatFlags.NoClip
         };
     }
 
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        ApplyInputRegion();   // restrict hit-testing to icon+label areas only
-        _targetTop = Top;
-        _currentAlpha = 0;
-        _fadeProgress = 0f;
-        _fadeTimer = new System.Windows.Forms.Timer { Interval = 16 };
-        _fadeTimer.Tick += OnFadeTick;
-        _fadeTimer.Start();
-        // Render one frame immediately so the window appears without waiting
-        // for the first timer tick (~16 ms).
-        OnFadeTick(null, EventArgs.Empty);
+        ApplyInputRegion();
+
+        _entryElapsed  = 0f;
+        _entryDone     = _animStyle == AnimStyle.None;
+        _entryProgress = new float[_items.Count];
+        _entrySw.Restart();
+
+        // Fan/Glide: full alpha immediately — items fade in via per-item alpha
+        // Spring: start transparent so the group fade-in is handled at window level
+        _currentAlpha = _animStyle == AnimStyle.Spring ? (byte)0 : (byte)255;
+
+        // Single shared timer drives both entry animation and hover animation — no double-draw.
+        _animTimer?.Start();
+        DrawToLayeredWindow();
     }
 
-    private void OnFadeTick(object? sender, EventArgs e)
+    // ─── Fan Entry ──────────────────────────────────────────────
+    // Items radiate one-by-one from the arc hinge to their final positions.
+    private const float FanStaggerMs   = 30f;
+    private const float FanItemMs      = 330f;
+
+    private void UpdateFanEntry()
     {
-        _fadeProgress += 16f / FadeDurationMs;
-        if (_fadeProgress >= 1f)
+        bool allDone = true;
+        for (int i = 0; i < _entryProgress.Length; i++)
         {
-            _fadeProgress = 1f;
-            _fadeTimer?.Stop();
-            _fadeTimer?.Dispose();
-            _fadeTimer = null;
+            float start = i * FanStaggerMs;
+            float t     = Math.Clamp((_entryElapsed - start) / FanItemMs, 0f, 1f);
+            _entryProgress[i] = EaseOutQuart(t);
+            if (t < 1f) allDone = false;
         }
+        _entryDone = allDone;
+    }
 
-        // Ease-out cubic: fast start, smooth deceleration
-        float t = 1f - MathF.Pow(1f - _fadeProgress, 3f);
+    // ─── Glide Entry ────────────────────────────────────────────
+    // All items drift up 30px and fade in together (per-item alpha, not window alpha).
+    private const float GlideDurationMs = 800f;
+    private const float GlideShiftPx    = 32f;
 
-        _currentAlpha = (byte)Math.Clamp((int)(t * 255f), 0, 255);
-        Top = _targetTop + (int)(SlideDistance * (1f - t));
-        DrawToLayeredWindow();
+    private void UpdateGlideEntry()
+    {
+        float t = EaseOutCubic(Math.Clamp(_entryElapsed / GlideDurationMs, 0f, 1f));
+        for (int i = 0; i < _entryProgress.Length; i++) _entryProgress[i] = t;
+        _currentAlpha = 255; // window always opaque; per-item alpha drives the fade
+        _entryDone    = _entryElapsed >= GlideDurationMs;
+    }
+
+    // ─── Spring Entry ───────────────────────────────────────────
+    // Window fades in fast, then items spring-scale 0→1 with stagger.
+    // 15 items: 14 × 28ms stagger + 420ms item = 812ms total
+    private const float SpringFadeMs    = 120f;
+    private const float SpringStaggerMs = 28f;
+    private const float SpringItemMs    = 420f;
+
+    private void UpdateSpringEntry()
+    {
+        // Group alpha
+        float alphaT   = Math.Clamp(_entryElapsed / SpringFadeMs, 0f, 1f);
+        _currentAlpha  = (byte)Math.Clamp((int)(EaseOutQuart(alphaT) * 255f), 0, 255);
+
+        bool allDone = true;
+        for (int i = 0; i < _entryProgress.Length; i++)
+        {
+            float start = i * SpringStaggerMs;
+            float t     = Math.Clamp((_entryElapsed - start) / SpringItemMs, 0f, 1f);
+            _entryProgress[i] = SpringOut(t);
+            if (t < 1f) allDone = false;
+        }
+        _entryDone = allDone;
+        if (_entryDone) _currentAlpha = 255;
     }
 
     private void InitAnimation()
@@ -166,14 +216,29 @@ internal sealed class FanForm : Form
         _animProgress = new float[_items.Count];
         _animTimer = new System.Windows.Forms.Timer { Interval = 16 }; // ~60 fps
         _animTimer.Tick += OnAnimTick;
-        _animTimer.Start();
+        // Timer is started in OnShown so entry + hover share one tick
     }
 
     private void OnAnimTick(object? sender, EventArgs e)
     {
+        // ── Entry animation (runs until _entryDone) ──
         bool needsRepaint = false;
-        bool allSettled   = true;
+        if (!_entryDone && _entryProgress.Length > 0)
+        {
+            _entryElapsed = (float)_entrySw.Elapsed.TotalMilliseconds;
 
+            switch (_animStyle)
+            {
+                case AnimStyle.Fan:    UpdateFanEntry();    break;
+                case AnimStyle.Glide:  UpdateGlideEntry();  break;
+                case AnimStyle.Spring: UpdateSpringEntry(); break;
+                default: _entryDone = true; _currentAlpha = 255; break;
+            }
+            needsRepaint = true;
+        }
+
+        // ── Hover animation ──
+        bool allSettled = true;
         for (int i = 0; i < _animProgress.Length; i++)
         {
             float target = (i == _hoveredIndex) ? 1f : 0f;
@@ -186,7 +251,6 @@ internal sealed class FanForm : Form
             }
 
             allSettled = false;
-            // Move linearly; easing is applied when reading the value
             _animProgress[i] += (target > cur) ? AnimSpeed : -AnimSpeed;
             _animProgress[i] = Math.Clamp(_animProgress[i], 0f, 1f);
             needsRepaint = true;
@@ -194,14 +258,58 @@ internal sealed class FanForm : Form
 
         if (needsRepaint || _dirty) { _dirty = false; DrawToLayeredWindow(); }
 
-        // Stop timer when all animations have settled and no pending repaint.
-        if (allSettled && !_dirty) _animTimer?.Stop();
+        // Stop when both entry and hover animations are fully settled.
+        if (_entryDone && allSettled && !_dirty) _animTimer?.Stop();
     }
 
     /// <summary>Ease-out cubic: fast start, smooth deceleration — no initial delay.</summary>
-    private static float EaseInOut(float t)
+    private static float EaseInOut(float t)          => 1f - MathF.Pow(1f - t, 3f);
+    private static float EaseOutQuart(float t)       => 1f - MathF.Pow(1f - t, 4f);
+    private static float EaseOutExpo(float t)        => t >= 1f ? 1f : 1f - MathF.Pow(2f, -10f * t);
+    private static float EaseOutCubic(float t)       => 1f - MathF.Pow(1f - t, 3f);
+    private static float SpringOut(float t)
     {
-        return 1f - MathF.Pow(1f - t, 3f);
+        // Smooth spring with ~7% overshoot around t≈0.65
+        return EaseOutCubic(t) + MathF.Sin(t * MathF.PI) * 0.12f;
+    }
+
+    // Returns (dx, dy offset from rest, scale multiplier, alpha 0-255) for item i during entry.
+    private (float dx, float dy, float scale, float alpha) GetEntryAnim(int i)
+    {
+        if (_entryDone || _animStyle == AnimStyle.None)
+            return (0f, 0f, 1f, 255f);
+
+        float p = i < _entryProgress.Length ? _entryProgress[i] : 0f;
+
+        switch (_animStyle)
+        {
+            case AnimStyle.Fan:
+            {
+                // Fly from arc hinge to rest position
+                var rest = _iconPositions[i];
+                float fromX = _arcOriginInForm.X - _iconSize * 0.5f;
+                float fromY = _arcOriginInForm.Y - _iconSize * 0.5f;
+                float dx    = (fromX - rest.X) * (1f - p);
+                float dy    = (fromY - rest.Y) * (1f - p);
+                return (dx, dy, p, p * 255f);
+            }
+            case AnimStyle.Glide:
+            {
+                // All items slide up and fade in simultaneously
+                float alpha = Math.Clamp(p * 255f, 0f, 255f);
+                return (0f, GlideShiftPx * (1f - p), 1f, alpha);
+            }
+            case AnimStyle.Spring:
+            {
+                // Scale and alpha grow together — items fade in as they grow,
+                // preventing any abrupt pop at small sizes.
+                float scale = Math.Max(p, 0f);
+                float alpha = Math.Clamp(p * 255f, 0f, 255f);
+                return (0f, 0f, scale, alpha);
+            }
+            default:
+                return (0f, 0f, 1f, 255f);
+        }
     }
 
     // ═════════════════════════════════════════════════════════
@@ -240,7 +348,7 @@ internal sealed class FanForm : Form
             return;
         }
 
-        var entries = preloadedItems ?? FileService.GetRecentItems(_folderPath, _sortMode, _maxItems);
+        var entries = preloadedItems ?? FileService.GetRecentItems(_folderPath, _sortMode, _maxItems, _includeDirs, _filterRegex);
 
         foreach (var entry in entries)
         {
@@ -347,7 +455,16 @@ internal sealed class FanForm : Form
         float halfIcon = _iconSize / 2f;
         var relCentres = new PointF[count];
 
-        // Ensure total stack height fits within 75 % of screen
+        // Always use the spacing that 15 items would produce when filling the
+        // stack height — this keeps density constant regardless of item count,
+        // so the menu gets proportionally shorter with fewer items.
+        const int BaselineItems = 15;
+        float baselineSpacing = (BaselineItems > 1)
+            ? (_maxStackHeight - StartDistance - halfIcon) / (BaselineItems - 1)
+            : _itemSpacing;
+        _itemSpacing = baselineSpacing;
+
+        // If the actual item count still overflows (e.g. MaxItems > 15), compress further.
         float totalNeeded = StartDistance + _itemSpacing * (count - 1) + halfIcon;
         if (totalNeeded > _maxStackHeight)
         {
@@ -379,11 +496,27 @@ internal sealed class FanForm : Form
             };
         }
 
-        // Use the maximum label width cap directly — measuring every item via
-        // TextRenderer.MeasureText is expensive (~15 ms for 15 items) and the
-        // value is capped at 280 anyway.  The form is slightly wider for short
-        // filenames but the extra space is transparent and unnoticeable.
-        float maxLabelW = 280f;
+        // Measure all items at max hover scale with GDI+ (same engine as DrawString)
+        // to ensure the form is wide enough that no label clips during hover.
+        float maxLabelW;
+        {
+            const float MaxHoverScale = 1.08f;
+            const float PillPadH      = 8f;
+            using var hoverFont = new Font(EnsureFont().FontFamily,
+                _fontSize * MaxHoverScale, FontStyle.Bold, GraphicsUnit.Point);
+            using var measSf = new StringFormat
+            {
+                Alignment   = StringAlignment.Far,
+                FormatFlags = StringFormatFlags.NoWrap | StringFormatFlags.NoClip
+            };
+            using var tmpBmp = new Bitmap(1, 1);
+            using var tmpG   = Graphics.FromImage(tmpBmp);
+            float widest = _items.Count == 0 ? 200f
+                : _items.Max(it => tmpG.MeasureString(it.Name, hoverFont,
+                    new SizeF(float.MaxValue, 32f), measSf).Width);
+            // pill padding both sides + 6 px sub-pixel safety buffer
+            maxLabelW = MathF.Min(widest + PillPadH * 2f + 6f, 600f);
+        }
 
         // ── Bounding box ────
         float extentLeft = maxLabelW + LabelGap; // labels extend to the left of icons
@@ -421,6 +554,7 @@ internal sealed class FanForm : Form
         // Icon positions and hit rects in form-local coords
         float offX = -minX;
         float offY = -minY;
+        _arcOriginInForm = new PointF(offX, offY); // arc hinge maps to form origin
         _iconPositions = new PointF[count];
         _hitRects = new RectangleF[count];
 
@@ -490,20 +624,96 @@ internal sealed class FanForm : Form
         var edge = DetectTaskbarEdge(out var taskbarRect);
         NativeMethods.GetCursorPos(out var cursor);
 
+        // Is the cursor actually on/near the taskbar? (real click vs Alt+Tab)
+        bool cursorNearTaskbar = edge switch
+        {
+            TaskbarEdge.Top   => cursor.Y <= taskbarRect.Bottom + 60,
+            TaskbarEdge.Left  => cursor.X <= taskbarRect.Right  + 60,
+            TaskbarEdge.Right => cursor.X >= taskbarRect.Left   - 60,
+            _                 => cursor.Y >= taskbarRect.Top    - 60
+        };
+
+        int anchorX = cursor.X;
+        int anchorY = cursor.Y;
+
+        if (cursorNearTaskbar)
+        {
+            // Real taskbar click — cursor IS on the icon. Cache for future Alt+Tab.
+            _lastTaskbarAnchorX = (edge == TaskbarEdge.Bottom || edge == TaskbarEdge.Top)
+                ? cursor.X : cursor.Y;
+        }
+        else
+        {
+            // Alt+Tab or keyboard: find the actual taskbar button center.
+            int btnCenter = FindTaskbarButtonCenterX(taskbarRect);
+            if (edge == TaskbarEdge.Bottom || edge == TaskbarEdge.Top)
+                anchorX = btnCenter;
+            else
+                anchorY = btnCenter;
+            // Also update cache so subsequent calls are instant.
+            _lastTaskbarAnchorX = btnCenter;
+        }
+
         PointF origin = edge switch
         {
-            TaskbarEdge.Top   => new(cursor.X, taskbarRect.Bottom),
-            TaskbarEdge.Left  => new(taskbarRect.Right, cursor.Y),
-            TaskbarEdge.Right => new(taskbarRect.Left, cursor.Y),
-            _                 => new(cursor.X, taskbarRect.Top)
+            TaskbarEdge.Top   => new(anchorX, taskbarRect.Bottom),
+            TaskbarEdge.Left  => new(taskbarRect.Right, anchorY),
+            TaskbarEdge.Right => new(taskbarRect.Left,  anchorY),
+            _                 => new(anchorX, taskbarRect.Top)
         };
 
         int formX = (int)(origin.X + _layoutMinX);
         int formY = (int)(origin.Y + _layoutMinY);
-        var screen = Screen.FromPoint(new Point(cursor.X, cursor.Y));
+        var screen = Screen.FromPoint(new Point(anchorX, anchorY));
         formX = Math.Max(screen.Bounds.Left, Math.Min(formX, screen.Bounds.Right  - Width));
         formY = Math.Max(screen.Bounds.Top,  Math.Min(formY, screen.Bounds.Bottom - Height));
         Location = new Point(formX, formY);
+    }
+
+    /// <summary>
+    /// Finds the horizontal center of this app's taskbar button by walking the
+    /// Shell_TrayWnd → ReBarWindow32 → MSTaskSwWClass → MSTaskListWClass window
+    /// hierarchy and matching child windows by process ID (Windows 10).
+    /// Falls back to <see cref="_lastTaskbarAnchorX"/> from the last direct click,
+    /// then to the horizontal center of the taskbar rect (Windows 11 fallback).
+    /// </summary>
+    private static int FindTaskbarButtonCenterX(NativeMethods.RECT taskbarRect)
+    {
+        try
+        {
+            uint ourPid = (uint)Environment.ProcessId;
+            IntPtr tray = NativeMethods.FindWindow("Shell_TrayWnd", null);
+            if (tray != IntPtr.Zero)
+            {
+                // Windows 10: Shell_TrayWnd → ReBarWindow32 → MSTaskSwWClass → MSTaskListWClass
+                IntPtr rebar = NativeMethods.FindWindowEx(tray,  IntPtr.Zero, "ReBarWindow32",   null);
+                IntPtr sw    = NativeMethods.FindWindowEx(rebar != IntPtr.Zero ? rebar : tray,
+                                                          IntPtr.Zero, "MSTaskSwWClass", null);
+                IntPtr list  = NativeMethods.FindWindowEx(sw != IntPtr.Zero ? sw : tray,
+                                                          IntPtr.Zero, "MSTaskListWClass", null);
+                if (list != IntPtr.Zero)
+                {
+                    int found = -1;
+                    NativeMethods.EnumChildWindows(list, (hwnd, _) =>
+                    {
+                        NativeMethods.GetWindowThreadProcessId(hwnd, out uint pid);
+                        if (pid != ourPid) return true;
+                        NativeMethods.GetWindowRect(hwnd, out var r);
+                        found = (r.Left + r.Right) / 2;
+                        return false; // stop enumeration
+                    }, IntPtr.Zero);
+
+                    if (found >= 0) return found;
+                }
+            }
+        }
+        catch { /* ignore — fall through to fallbacks */ }
+
+        // Cache from last direct click (reliable after first use)
+        if (_lastTaskbarAnchorX >= 0) return _lastTaskbarAnchorX;
+
+        // Last resort: horizontal center of the taskbar (reasonable on Win11 centered layout)
+        return (taskbarRect.Left + taskbarRect.Right) / 2;
     }
 
     // ═════════════════════════════════════════════════════════
@@ -661,12 +871,23 @@ internal sealed class FanForm : Form
         var item = _items[i];
         var iconPos = _iconPositions[i];
 
-        // ── Animated scale via eased progress ──
+        // ── Entry animation offset + scale ──
+        var (eDx, eDy, eScale, eAlpha) = GetEntryAnim(i);
+        float entryAlpha = Math.Clamp(eAlpha, 0f, 255f);
+
+        // Skip until item is meaningfully visible — prevents sub-pixel blips
+        if (entryAlpha < 4f || eScale < 0.04f) return;
+
+        // ── Hover scale via eased progress ──
         float t = (i < _animProgress.Length) ? EaseInOut(_animProgress[i]) : 0f;
-        float scale = 1f + t * (HoverScaleMax - 1f);
-        float drawSize = _iconSize * scale;
-        float drawX = iconPos.X - (_iconSize * (scale - 1f) / 2f);
-        float drawY = iconPos.Y - (_iconSize * (scale - 1f) / 2f);
+        float hoverScale = 1f + t * (HoverScaleMax - 1f);
+
+        float combinedScale = Math.Max(hoverScale * eScale, 0.01f); // never zero
+        float drawSize = _iconSize * combinedScale;
+        float cx = iconPos.X + eDx + _iconSize * 0.5f;
+        float cy = iconPos.Y + eDy + _iconSize * 0.5f;
+        float drawX = cx - drawSize * 0.5f;
+        float drawY = cy - drawSize * 0.5f;
 
         if (item.IsArrow) { DrawArrow(g, drawX, drawY, drawSize); return; }
 
@@ -683,35 +904,38 @@ internal sealed class FanForm : Form
 
             const float PillPadH = 8f;
             const float PillPadV = 3f;
-            const float MaxPillW = 260f;
 
             if (item.MeasuredTextWidth < 0f)
             {
-                var measSize = TextRenderer.MeasureText(item.Name, font,
-                    new Size(int.MaxValue, 32),
-                    TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
-                item.MeasuredTextWidth = measSize.Width;
+                item.MeasuredTextWidth = g.MeasureString(item.Name, font,
+                    new SizeF(float.MaxValue, 32f), sf).Width;
             }
-            float textW = MathF.Min(item.MeasuredTextWidth * textScale, MaxPillW - PillPadH * 2f);
+
+            float rawTextW = ownFont
+                ? g.MeasureString(item.Name, drawFont, new SizeF(float.MaxValue, 32f), sf).Width
+                : item.MeasuredTextWidth;
+
+            float textW = rawTextW;
 
             float pillW     = textW + PillPadH * 2f;
             float pillH     = emPx + PillPadV * 2f;
-            float pillRight = iconPos.X - LabelGap;
+            float pillRight = iconPos.X + eDx - LabelGap;
             float pillLeft  = MathF.Max(0f, pillRight - pillW);
             pillW = pillRight - pillLeft;
             if (pillW >= PillPadH * 2f + 4f)
             {
-                float pillTop = iconPos.Y + (_iconSize - pillH) / 2f;
+                float pillTop = iconPos.Y + eDy + (_iconSize - pillH) / 2f;
                 float radius  = MathF.Min(pillH / 2f - 0.5f, pillW / 2f - 0.5f);
 
                 using var pillPath = SquirclePath(new RectangleF(pillLeft, pillTop, pillW, pillH), radius);
-                int bgAlpha = (int)(190 + t * 30);
-                using var pillBrush = new SolidBrush(Color.FromArgb(bgAlpha, 20, 20, 20));
+                int bgAlpha = (int)((190 + t * 30) * entryAlpha / 255f);
+                using var pillBrush = new SolidBrush(Color.FromArgb(Math.Clamp(bgAlpha, 0, 255), 20, 20, 20));
                 g.FillPath(pillBrush, pillPath);
 
                 float textAreaW = pillW - PillPadH * 2f;
                 var layoutRect = new RectangleF(pillLeft + PillPadH, pillTop + PillPadV, textAreaW, emPx + PillPadV);
-                using var textBrush = new SolidBrush(Color.White);
+                int textAlpha = Math.Clamp((int)entryAlpha, 0, 255);
+                using var textBrush = new SolidBrush(Color.FromArgb(textAlpha, 255, 255, 255));
                 g.DrawString(item.Name, drawFont, textBrush, layoutRect, sf);
             }
         }
@@ -738,7 +962,24 @@ internal sealed class FanForm : Form
                     DrawShadowPass(g, item.Bmp, srcRect, drawX, drawY, drawSize,
                         offset, alpha: (int)(t * peakAlpha));
             }
-            g.DrawImage(item.Bmp, new RectangleF(drawX, drawY, drawSize, drawSize));
+
+            if (entryAlpha >= 254f)
+            {
+                g.DrawImage(item.Bmp, new RectangleF(drawX, drawY, drawSize, drawSize));
+            }
+            else
+            {
+                // Apply per-item alpha during entry animation
+                using var ia = MakeAlphaAttributes(entryAlpha / 255f);
+                var srcRect = new RectangleF(0, 0, item.Bmp.Width, item.Bmp.Height);
+                PointF[] destPts =
+                {
+                    new PointF(drawX,            drawY),
+                    new PointF(drawX + drawSize,  drawY),
+                    new PointF(drawX,             drawY + drawSize),
+                };
+                g.DrawImage(item.Bmp, destPts, srcRect, GraphicsUnit.Pixel, ia);
+            }
         }
     }
 
@@ -766,6 +1007,21 @@ internal sealed class FanForm : Form
                 new[] { r.Location, new PointF(r.Right, r.Top), new PointF(r.Left, r.Bottom) },
                 srcRect, GraphicsUnit.Pixel, ia);
         }
+    }
+
+    private static System.Drawing.Imaging.ImageAttributes MakeAlphaAttributes(float alpha)
+    {
+        var cm = new System.Drawing.Imaging.ColorMatrix(new float[][]
+        {
+            new float[] { 1, 0, 0, 0, 0 },
+            new float[] { 0, 1, 0, 0, 0 },
+            new float[] { 0, 0, 1, 0, 0 },
+            new float[] { 0, 0, 0, alpha, 0 },
+            new float[] { 0, 0, 0, 0, 1 },
+        });
+        var ia = new System.Drawing.Imaging.ImageAttributes();
+        ia.SetColorMatrix(cm);
+        return ia;
     }
 
     private Font CreateItemFont()
@@ -1011,16 +1267,29 @@ internal sealed class FanForm : Form
 
                     if (cmd >= NativeMethods.ID_CMD_FIRST)
                     {
-                        var ici = new NativeMethods.CMINVOKECOMMANDINFO
+                        if (IsRenameVerb(pcm, pcm2, cmd - NativeMethods.ID_CMD_FIRST))
                         {
-                            cbSize = Marshal.SizeOf<NativeMethods.CMINVOKECOMMANDINFO>(),
-                            hwnd   = Handle,
-                            lpVerb = (IntPtr)(cmd - NativeMethods.ID_CMD_FIRST),
-                            nShow  = NativeMethods.SW_SHOWNORMAL,
-                        };
-                        if (pcm2 != null) pcm2.InvokeCommand(ref ici);
-                        else              pcm.InvokeCommand(ref ici);
-                        FileSystemModified?.Invoke(this, EventArgs.Empty);
+                            // The shell Rename verb only works inside Explorer (inline
+                            // edit).  Show our own dialog and call File/Directory.Move.
+                            // Keep _contextMenuOpen = true so the Deactivate handler
+                            // does not close the fan while the rename dialog is modal.
+                            _contextMenuOpen = true;
+                            try   { HandleRename(item, screenPt); }
+                            finally { _contextMenuOpen = false; }
+                        }
+                        else
+                        {
+                            var ici = new NativeMethods.CMINVOKECOMMANDINFO
+                            {
+                                cbSize = Marshal.SizeOf<NativeMethods.CMINVOKECOMMANDINFO>(),
+                                hwnd   = Handle,
+                                lpVerb = (IntPtr)(cmd - NativeMethods.ID_CMD_FIRST),
+                                nShow  = NativeMethods.SW_SHOWNORMAL,
+                            };
+                            if (pcm2 != null) pcm2.InvokeCommand(ref ici);
+                            else              pcm.InvokeCommand(ref ici);
+                            FileSystemModified?.Invoke(this, EventArgs.Empty);
+                        }
                     }
                     Close();
                 }
@@ -1040,6 +1309,84 @@ internal sealed class FanForm : Form
         {
             NativeMethods.ILFree(pidl);
         }
+    }
+
+    // Returns true when the selected context-menu command is the shell "rename" verb.
+    private static bool IsRenameVerb(NativeMethods.IContextMenu pcm,
+                                     NativeMethods.IContextMenu2? pcm2,
+                                     int cmdOffset)
+    {
+        IntPtr buf = Marshal.AllocHGlobal(512); // 256 WCHARs
+        try
+        {
+            int hr = pcm2 != null
+                ? pcm2.GetCommandString((UIntPtr)cmdOffset, NativeMethods.GCS_VERBW, IntPtr.Zero, buf, 256)
+                : pcm .GetCommandString((UIntPtr)cmdOffset, NativeMethods.GCS_VERBW, IntPtr.Zero, buf, 256);
+            if (hr >= 0)
+            {
+                string verb = Marshal.PtrToStringUni(buf) ?? string.Empty;
+                return verb.Equals("rename", StringComparison.OrdinalIgnoreCase);
+            }
+        }
+        catch { /* GetCommandString can throw for some verbs */ }
+        finally { Marshal.FreeHGlobal(buf); }
+        return false;
+    }
+
+    private void HandleRename(FanItem item, Point screenPt)
+    {
+        string? newName = ShowRenameDialog(item.Name, screenPt);
+        if (newName == null || newName.Equals(item.Name, StringComparison.Ordinal))
+            return;
+
+        string dir  = Path.GetDirectoryName(item.FullPath) ?? string.Empty;
+        string dest = Path.Combine(dir, newName);
+        try
+        {
+            if (item.IsDirectory) Directory.Move(item.FullPath, dest);
+            else                  File.Move(item.FullPath, dest);
+            FileSystemModified?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Rename failed:\n{ex.Message}", "Fan Folder",
+                MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private static string? ShowRenameDialog(string currentName, Point anchor)
+    {
+        using var f = new Form();
+        f.Text             = "Rename";
+        f.FormBorderStyle  = FormBorderStyle.FixedDialog;
+        f.MaximizeBox      = false;
+        f.MinimizeBox      = false;
+        f.TopMost          = true;
+        f.StartPosition    = FormStartPosition.Manual;
+        f.ClientSize       = new Size(360, 84);
+        f.Location         = new Point(anchor.X - f.ClientSize.Width / 2,
+                                       anchor.Y - f.ClientSize.Height / 2);
+
+        var lbl = new Label  { Text = "New name:", AutoSize = true,
+                               Location = new Point(10, 14) };
+        var tb  = new TextBox{ Text = currentName,
+                               Location = new Point(80, 10), Width = 268 };
+        var ok  = new Button { Text = "OK",     DialogResult = DialogResult.OK,
+                               Location = new Point(196, 46), Width = 76 };
+        var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel,
+                                  Location = new Point(278, 46), Width = 76 };
+
+        f.Controls.AddRange([lbl, tb, ok, cancel]);
+        f.AcceptButton = ok;
+        f.CancelButton = cancel;
+        f.Shown += (_, _) => { tb.SelectAll(); tb.Focus(); };
+
+        if (f.ShowDialog() == DialogResult.OK)
+        {
+            string name = tb.Text.Trim();
+            return name.Length > 0 ? name : null;
+        }
+        return null;
     }
 
     private int HitTest(Point pt)
@@ -1191,8 +1538,6 @@ internal sealed class FanForm : Form
             _iconLoadCts.Dispose();
             _animTimer?.Stop();
             _animTimer?.Dispose();
-            _fadeTimer?.Stop();
-            _fadeTimer?.Dispose();
             _font?.Dispose();
             _sf?.Dispose();
             _offscreenBmp?.Dispose();

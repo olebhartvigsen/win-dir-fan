@@ -198,6 +198,20 @@ internal static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern IntPtr FindWindow(string lpClassName, string? lpWindowName);
 
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    internal static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter,
+        string lpszClass, string? lpszWindow);
+
+    internal delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool EnumChildWindows(IntPtr hwndParent, EnumWindowsProc lpEnumFunc,
+        IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    internal static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
@@ -482,6 +496,18 @@ internal static class NativeMethods
     internal static extern IntPtr SetWindowsHookEx(
         int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
 
+    // ─── Global Keyboard Hook (WH_KEYBOARD_LL) ─────────────────────────
+
+    internal const int WH_KEYBOARD_LL  = 13;
+    internal const int WM_KEYDOWN      = 0x0100;
+    internal const int WM_SYSKEYDOWN   = 0x0104;
+
+    internal delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern IntPtr SetWindowsHookEx(
+        int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool UnhookWindowsHookEx(IntPtr hhk);
@@ -571,9 +597,12 @@ internal static class NativeMethods
     }
 
     internal const uint CMF_EXPLORE   = 0x00000001; // Explorer-style context menu
+    internal const uint GCS_VERBW     = 0x00000004; // GetCommandString: return verb as Unicode
     internal const int  ID_CMD_FIRST  = 1;
     internal const int  ID_CMD_LAST   = 0x7FFF;
-    internal const int  SW_SHOWNORMAL = 1;
+    internal const int  SW_SHOWNORMAL        = 1;
+    internal const int  SW_SHOWMINNOACTIVE   = 7;  // minimize without activating
+    internal const int  SW_SHOWNA            = 8;  // show without activating
 
     // ─── Win32 popup menu ─────────────────────────────────────────────
 
@@ -597,6 +626,10 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
     internal const uint WM_NULL = 0x0000;
 

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 
 namespace FanFolderApp;
 
@@ -21,6 +22,17 @@ public enum SortMode
 }
 
 /// <summary>
+/// Controls the opening animation played when the fan menu appears.
+/// </summary>
+public enum AnimStyle
+{
+    Fan,     // Items radiate one-by-one from the taskbar edge (default)
+    Glide,   // All items drift upward together while fading in
+    Spring,  // Items spring-scale into place with elastic overshoot
+    None,    // No animation — instant appearance
+}
+
+/// <summary>
 /// Provides file-system operations: fetching top-N recent items and
 /// extracting native shell icons via SHGetImageList.
 /// </summary>
@@ -30,18 +42,32 @@ internal sealed class FileService
     /// Returns up to <paramref name="maxItems"/> file-system entries from
     /// <paramref name="folderPath"/>, ordered according to
     /// <paramref name="sort"/>.  Hidden items are excluded.
+    /// Directories are excluded when <paramref name="includeDirs"/> is false.
+    /// When <paramref name="filterRegex"/> is non-empty, only entries whose
+    /// full path matches the pattern are included.
     /// </summary>
     public static List<FileSystemInfo> GetRecentItems(
-        string folderPath,
-        SortMode sort    = SortMode.DateModifiedDesc,
-        int      maxItems = 15)
+        string  folderPath,
+        SortMode sort        = SortMode.DateModifiedDesc,
+        int      maxItems    = 15,
+        bool     includeDirs = true,
+        string?  filterRegex = null)
     {
         if (!Directory.Exists(folderPath))
             return [];
 
+        Regex? regex = null;
+        if (!string.IsNullOrWhiteSpace(filterRegex))
+        {
+            try { regex = new Regex(filterRegex, RegexOptions.IgnoreCase | RegexOptions.Compiled); }
+            catch { /* invalid pattern — ignore filter */ }
+        }
+
         var entries = new DirectoryInfo(folderPath)
             .GetFileSystemInfos()
-            .Where(f => (f.Attributes & FileAttributes.Hidden) == 0);
+            .Where(f => (f.Attributes & FileAttributes.Hidden) == 0)
+            .Where(f => includeDirs || f is FileInfo)
+            .Where(f => regex == null || regex.IsMatch(f.FullName));
 
         IOrderedEnumerable<FileSystemInfo> ordered = sort switch
         {
