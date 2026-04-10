@@ -75,6 +75,7 @@ internal sealed class FanForm : Form
     private int[] _drawOrder = [];
     private CancellationTokenSource _iconLoadCts = new();
     private bool _dirty;   // render needed on next timer tick
+    private bool _contextMenuOpen; // true while the right-click context menu is visible
 
     // ─── Inner Model ─────────────────────────────────────────
     private sealed class FanItem
@@ -87,6 +88,10 @@ internal sealed class FanForm : Form
         public Bitmap? Bmp { get; set; }
         public float MeasuredTextWidth { get; set; } = -1f; // cached pill width (-1 = uncached)
     }
+
+    /// <summary>True while the right-click context menu is open — used by the global
+    /// mouse hook to suppress fan close on clicks that land on the menu.</summary>
+    internal bool IsContextMenuOpen => _contextMenuOpen;
 
     // ═════════════════════════════════════════════════════════
     //  Construction
@@ -979,9 +984,7 @@ internal sealed class FanForm : Form
     {
         base.OnMouseClick(e);
 
-        // Don't launch if we just finished a drag
         if (_dragging) return;
-        if (e.Button != MouseButtons.Left) return;
 
         int idx = HitTest(e.Location);
         if (idx < 0 || idx >= _items.Count) return;
@@ -989,8 +992,58 @@ internal sealed class FanForm : Form
         var item = _items[idx];
         if (string.IsNullOrEmpty(item.FullPath)) return;
 
-        LaunchItem(item);
-        Close();
+        if (e.Button == MouseButtons.Left)
+        {
+            LaunchItem(item);
+            Close();
+        }
+        else if (e.Button == MouseButtons.Right)
+        {
+            ShowItemContextMenu(item, e.Location);
+        }
+    }
+
+    private void ShowItemContextMenu(FanItem item, Point localPt)
+    {
+        var menu = new ContextMenuStrip();
+        menu.RenderMode = ToolStripRenderMode.System;
+
+        menu.Items.Add("Open", null, (_, _) => { LaunchItem(item); Close(); });
+        menu.Items.Add("Show in folder", null, (_, _) =>
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{item.FullPath}\"")
+                { UseShellExecute = false });
+            Close();
+        });
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Copy path", null, (_, _) => Clipboard.SetText(item.FullPath));
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Properties", null, (_, _) => { ShowShellProperties(item.FullPath); Close(); });
+
+        _contextMenuOpen = true;
+        menu.Closed += (_, args) =>
+        {
+            _contextMenuOpen = false;
+            // If the user dismissed the menu without choosing an item, close the fan too
+            if (args.CloseReason != ToolStripDropDownCloseReason.ItemClicked)
+                Close();
+            menu.Dispose();
+        };
+
+        menu.Show(PointToScreen(localPt));
+    }
+
+    private static void ShowShellProperties(string path)
+    {
+        var info = new NativeMethods.SHELLEXECUTEINFO
+        {
+            cbSize     = Marshal.SizeOf<NativeMethods.SHELLEXECUTEINFO>(),
+            fMask      = NativeMethods.SEE_MASK_INVOKEIDLIST,
+            lpVerb     = "properties",
+            lpFile     = path,
+            nShow      = NativeMethods.SW_SHOWNORMAL,
+        };
+        NativeMethods.ShellExecuteEx(ref info);
     }
 
     private int HitTest(Point pt)

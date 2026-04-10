@@ -506,7 +506,7 @@ internal sealed class MainHiddenForm : Form
                 {
                     var hs       = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
                     var clickPt  = new Point(hs.pt.X, hs.pt.Y);
-                    if (!fan.Bounds.Contains(clickPt))
+                    if (!fan.Bounds.Contains(clickPt) && !fan.IsContextMenuOpen)
                         BeginInvoke(CloseFan); // marshal back to UI thread
                 }
             }

@@ -427,6 +427,38 @@ internal static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, [MarshalAs(UnmanagedType.Bool)] bool bRedraw);
 
+    // ─── Message loop primitives (dedicated hook thread) ──────────────
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MSG
+    {
+        public IntPtr hwnd;
+        public uint   message;
+        public IntPtr wParam;
+        public IntPtr lParam;
+        public uint   time;
+        public POINT  pt;
+    }
+
+    [DllImport("user32.dll")]
+    internal static extern int GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool TranslateMessage(ref MSG lpMsg);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr DispatchMessage(ref MSG lpmsg);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool PostThreadMessage(int idThread, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("kernel32.dll")]
+    internal static extern int GetCurrentThreadId();
+
+    internal const uint WM_QUIT = 0x0012;
+
     // ─── Global Mouse Hook (WH_MOUSE_LL) ───────────────────────────────
 
     internal const int WH_MOUSE_LL     = 14;
@@ -459,4 +491,38 @@ internal static class NativeMethods
 
     [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
     internal static extern IntPtr GetModuleHandle(string? lpModuleName);
+
+    // ─── ShellExecuteEx – Properties dialog ──────────────────────────
+
+    internal const uint SEE_MASK_INVOKEIDLIST = 0x0000000C;
+    internal const int  SW_SHOWNORMAL         = 1;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct SHELLEXECUTEINFO
+    {
+        public int     cbSize;
+        public uint    fMask;
+        public IntPtr  hwnd;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpVerb;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpFile;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpParameters;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpDirectory;
+        public int     nShow;
+        public IntPtr  hInstApp;
+        public IntPtr  lpIDList;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpClass;
+        public IntPtr  hkeyClass;
+        public uint    dwHotKey;
+        public IntPtr  hIconOrMonitor;
+        public IntPtr  hProcess;
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool ShellExecuteEx(ref SHELLEXECUTEINFO lpExecInfo);
 }
