@@ -97,8 +97,13 @@ internal sealed class FileService
     public static Bitmap? GetShellBitmap(string path, int targetSize)
     {
         // ── Primary: IShellItemImageFactory ─────────────────────────────
+        // Some shell extensions (e.g. Office, SVG handlers) ignore SIIGBF_ICONONLY
+        // and return a document content preview instead of the registered app icon.
+        // A real icon has a transparent background; a preview is fully opaque.
+        // LooksLikeIcon() rejects opaque-cornered bitmaps so they fall through to SHIL.
         var direct = TryShellItemImage(path, targetSize);
-        if (direct != null && BitmapHasVisiblePixels(direct)) return direct;
+        if (direct != null && BitmapHasVisiblePixels(direct) && LooksLikeIcon(direct))
+            return direct;
         direct?.Dispose();
 
         // ── Fallback: SHIL / SHDefExtractIcon chain ──────────────────────
@@ -315,9 +320,40 @@ internal sealed class FileService
     }
 
     /// <summary>
-    /// in each dimension.  Rejects "stub" HICONs that place a tiny graphic inside
-    /// a large canvas (e.g. SHIL_JUMBO for .zip on some Windows versions).
+    /// Returns true when the bitmap's corners are mostly transparent — indicating
+    /// a proper shell icon on a transparent background.  Returns false for document
+    /// content previews, which have fully-opaque backgrounds (e.g. Office thumbnails).
     /// </summary>
+    private static unsafe bool LooksLikeIcon(Bitmap bmp)
+    {
+        int w = bmp.Width, h = bmp.Height;
+        int cr = Math.Max(3, Math.Min(w, h) / 5); // sample ≈20% corner square
+
+        var rect = new Rectangle(0, 0, w, h);
+        var data = bmp.LockBits(rect,
+            System.Drawing.Imaging.ImageLockMode.ReadOnly,
+            System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        try
+        {
+            byte* p  = (byte*)data.Scan0;
+            int total = 0, transparent = 0;
+            for (int y = 0; y < cr; y++)
+            for (int x = 0; x < cr; x++)
+            {
+                foreach (int py in (int[])[y, h - 1 - y])
+                foreach (int px in (int[])[x, w - 1 - x])
+                {
+                    total++;
+                    if (p[(py * w + px) * 4 + 3] < 64) transparent++;
+                }
+            }
+            // Require at least half the sampled corner pixels to be transparent.
+            return total == 0 || transparent * 2 >= total;
+        }
+        finally { bmp.UnlockBits(data); }
+    }
+
+
     private static unsafe bool HasVisiblePixels(Icon icon)
     {
         try
