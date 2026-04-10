@@ -18,8 +18,8 @@ internal sealed class MainHiddenForm : Form
     private FanForm? _prewarmFanForm;
     private bool _suppressNextActivation;
     private DateTime _lastFanCloseTime = DateTime.MinValue;
+    private DateTime _fanOpenedAt = DateTime.MinValue;
     private Icon? _stackIcon;
-    private Icon? _arrowIcon;
 
     // ─── Global mouse hook — closes fan on outside click ──────────────
     // The hook runs on a dedicated background thread so its callback is never
@@ -114,7 +114,6 @@ internal sealed class MainHiddenForm : Form
     private void SetTaskbarIcon()
     {
         _stackIcon = CreateStackIcon(256);
-        _arrowIcon = CreateArrowIcon(256);
         Icon = _stackIcon;
     }
 
@@ -230,58 +229,6 @@ internal sealed class MainHiddenForm : Form
         return p;
     }
 
-    /// <summary>
-    /// Draws a macOS-style "active" icon: a downward arrowhead inside a rounded box.
-    /// </summary>
-    private static Icon CreateArrowIcon(int size)
-    {
-        using var bmp = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        using var g = Graphics.FromImage(bmp);
-        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        g.Clear(Color.Transparent);
-
-        float pad = size * 0.08f;
-        float boxSize = size - pad * 2;
-        float cr = size * 0.14f; // corner radius
-
-        // Rounded box background
-        using var boxPath = new System.Drawing.Drawing2D.GraphicsPath();
-        var rect = new RectangleF(pad, pad, boxSize, boxSize);
-        boxPath.AddArc(rect.X, rect.Y, cr, cr, 180, 90);
-        boxPath.AddArc(rect.Right - cr, rect.Y, cr, cr, 270, 90);
-        boxPath.AddArc(rect.Right - cr, rect.Bottom - cr, cr, cr, 0, 90);
-        boxPath.AddArc(rect.X, rect.Bottom - cr, cr, cr, 90, 90);
-        boxPath.CloseFigure();
-
-        using var boxFill = new System.Drawing.Drawing2D.LinearGradientBrush(
-            new PointF(pad, pad), new PointF(pad, pad + boxSize),
-            Color.FromArgb(110, 170, 240), Color.FromArgb(60, 120, 200));
-        g.FillPath(boxFill, boxPath);
-
-        using var boxPen = new Pen(Color.FromArgb(45, 90, 165), size * 0.016f);
-        g.DrawPath(boxPen, boxPath);
-
-        // Downward arrowhead (chevron)
-        float cx = size / 2f;
-        float cy = size / 2f + size * 0.02f;
-        float aw = boxSize * 0.38f; // half-width of arrow
-        float ah = boxSize * 0.22f; // height of arrow
-
-        using var arrowPen = new Pen(Color.White, size * 0.07f)
-        {
-            StartCap = System.Drawing.Drawing2D.LineCap.Round,
-            EndCap = System.Drawing.Drawing2D.LineCap.Round,
-            LineJoin = System.Drawing.Drawing2D.LineJoin.Round
-        };
-        g.DrawLine(arrowPen, cx - aw, cy - ah, cx, cy + ah);
-        g.DrawLine(arrowPen, cx + aw, cy - ah, cx, cy + ah);
-
-        IntPtr handle = bmp.GetHicon();
-        Icon owned = (Icon)Icon.FromHandle(handle).Clone();
-        NativeMethods.DestroyIcon(handle);
-        return owned;
-    }
-
     // ─── Activation / Toggle ─────────────────────────────────
 
     protected override void WndProc(ref Message m)
@@ -289,20 +236,31 @@ internal sealed class MainHiddenForm : Form
         const int WM_SYSCOMMAND              = 0x0112;
         const int SC_RESTORE                 = 0xF120;
         const int WM_DWMSENDICONICTHUMBNAIL  = 0x0323;
+        const int WM_ACTIVATEAPP             = 0x001C;
 
         if (m.Msg == WM_SYSCOMMAND && (m.WParam.ToInt32() & 0xFFF0) == SC_RESTORE)
         {
-            bool fanIsOpen = _fanForm != null && _fanForm.Visible;
             // Toggle the fan FIRST so it is already shown before base.WndProc
             // activates MainHiddenForm.  The 250 ms grace period in the Deactivate
             // handler absorbs the resulting spurious Deactivate event.
-            if (fanIsOpen || IsCursorNearTaskbar())
-                ToggleFan();
+            // SC_RESTORE fires for both taskbar clicks and Alt+Tab activation —
+            // we open the fan in both cases.
+            ToggleFan();
             // Call base.WndProc so Shell registers a successful restore and does
             // NOT re-send SC_RESTORE 1-2 s later.
             base.WndProc(ref m);
             WindowState = FormWindowState.Minimized;
             return;
+        }
+
+        // Another application is taking focus (e.g. user Alt+Tabs away).
+        // Close the fan so it doesn't linger while the user works elsewhere.
+        // Suppress for 500 ms after the fan opens — re-minimizing MainHiddenForm
+        // after SC_RESTORE causes a spurious WM_ACTIVATEAPP(0) immediately.
+        if (m.Msg == WM_ACTIVATEAPP && m.WParam == IntPtr.Zero && _fanForm != null
+            && (DateTime.Now - _fanOpenedAt).TotalMilliseconds > 500)
+        {
+            CloseFan();
         }
 
         // DWM is asking for our custom hover-preview thumbnail.
@@ -351,25 +309,7 @@ internal sealed class MainHiddenForm : Form
         finally { NativeMethods.DeleteObject(hBmp); }
     }
 
-    /// <summary>
-    /// Returns true when the cursor is within or very close to the taskbar rect.
-    /// Used to distinguish a real taskbar click from an Alt+Tab SC_RESTORE.
-    /// </summary>
-    private static bool IsCursorNearTaskbar()
-    {
-        NativeMethods.GetCursorPos(out var cursor);
-        var abd = new NativeMethods.APPBARDATA
-        {
-            cbSize = Marshal.SizeOf<NativeMethods.APPBARDATA>()
-        };
-        NativeMethods.SHAppBarMessage(NativeMethods.ABM_GETTASKBARPOS, ref abd);
-        var tb = abd.rc;
-        const int margin = 48;
-        return cursor.X >= tb.Left - margin && cursor.X <= tb.Right  + margin
-            && cursor.Y >= tb.Top  - margin && cursor.Y <= tb.Bottom + margin;
-    }
-
-    protected override void OnActivated(EventArgs e)    {
+    protected override void OnActivated(EventArgs e){
         base.OnActivated(e);
 
         if (_suppressNextActivation)
@@ -418,11 +358,13 @@ internal sealed class MainHiddenForm : Form
         }
 
         form.Reposition(); // snap to current cursor — fast (no arc recalc)
+        _fanOpenedAt = DateTime.Now;
         _fanForm = form;
         _fanForm.FormClosed += (_, _) =>
         {
             _fanForm = null;
-            Icon = _stackIcon;
+            // Minimize back to idle state — no icon swap needed
+            NativeMethods.ShowWindow(Handle, NativeMethods.SW_SHOWMINNOACTIVE);
             // Invalidate stale preload so if the user reopens before the next
             // prewarm scan completes, FanForm falls back to a live scan.
             _prewarmFanForm?.Dispose();
@@ -458,7 +400,9 @@ internal sealed class MainHiddenForm : Form
             CloseFan();
         };
         _fanForm.Show();
-        Icon = _arrowIcon;
+        // Show main form without activating — makes the taskbar button appear
+        // in its "active" (pressed/highlighted) state while the menu is open.
+        NativeMethods.ShowWindow(Handle, NativeMethods.SW_SHOWNA);
         InstallMouseHook();
         StartPrewarm();
     }
@@ -479,7 +423,7 @@ internal sealed class MainHiddenForm : Form
             _fanForm = null;
             form.Close();
         }
-        Icon = _stackIcon;
+        NativeMethods.ShowWindow(Handle, NativeMethods.SW_SHOWMINNOACTIVE);
     }
 
     // ─── Global mouse hook ────────────────────────────────────────────
@@ -558,7 +502,6 @@ internal sealed class MainHiddenForm : Form
             CloseFan(); // also calls UninstallMouseHook
             _prewarmFanForm?.Dispose();
             _stackIcon?.Dispose();
-            _arrowIcon?.Dispose();
         }
         base.Dispose(disposing);
     }

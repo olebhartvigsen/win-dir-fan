@@ -61,6 +61,7 @@ internal sealed class FanForm : Form
     private int _maxStackHeight;           // 75 % of screen height
     private float _layoutMinX;            // saved arc origin→form-edge offset for Reposition()
     private float _layoutMinY;
+    private static int _lastTaskbarAnchorX = -1; // updated on real taskbar clicks; reused for Alt+Tab
 
     // ─── Rendering Cache ─────────────────────────────────────────────
     private Bitmap? _offscreenBmp;  // 1× final bitmap fed to UpdateLayeredWindow
@@ -393,11 +394,27 @@ internal sealed class FanForm : Form
             };
         }
 
-        // Use the maximum label width cap directly — measuring every item via
-        // TextRenderer.MeasureText is expensive (~15 ms for 15 items) and the
-        // value is capped at 280 anyway.  The form is slightly wider for short
-        // filenames but the extra space is transparent and unnoticeable.
-        float maxLabelW = 280f;
+        // Measure all items at max hover scale with GDI+ (same engine as DrawString)
+        // to ensure the form is wide enough that no label clips during hover.
+        float maxLabelW;
+        {
+            const float MaxHoverScale = 1.08f;
+            const float PillPadH      = 8f;
+            using var hoverFont = new Font(EnsureFont().FontFamily,
+                _fontSize * MaxHoverScale, FontStyle.Bold, GraphicsUnit.Point);
+            using var measSf = new StringFormat
+            {
+                Alignment   = StringAlignment.Far,
+                FormatFlags = StringFormatFlags.NoWrap | StringFormatFlags.NoClip
+            };
+            using var tmpBmp = new Bitmap(1, 1);
+            using var tmpG   = Graphics.FromImage(tmpBmp);
+            float widest = _items.Count == 0 ? 200f
+                : _items.Max(it => tmpG.MeasureString(it.Name, hoverFont,
+                    new SizeF(float.MaxValue, 32f), measSf).Width);
+            // pill padding both sides + 6 px sub-pixel safety buffer
+            maxLabelW = MathF.Min(widest + PillPadH * 2f + 6f, 600f);
+        }
 
         // ── Bounding box ────
         float extentLeft = maxLabelW + LabelGap; // labels extend to the left of icons
@@ -504,20 +521,96 @@ internal sealed class FanForm : Form
         var edge = DetectTaskbarEdge(out var taskbarRect);
         NativeMethods.GetCursorPos(out var cursor);
 
+        // Is the cursor actually on/near the taskbar? (real click vs Alt+Tab)
+        bool cursorNearTaskbar = edge switch
+        {
+            TaskbarEdge.Top   => cursor.Y <= taskbarRect.Bottom + 60,
+            TaskbarEdge.Left  => cursor.X <= taskbarRect.Right  + 60,
+            TaskbarEdge.Right => cursor.X >= taskbarRect.Left   - 60,
+            _                 => cursor.Y >= taskbarRect.Top    - 60
+        };
+
+        int anchorX = cursor.X;
+        int anchorY = cursor.Y;
+
+        if (cursorNearTaskbar)
+        {
+            // Real taskbar click — cursor IS on the icon. Cache for future Alt+Tab.
+            _lastTaskbarAnchorX = (edge == TaskbarEdge.Bottom || edge == TaskbarEdge.Top)
+                ? cursor.X : cursor.Y;
+        }
+        else
+        {
+            // Alt+Tab or keyboard: find the actual taskbar button center.
+            int btnCenter = FindTaskbarButtonCenterX(taskbarRect);
+            if (edge == TaskbarEdge.Bottom || edge == TaskbarEdge.Top)
+                anchorX = btnCenter;
+            else
+                anchorY = btnCenter;
+            // Also update cache so subsequent calls are instant.
+            _lastTaskbarAnchorX = btnCenter;
+        }
+
         PointF origin = edge switch
         {
-            TaskbarEdge.Top   => new(cursor.X, taskbarRect.Bottom),
-            TaskbarEdge.Left  => new(taskbarRect.Right, cursor.Y),
-            TaskbarEdge.Right => new(taskbarRect.Left, cursor.Y),
-            _                 => new(cursor.X, taskbarRect.Top)
+            TaskbarEdge.Top   => new(anchorX, taskbarRect.Bottom),
+            TaskbarEdge.Left  => new(taskbarRect.Right, anchorY),
+            TaskbarEdge.Right => new(taskbarRect.Left,  anchorY),
+            _                 => new(anchorX, taskbarRect.Top)
         };
 
         int formX = (int)(origin.X + _layoutMinX);
         int formY = (int)(origin.Y + _layoutMinY);
-        var screen = Screen.FromPoint(new Point(cursor.X, cursor.Y));
+        var screen = Screen.FromPoint(new Point(anchorX, anchorY));
         formX = Math.Max(screen.Bounds.Left, Math.Min(formX, screen.Bounds.Right  - Width));
         formY = Math.Max(screen.Bounds.Top,  Math.Min(formY, screen.Bounds.Bottom - Height));
         Location = new Point(formX, formY);
+    }
+
+    /// <summary>
+    /// Finds the horizontal center of this app's taskbar button by walking the
+    /// Shell_TrayWnd → ReBarWindow32 → MSTaskSwWClass → MSTaskListWClass window
+    /// hierarchy and matching child windows by process ID (Windows 10).
+    /// Falls back to <see cref="_lastTaskbarAnchorX"/> from the last direct click,
+    /// then to the horizontal center of the taskbar rect (Windows 11 fallback).
+    /// </summary>
+    private static int FindTaskbarButtonCenterX(NativeMethods.RECT taskbarRect)
+    {
+        try
+        {
+            uint ourPid = (uint)Environment.ProcessId;
+            IntPtr tray = NativeMethods.FindWindow("Shell_TrayWnd", null);
+            if (tray != IntPtr.Zero)
+            {
+                // Windows 10: Shell_TrayWnd → ReBarWindow32 → MSTaskSwWClass → MSTaskListWClass
+                IntPtr rebar = NativeMethods.FindWindowEx(tray,  IntPtr.Zero, "ReBarWindow32",   null);
+                IntPtr sw    = NativeMethods.FindWindowEx(rebar != IntPtr.Zero ? rebar : tray,
+                                                          IntPtr.Zero, "MSTaskSwWClass", null);
+                IntPtr list  = NativeMethods.FindWindowEx(sw != IntPtr.Zero ? sw : tray,
+                                                          IntPtr.Zero, "MSTaskListWClass", null);
+                if (list != IntPtr.Zero)
+                {
+                    int found = -1;
+                    NativeMethods.EnumChildWindows(list, (hwnd, _) =>
+                    {
+                        NativeMethods.GetWindowThreadProcessId(hwnd, out uint pid);
+                        if (pid != ourPid) return true;
+                        NativeMethods.GetWindowRect(hwnd, out var r);
+                        found = (r.Left + r.Right) / 2;
+                        return false; // stop enumeration
+                    }, IntPtr.Zero);
+
+                    if (found >= 0) return found;
+                }
+            }
+        }
+        catch { /* ignore — fall through to fallbacks */ }
+
+        // Cache from last direct click (reliable after first use)
+        if (_lastTaskbarAnchorX >= 0) return _lastTaskbarAnchorX;
+
+        // Last resort: horizontal center of the taskbar (reasonable on Win11 centered layout)
+        return (taskbarRect.Left + taskbarRect.Right) / 2;
     }
 
     // ═════════════════════════════════════════════════════════
@@ -700,23 +793,21 @@ internal sealed class FanForm : Form
 
             if (item.MeasuredTextWidth < 0f)
             {
-                var measSize = TextRenderer.MeasureText(item.Name, font,
-                    new Size(int.MaxValue, 32),
-                    TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
-                item.MeasuredTextWidth = measSize.Width;
+                // Cache with GDI+ (same engine as g.DrawString) so the pill
+                // is sized accurately for the base (non-hover) state.
+                item.MeasuredTextWidth = g.MeasureString(item.Name, font,
+                    new SizeF(float.MaxValue, 32f), sf).Width;
             }
 
-            // When hovering, measure with the actual (larger) font so the pill
-            // grows to fit — prevents text from being clipped or ellipsized.
+            // On hover remeasure with the scaled font — GDI+ is the only
+            // engine that matches g.DrawString; TextRenderer (GDI) can differ.
             float rawTextW = ownFont
-                ? TextRenderer.MeasureText(item.Name, drawFont,
-                    new Size(int.MaxValue, 32),
-                    TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine).Width
+                ? g.MeasureString(item.Name, drawFont, new SizeF(float.MaxValue, 32f), sf).Width
                 : item.MeasuredTextWidth;
 
-            // Cap at form's label reservation (maxLabelW = 280 in CalculateArcLayout)
-            const float MaxLabelW = 280f;
-            float textW = MathF.Min(rawTextW, MaxLabelW - PillPadH * 2f);
+            // No hard cap here — CalculateArcLayout already sized the form to
+            // fit the widest label.  pillLeft clamps to the form edge as safety.
+            float textW = rawTextW;
 
             float pillW     = textW + PillPadH * 2f;
             float pillH     = emPx + PillPadV * 2f;
@@ -1035,16 +1126,29 @@ internal sealed class FanForm : Form
 
                     if (cmd >= NativeMethods.ID_CMD_FIRST)
                     {
-                        var ici = new NativeMethods.CMINVOKECOMMANDINFO
+                        if (IsRenameVerb(pcm, pcm2, cmd - NativeMethods.ID_CMD_FIRST))
                         {
-                            cbSize = Marshal.SizeOf<NativeMethods.CMINVOKECOMMANDINFO>(),
-                            hwnd   = Handle,
-                            lpVerb = (IntPtr)(cmd - NativeMethods.ID_CMD_FIRST),
-                            nShow  = NativeMethods.SW_SHOWNORMAL,
-                        };
-                        if (pcm2 != null) pcm2.InvokeCommand(ref ici);
-                        else              pcm.InvokeCommand(ref ici);
-                        FileSystemModified?.Invoke(this, EventArgs.Empty);
+                            // The shell Rename verb only works inside Explorer (inline
+                            // edit).  Show our own dialog and call File/Directory.Move.
+                            // Keep _contextMenuOpen = true so the Deactivate handler
+                            // does not close the fan while the rename dialog is modal.
+                            _contextMenuOpen = true;
+                            try   { HandleRename(item, screenPt); }
+                            finally { _contextMenuOpen = false; }
+                        }
+                        else
+                        {
+                            var ici = new NativeMethods.CMINVOKECOMMANDINFO
+                            {
+                                cbSize = Marshal.SizeOf<NativeMethods.CMINVOKECOMMANDINFO>(),
+                                hwnd   = Handle,
+                                lpVerb = (IntPtr)(cmd - NativeMethods.ID_CMD_FIRST),
+                                nShow  = NativeMethods.SW_SHOWNORMAL,
+                            };
+                            if (pcm2 != null) pcm2.InvokeCommand(ref ici);
+                            else              pcm.InvokeCommand(ref ici);
+                            FileSystemModified?.Invoke(this, EventArgs.Empty);
+                        }
                     }
                     Close();
                 }
@@ -1064,6 +1168,84 @@ internal sealed class FanForm : Form
         {
             NativeMethods.ILFree(pidl);
         }
+    }
+
+    // Returns true when the selected context-menu command is the shell "rename" verb.
+    private static bool IsRenameVerb(NativeMethods.IContextMenu pcm,
+                                     NativeMethods.IContextMenu2? pcm2,
+                                     int cmdOffset)
+    {
+        IntPtr buf = Marshal.AllocHGlobal(512); // 256 WCHARs
+        try
+        {
+            int hr = pcm2 != null
+                ? pcm2.GetCommandString((UIntPtr)cmdOffset, NativeMethods.GCS_VERBW, IntPtr.Zero, buf, 256)
+                : pcm .GetCommandString((UIntPtr)cmdOffset, NativeMethods.GCS_VERBW, IntPtr.Zero, buf, 256);
+            if (hr >= 0)
+            {
+                string verb = Marshal.PtrToStringUni(buf) ?? string.Empty;
+                return verb.Equals("rename", StringComparison.OrdinalIgnoreCase);
+            }
+        }
+        catch { /* GetCommandString can throw for some verbs */ }
+        finally { Marshal.FreeHGlobal(buf); }
+        return false;
+    }
+
+    private void HandleRename(FanItem item, Point screenPt)
+    {
+        string? newName = ShowRenameDialog(item.Name, screenPt);
+        if (newName == null || newName.Equals(item.Name, StringComparison.Ordinal))
+            return;
+
+        string dir  = Path.GetDirectoryName(item.FullPath) ?? string.Empty;
+        string dest = Path.Combine(dir, newName);
+        try
+        {
+            if (item.IsDirectory) Directory.Move(item.FullPath, dest);
+            else                  File.Move(item.FullPath, dest);
+            FileSystemModified?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Rename failed:\n{ex.Message}", "Fan Folder",
+                MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private static string? ShowRenameDialog(string currentName, Point anchor)
+    {
+        using var f = new Form();
+        f.Text             = "Rename";
+        f.FormBorderStyle  = FormBorderStyle.FixedDialog;
+        f.MaximizeBox      = false;
+        f.MinimizeBox      = false;
+        f.TopMost          = true;
+        f.StartPosition    = FormStartPosition.Manual;
+        f.ClientSize       = new Size(360, 84);
+        f.Location         = new Point(anchor.X - f.ClientSize.Width / 2,
+                                       anchor.Y - f.ClientSize.Height / 2);
+
+        var lbl = new Label  { Text = "New name:", AutoSize = true,
+                               Location = new Point(10, 14) };
+        var tb  = new TextBox{ Text = currentName,
+                               Location = new Point(80, 10), Width = 268 };
+        var ok  = new Button { Text = "OK",     DialogResult = DialogResult.OK,
+                               Location = new Point(196, 46), Width = 76 };
+        var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel,
+                                  Location = new Point(278, 46), Width = 76 };
+
+        f.Controls.AddRange([lbl, tb, ok, cancel]);
+        f.AcceptButton = ok;
+        f.CancelButton = cancel;
+        f.Shown += (_, _) => { tb.SelectAll(); tb.Focus(); };
+
+        if (f.ShowDialog() == DialogResult.OK)
+        {
+            string name = tb.Text.Trim();
+            return name.Length > 0 ? name : null;
+        }
+        return null;
     }
 
     private int HitTest(Point pt)
