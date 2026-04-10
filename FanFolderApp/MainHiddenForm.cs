@@ -26,8 +26,10 @@ internal sealed class MainHiddenForm : Form
     // The hook runs on a dedicated background thread so its callback is never
     // delayed by UI-thread rendering (UpdateLayeredWindow).  Blocking the hook
     // callback on the UI thread was the root cause of cursor jitter.
-    private NativeMethods.LowLevelMouseProc? _mouseHookProc; // keep delegate alive (prevent GC)
+    private NativeMethods.LowLevelMouseProc?    _mouseHookProc; // keep delegate alive (prevent GC)
+    private NativeMethods.LowLevelKeyboardProc? _kbHookProc;    // keep delegate alive (prevent GC)
     private IntPtr   _mouseHook     = IntPtr.Zero;
+    private IntPtr   _kbHook        = IntPtr.Zero;
     private Thread?  _hookThread;
     private volatile int _hookThreadId;
 
@@ -446,9 +448,13 @@ internal sealed class MainHiddenForm : Form
     {
         _hookThreadId  = NativeMethods.GetCurrentThreadId();
         _mouseHookProc = MouseHookCallback;
+        _kbHookProc    = KeyboardHookCallback;
         using var module = System.Diagnostics.Process.GetCurrentProcess().MainModule!;
         _mouseHook = NativeMethods.SetWindowsHookEx(
             NativeMethods.WH_MOUSE_LL, _mouseHookProc,
+            NativeMethods.GetModuleHandle(module.ModuleName), 0);
+        _kbHook = NativeMethods.SetWindowsHookEx(
+            NativeMethods.WH_KEYBOARD_LL, _kbHookProc,
             NativeMethods.GetModuleHandle(module.ModuleName), 0);
 
         while (NativeMethods.GetMessage(out var msg, IntPtr.Zero, 0, 0) > 0)
@@ -462,7 +468,13 @@ internal sealed class MainHiddenForm : Form
             NativeMethods.UnhookWindowsHookEx(_mouseHook);
             _mouseHook = IntPtr.Zero;
         }
+        if (_kbHook != IntPtr.Zero)
+        {
+            NativeMethods.UnhookWindowsHookEx(_kbHook);
+            _kbHook = IntPtr.Zero;
+        }
         _mouseHookProc = null;
+        _kbHookProc    = null;
         _hookThreadId  = 0;
     }
 
@@ -494,6 +506,21 @@ internal sealed class MainHiddenForm : Form
             }
         }
         return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
+    }
+
+    private IntPtr KeyboardHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0)
+        {
+            int msg = wParam.ToInt32();
+            if (msg == NativeMethods.WM_KEYDOWN || msg == NativeMethods.WM_SYSKEYDOWN)
+            {
+                var fan = _fanForm;
+                if (fan != null && !fan.IsDisposed && fan.Visible)
+                    BeginInvoke(CloseFan);
+            }
+        }
+        return NativeMethods.CallNextHookEx(_kbHook, nCode, wParam, lParam);
     }
 
     // ─── Cleanup ─────────────────────────────────────────────

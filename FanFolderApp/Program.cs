@@ -178,7 +178,7 @@ static class Program
                 return style;
         }
         catch { }
-        return AnimStyle.Fan; // default
+        return AnimStyle.Spring; // default
     }
 
     internal static void SaveIncludeDirs(bool include)

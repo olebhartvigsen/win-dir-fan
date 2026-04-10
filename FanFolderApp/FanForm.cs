@@ -34,8 +34,8 @@ internal sealed class FanForm : Form
     private static readonly Color TextHover = Color.FromArgb(255, 255, 230, 120); // warm gold
 
     // ─── Entry Animation ────────────────────────────────────────
-    private System.Windows.Forms.Timer? _fadeTimer;
-    private float   _entryElapsed;          // ms since OnShown
+    private System.Diagnostics.Stopwatch _entrySw = new();
+    private float   _entryElapsed;          // ms since OnShown (real time)
     private bool    _entryDone;
     private float[] _entryProgress = [];    // per-item 0→1
     private PointF  _arcOriginInForm;       // arc hinge in form-local coords
@@ -144,38 +144,21 @@ internal sealed class FanForm : Form
         _entryElapsed  = 0f;
         _entryDone     = _animStyle == AnimStyle.None;
         _entryProgress = new float[_items.Count];
+        _entrySw.Restart();
 
-        // Fan: full alpha immediately — items fly in individually
-        // Glide/Spring: start transparent, fade in as group
-        _currentAlpha = _animStyle == AnimStyle.Fan || _animStyle == AnimStyle.None ? (byte)255 : (byte)0;
+        // Fan/Glide: full alpha immediately — items fade in via per-item alpha
+        // Spring: start transparent so the group fade-in is handled at window level
+        _currentAlpha = _animStyle == AnimStyle.Spring ? (byte)0 : (byte)255;
 
-        _fadeTimer = new System.Windows.Forms.Timer { Interval = 16 };
-        _fadeTimer.Tick += OnFadeTick;
-        _fadeTimer.Start();
-        DrawToLayeredWindow();
-    }
-
-    private void OnFadeTick(object? sender, EventArgs e)
-    {
-        if (_entryDone) { _fadeTimer?.Stop(); _fadeTimer?.Dispose(); _fadeTimer = null; return; }
-
-        _entryElapsed += 16f;
-
-        switch (_animStyle)
-        {
-            case AnimStyle.Fan:    UpdateFanEntry();    break;
-            case AnimStyle.Glide:  UpdateGlideEntry();  break;
-            case AnimStyle.Spring: UpdateSpringEntry(); break;
-            default: _entryDone = true; _currentAlpha = 255; break;
-        }
-
+        // Single shared timer drives both entry animation and hover animation — no double-draw.
+        _animTimer?.Start();
         DrawToLayeredWindow();
     }
 
     // ─── Fan Entry ──────────────────────────────────────────────
     // Items radiate one-by-one from the arc hinge to their final positions.
     private const float FanStaggerMs   = 30f;
-    private const float FanItemMs      = 300f;
+    private const float FanItemMs      = 330f;
 
     private void UpdateFanEntry()
     {
@@ -191,23 +174,24 @@ internal sealed class FanForm : Form
     }
 
     // ─── Glide Entry ────────────────────────────────────────────
-    // All items drift up 30px while window fades in together.
-    private const float GlideDurationMs = 280f;
+    // All items drift up 30px and fade in together (per-item alpha, not window alpha).
+    private const float GlideDurationMs = 800f;
+    private const float GlideShiftPx    = 32f;
 
     private void UpdateGlideEntry()
     {
-        float t = EaseOutExpo(Math.Clamp(_entryElapsed / GlideDurationMs, 0f, 1f));
+        float t = EaseOutCubic(Math.Clamp(_entryElapsed / GlideDurationMs, 0f, 1f));
         for (int i = 0; i < _entryProgress.Length; i++) _entryProgress[i] = t;
-        _currentAlpha  = (byte)Math.Clamp((int)(t * 255f), 0, 255);
-        _entryDone     = _entryElapsed >= GlideDurationMs;
-        if (_entryDone) _currentAlpha = 255;
+        _currentAlpha = 255; // window always opaque; per-item alpha drives the fade
+        _entryDone    = _entryElapsed >= GlideDurationMs;
     }
 
     // ─── Spring Entry ───────────────────────────────────────────
-    // Window fades in fast (80ms), then items spring-scale 0→1 with stagger.
-    private const float SpringFadeMs   = 80f;
-    private const float SpringStaggerMs = 24f;
-    private const float SpringItemMs   = 380f;
+    // Window fades in fast, then items spring-scale 0→1 with stagger.
+    // 15 items: 14 × 28ms stagger + 420ms item = 812ms total
+    private const float SpringFadeMs    = 120f;
+    private const float SpringStaggerMs = 28f;
+    private const float SpringItemMs    = 420f;
 
     private void UpdateSpringEntry()
     {
@@ -232,14 +216,29 @@ internal sealed class FanForm : Form
         _animProgress = new float[_items.Count];
         _animTimer = new System.Windows.Forms.Timer { Interval = 16 }; // ~60 fps
         _animTimer.Tick += OnAnimTick;
-        _animTimer.Start();
+        // Timer is started in OnShown so entry + hover share one tick
     }
 
     private void OnAnimTick(object? sender, EventArgs e)
     {
+        // ── Entry animation (runs until _entryDone) ──
         bool needsRepaint = false;
-        bool allSettled   = true;
+        if (!_entryDone && _entryProgress.Length > 0)
+        {
+            _entryElapsed = (float)_entrySw.Elapsed.TotalMilliseconds;
 
+            switch (_animStyle)
+            {
+                case AnimStyle.Fan:    UpdateFanEntry();    break;
+                case AnimStyle.Glide:  UpdateGlideEntry();  break;
+                case AnimStyle.Spring: UpdateSpringEntry(); break;
+                default: _entryDone = true; _currentAlpha = 255; break;
+            }
+            needsRepaint = true;
+        }
+
+        // ── Hover animation ──
+        bool allSettled = true;
         for (int i = 0; i < _animProgress.Length; i++)
         {
             float target = (i == _hoveredIndex) ? 1f : 0f;
@@ -252,7 +251,6 @@ internal sealed class FanForm : Form
             }
 
             allSettled = false;
-            // Move linearly; easing is applied when reading the value
             _animProgress[i] += (target > cur) ? AnimSpeed : -AnimSpeed;
             _animProgress[i] = Math.Clamp(_animProgress[i], 0f, 1f);
             needsRepaint = true;
@@ -260,8 +258,8 @@ internal sealed class FanForm : Form
 
         if (needsRepaint || _dirty) { _dirty = false; DrawToLayeredWindow(); }
 
-        // Stop timer when all animations have settled and no pending repaint.
-        if (allSettled && !_dirty) _animTimer?.Stop();
+        // Stop when both entry and hover animations are fully settled.
+        if (_entryDone && allSettled && !_dirty) _animTimer?.Stop();
     }
 
     /// <summary>Ease-out cubic: fast start, smooth deceleration — no initial delay.</summary>
@@ -281,7 +279,7 @@ internal sealed class FanForm : Form
         if (_entryDone || _animStyle == AnimStyle.None)
             return (0f, 0f, 1f, 255f);
 
-        float p = i < _entryProgress.Length ? _entryProgress[i] : 1f;
+        float p = i < _entryProgress.Length ? _entryProgress[i] : 0f;
 
         switch (_animStyle)
         {
@@ -297,14 +295,17 @@ internal sealed class FanForm : Form
             }
             case AnimStyle.Glide:
             {
-                const float GlideShift = 30f;
-                return (0f, GlideShift * (1f - p), 1f, 255f); // alpha handled globally via _currentAlpha
+                // All items slide up and fade in simultaneously
+                float alpha = Math.Clamp(p * 255f, 0f, 255f);
+                return (0f, GlideShiftPx * (1f - p), 1f, alpha);
             }
             case AnimStyle.Spring:
             {
-                // scale 0 → 1.07 → 1.0 (SpringOut handles the overshoot)
+                // Scale and alpha grow together — items fade in as they grow,
+                // preventing any abrupt pop at small sizes.
                 float scale = Math.Max(p, 0f);
-                return (0f, 0f, scale, Math.Clamp(p * 255f * 3f, 0f, 255f));
+                float alpha = Math.Clamp(p * 255f, 0f, 255f);
+                return (0f, 0f, scale, alpha);
             }
             default:
                 return (0f, 0f, 1f, 255f);
@@ -874,11 +875,14 @@ internal sealed class FanForm : Form
         var (eDx, eDy, eScale, eAlpha) = GetEntryAnim(i);
         float entryAlpha = Math.Clamp(eAlpha, 0f, 255f);
 
+        // Skip until item is meaningfully visible — prevents sub-pixel blips
+        if (entryAlpha < 4f || eScale < 0.04f) return;
+
         // ── Hover scale via eased progress ──
         float t = (i < _animProgress.Length) ? EaseInOut(_animProgress[i]) : 0f;
         float hoverScale = 1f + t * (HoverScaleMax - 1f);
 
-        float combinedScale = hoverScale * eScale;
+        float combinedScale = Math.Max(hoverScale * eScale, 0.01f); // never zero
         float drawSize = _iconSize * combinedScale;
         float cx = iconPos.X + eDx + _iconSize * 0.5f;
         float cy = iconPos.Y + eDy + _iconSize * 0.5f;
@@ -1534,8 +1538,6 @@ internal sealed class FanForm : Form
             _iconLoadCts.Dispose();
             _animTimer?.Stop();
             _animTimer?.Dispose();
-            _fadeTimer?.Stop();
-            _fadeTimer?.Dispose();
             _font?.Dispose();
             _sf?.Dispose();
             _offscreenBmp?.Dispose();

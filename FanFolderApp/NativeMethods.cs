@@ -496,6 +496,18 @@ internal static class NativeMethods
     internal static extern IntPtr SetWindowsHookEx(
         int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
 
+    // ─── Global Keyboard Hook (WH_KEYBOARD_LL) ─────────────────────────
+
+    internal const int WH_KEYBOARD_LL  = 13;
+    internal const int WM_KEYDOWN      = 0x0100;
+    internal const int WM_SYSKEYDOWN   = 0x0104;
+
+    internal delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern IntPtr SetWindowsHookEx(
+        int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool UnhookWindowsHookEx(IntPtr hhk);
