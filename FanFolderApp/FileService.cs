@@ -158,31 +158,41 @@ internal sealed class FileService
         // A real icon has a transparent background; a preview is fully opaque.
         // LooksLikeIcon() rejects opaque-cornered bitmaps so they fall through to SHIL.
         var direct = TryShellItemImage(path, targetSize);
-        if (direct != null && BitmapHasVisiblePixels(direct) && LooksLikeIcon(direct))
+        bool directHasPixels = direct != null && BitmapHasVisiblePixels(direct);
+        if (directHasPixels && LooksLikeIcon(direct!))
             return direct;
-        direct?.Dispose();
 
         // ── Fallback: SHIL / SHDefExtractIcon chain ──────────────────────
         // Convert the HICON to a bitmap, then strip any transparent padding
         // before scaling up to targetSize (e.g. .zip EXTRALARGE icon is 48px
         // but may have a smaller graphic centred inside it).
         using var icon = GetShellIcon(path);
-        if (icon == null) return null;
+        if (icon != null)
+        {
+            using var src = icon.ToBitmap();
+            var content = FindContentRect(src);
 
-        using var src = icon.ToBitmap();
-        var content = FindContentRect(src);
+            var bmp = new Bitmap(targetSize, targetSize,
+                System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+            using var g = Graphics.FromImage(bmp);
+            g.Clear(Color.Transparent);
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            g.PixelOffsetMode   = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            g.DrawImage(src,
+                new Rectangle(0, 0, targetSize, targetSize),
+                content,
+                GraphicsUnit.Pixel);
 
-        var bmp = new Bitmap(targetSize, targetSize,
-            System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
-        using var g = Graphics.FromImage(bmp);
-        g.Clear(Color.Transparent);
-        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-        g.PixelOffsetMode   = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-        g.DrawImage(src,
-            new Rectangle(0, 0, targetSize, targetSize),
-            content,
-            GraphicsUnit.Pixel);
-        return bmp;
+            if (BitmapHasVisiblePixels(bmp)) { direct?.Dispose(); return bmp; }
+            bmp.Dispose();
+        }
+
+        // SHIL also failed — use the IShellItemImageFactory result even if
+        // LooksLikeIcon rejected it (e.g. PDF handler returns a page preview).
+        // Better to show the preview than a blank white icon.
+        if (directHasPixels) return direct;
+        direct?.Dispose();
+        return null;
     }
 
     /// <summary>

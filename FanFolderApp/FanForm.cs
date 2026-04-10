@@ -29,8 +29,9 @@ internal sealed class FanForm : Form
     private static readonly Color HoverTint  = Color.FromArgb(60, 255, 255, 255);
 
     // ─── Animation ──────────────────────────────────────────────
-    private const float HoverScaleMax = 1.4f;
-    private const float AnimSpeed = 0.53f;  // progress per tick (≈ 2 ticks / ~30 ms to full)
+    private const float HoverScaleMax  = 1.4f;
+    private const float HoverSpeedIn   = 0.30f;  // 0→1 in ~3 ticks (~50 ms)
+    private const float HoverSpeedOut  = 0.38f;  // 1→0 in ~3 ticks (~42 ms)
     private static readonly Color TextHover = Color.FromArgb(255, 255, 230, 120); // warm gold
 
     // ─── Entry Animation ────────────────────────────────────────
@@ -251,7 +252,8 @@ internal sealed class FanForm : Form
             }
 
             allSettled = false;
-            _animProgress[i] += (target > cur) ? AnimSpeed : -AnimSpeed;
+            float speed = target > cur ? HoverSpeedIn : HoverSpeedOut;
+            _animProgress[i] += target > cur ? speed : -speed;
             _animProgress[i] = Math.Clamp(_animProgress[i], 0f, 1f);
             needsRepaint = true;
         }
@@ -899,7 +901,7 @@ internal sealed class FanForm : Form
         if (entryAlpha < 4f || eScale < 0.04f) return;
 
         // ── Hover scale via eased progress ──
-        float t = (i < _animProgress.Length) ? EaseInOut(_animProgress[i]) : 0f;
+        float t = (i < _animProgress.Length) ? EaseOutQuart(_animProgress[i]) : 0f;
         float hoverScale = 1f + t * (HoverScaleMax - 1f);
 
         float combinedScale = Math.Max(hoverScale * eScale, 0.01f); // never zero
@@ -1164,9 +1166,6 @@ internal sealed class FanForm : Form
         int idx = HitTest(e.Location);
         if (idx != _hoveredIndex)
         {
-            // Snap hover-out instantly for previous item
-            if (_hoveredIndex >= 0 && _hoveredIndex < _animProgress.Length)
-                _animProgress[_hoveredIndex] = 0f;
             _hoveredIndex = idx;
             _animTimer?.Start(); // ensure running for hover animation
             Cursor = idx >= 0 ? Cursors.Hand : Cursors.Default;
@@ -1187,9 +1186,6 @@ internal sealed class FanForm : Form
 
         if (_hoveredIndex != -1)
         {
-            // Snap hover-out instantly
-            if (_hoveredIndex < _animProgress.Length)
-                _animProgress[_hoveredIndex] = 0f;
             _hoveredIndex = -1;
             Cursor = Cursors.Default;
             _dirty = true;
