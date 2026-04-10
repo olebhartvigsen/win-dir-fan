@@ -516,7 +516,7 @@ internal sealed class MainHiddenForm : Form
             if (msg == NativeMethods.WM_KEYDOWN || msg == NativeMethods.WM_SYSKEYDOWN)
             {
                 var fan = _fanForm;
-                if (fan != null && !fan.IsDisposed && fan.Visible)
+                if (fan != null && !fan.IsDisposed && fan.Visible && !fan.IsContextMenuOpen)
                     BeginInvoke(CloseFan);
             }
         }
