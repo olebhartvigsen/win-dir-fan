@@ -592,4 +592,15 @@ internal static class NativeMethods
         IntPtr hMenu, uint uFlags,
         int x, int y, int nReserved,
         IntPtr hWnd, IntPtr prcRect);
+
+    // Required before TrackPopupMenu on non-foreground windows
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    internal const uint WM_NULL = 0x0000;
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 }

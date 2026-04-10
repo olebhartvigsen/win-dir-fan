@@ -1000,11 +1000,11 @@ internal sealed class FanForm : Form
         }
         else if (e.Button == MouseButtons.Right)
         {
-            ShowItemContextMenu(item, e.Location);
+            ShowItemContextMenu(item, PointToScreen(e.Location));
         }
     }
 
-    private void ShowItemContextMenu(FanItem item, Point localPt)
+    private void ShowItemContextMenu(FanItem item, Point screenPt)
     {
         var pidl = NativeMethods.ILCreateFromPath(item.FullPath);
         if (pidl == IntPtr.Zero) return;
@@ -1012,29 +1012,53 @@ internal sealed class FanForm : Form
         try
         {
             var iidSF = NativeMethods.IID_IShellFolder;
-            if (NativeMethods.SHBindToParent(pidl, ref iidSF, out var psf, out var pidlChild) != 0) return;
+            int hr = NativeMethods.SHBindToParent(pidl, ref iidSF, out var psf, out var pidlChild);
+            if (hr != 0) return;
 
             try
             {
-                var iidCM2  = NativeMethods.IID_IContextMenu2;
-                var apidl   = new[] { pidlChild };
-                if (psf.GetUIObjectOf(Handle, 1, apidl, ref iidCM2, IntPtr.Zero, out var obj) != 0) return;
+                // GetUIObjectOf supports IContextMenu (base), not IContextMenu2 directly
+                var iidCM = NativeMethods.IID_IContextMenu;
+                var apidl = new[] { pidlChild };
+                hr = psf.GetUIObjectOf(Handle, 1, apidl, ref iidCM, IntPtr.Zero, out var cmObj);
+                if (hr != 0) return;
 
-                var pcm2 = (NativeMethods.IContextMenu2)obj;
-                var hMenu = NativeMethods.CreatePopupMenu();
+                var pcm = (NativeMethods.IContextMenu)cmObj;
+
+                // QI for IContextMenu2 to support owner-draw submenus (Send to, Open with…)
+                NativeMethods.IContextMenu2? pcm2 = null;
+                var punk = Marshal.GetIUnknownForObject(cmObj);
                 try
                 {
-                    pcm2.QueryContextMenu(hMenu, 0,
-                        NativeMethods.ID_CMD_FIRST, NativeMethods.ID_CMD_LAST,
-                        NativeMethods.CMF_EXPLORE);
+                    var iid2 = NativeMethods.IID_IContextMenu2;
+                    if (Marshal.QueryInterface(punk, ref iid2, out var p2) == 0)
+                    {
+                        pcm2 = (NativeMethods.IContextMenu2)Marshal.GetObjectForIUnknown(p2);
+                        Marshal.Release(p2);
+                    }
+                }
+                finally { Marshal.Release(punk); }
 
-                    var screenPt = PointToScreen(localPt);
-                    _contextMenuOpen   = true;
+                var hMenu = NativeMethods.CreatePopupMenu();
+                if (hMenu == IntPtr.Zero) return;
+
+                try
+                {
+                    if (pcm2 != null)
+                        pcm2.QueryContextMenu(hMenu, 0, NativeMethods.ID_CMD_FIRST, NativeMethods.ID_CMD_LAST, NativeMethods.CMF_EXPLORE);
+                    else
+                        pcm.QueryContextMenu (hMenu, 0, NativeMethods.ID_CMD_FIRST, NativeMethods.ID_CMD_LAST, NativeMethods.CMF_EXPLORE);
+
+                    _contextMenuOpen    = true;
                     _activeContextMenu2 = pcm2;
+
+                    NativeMethods.SetForegroundWindow(Handle);
 
                     int cmd = NativeMethods.TrackPopupMenu(hMenu,
                         NativeMethods.TPM_RETURNCMD | NativeMethods.TPM_RIGHTBUTTON,
                         screenPt.X, screenPt.Y, 0, Handle, IntPtr.Zero);
+
+                    NativeMethods.PostMessage(Handle, NativeMethods.WM_NULL, IntPtr.Zero, IntPtr.Zero);
 
                     _activeContextMenu2 = null;
                     _contextMenuOpen    = false;
@@ -1044,17 +1068,20 @@ internal sealed class FanForm : Form
                         var ici = new NativeMethods.CMINVOKECOMMANDINFO
                         {
                             cbSize = Marshal.SizeOf<NativeMethods.CMINVOKECOMMANDINFO>(),
+                            hwnd   = Handle,
                             lpVerb = (IntPtr)(cmd - NativeMethods.ID_CMD_FIRST),
                             nShow  = NativeMethods.SW_SHOWNORMAL,
                         };
-                        pcm2.InvokeCommand(ref ici);
+                        if (pcm2 != null) pcm2.InvokeCommand(ref ici);
+                        else              pcm.InvokeCommand(ref ici);
                     }
                     Close();
                 }
                 finally
                 {
                     NativeMethods.DestroyMenu(hMenu);
-                    Marshal.ReleaseComObject(pcm2);
+                    if (pcm2 != null) Marshal.ReleaseComObject(pcm2);
+                    Marshal.ReleaseComObject(pcm);
                 }
             }
             finally
@@ -1122,6 +1149,7 @@ internal sealed class FanForm : Form
     protected override void WndProc(ref Message m)
     {
         const int WM_NCHITTEST     = 0x0084;
+        const int WM_CONTEXTMENU   = 0x007B;
         const int HTCLIENT         = 1;
         const int HTTRANSPARENT    = -1;
         const int WM_INITMENUPOPUP = 0x0117;
@@ -1135,6 +1163,42 @@ internal sealed class FanForm : Form
         {
             _activeContextMenu2.HandleMenuMsg((uint)m.Msg, m.WParam, m.LParam);
             m.Result = IntPtr.Zero;
+            return;
+        }
+
+        // WM_RBUTTONUP: handle right-click directly at Win32 level (more reliable than
+        // OnMouseClick on WS_EX_NOACTIVATE layered windows).
+        const int WM_RBUTTONUP = 0x0205;
+        if (m.Msg == WM_RBUTTONUP)
+        {
+            long lp2 = m.LParam.ToInt64();
+            var localPt2 = new Point((short)(lp2 & 0xFFFF), (short)((lp2 >> 16) & 0xFFFF));
+            int idx2 = HitTest(localPt2);
+            if (idx2 >= 0 && idx2 < _items.Count && !string.IsNullOrEmpty(_items[idx2].FullPath))
+                ShowItemContextMenu(_items[idx2], PointToScreen(localPt2));
+            return;
+        }
+
+        // Use long arithmetic so we don't overflow on 64-bit.
+        if (m.Msg == WM_CONTEXTMENU)
+        {
+            long lp = m.LParam.ToInt64();
+            Point screenPt;
+            if ((int)lp == -1)
+            {
+                screenPt = Cursor.Position;
+            }
+            else
+            {
+                screenPt = new Point((short)(lp & 0xFFFF), (short)((lp >> 16) & 0xFFFF));
+            }
+
+            var localPt = PointToClient(screenPt);
+            int idx = HitTest(localPt);
+            if (idx >= 0 && idx < _items.Count && !string.IsNullOrEmpty(_items[idx].FullPath))
+            {
+                ShowItemContextMenu(_items[idx], screenPt);
+            }
             return;
         }
 
