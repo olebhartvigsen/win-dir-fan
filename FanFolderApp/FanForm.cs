@@ -33,12 +33,13 @@ internal sealed class FanForm : Form
     private const float AnimSpeed = 0.53f;  // progress per tick (≈ 2 ticks / ~30 ms to full)
     private static readonly Color TextHover = Color.FromArgb(255, 255, 230, 120); // warm gold
 
-    // ─── Fade-in / slide-up ─────────────────────────────────────
-    private const float FadeDurationMs = 20f;
-    private const int SlideDistance = 0; // pixels to slide up
+    // ─── Entry Animation ────────────────────────────────────────
     private System.Windows.Forms.Timer? _fadeTimer;
-    private float _fadeProgress;           // 0 → 1
-    private int _targetTop;                // final Y position
+    private float   _entryElapsed;          // ms since OnShown
+    private bool    _entryDone;
+    private float[] _entryProgress = [];    // per-item 0→1
+    private PointF  _arcOriginInForm;       // arc hinge in form-local coords
+    private readonly AnimStyle _animStyle;
 
     // ─── State ───────────────────────────────────────────────────
     private readonly List<FanItem> _items = [];
@@ -105,13 +106,15 @@ internal sealed class FanForm : Form
                    int      maxItems    = 15,
                    bool     includeDirs = true,
                    string?  filterRegex = null,
-                   IReadOnlyList<FileSystemInfo>? preloadedItems = null)
+                   IReadOnlyList<FileSystemInfo>? preloadedItems = null,
+                   AnimStyle animStyle  = AnimStyle.Fan)
     {
         _folderPath  = folderPath;
         _sortMode    = sortMode;
         _maxItems    = maxItems;
         _includeDirs = includeDirs;
         _filterRegex = filterRegex;
+        _animStyle   = animStyle;
 
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
@@ -136,35 +139,92 @@ internal sealed class FanForm : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        ApplyInputRegion();   // restrict hit-testing to icon+label areas only
-        _targetTop = Top;
-        _currentAlpha = 0;
-        _fadeProgress = 0f;
+        ApplyInputRegion();
+
+        _entryElapsed  = 0f;
+        _entryDone     = _animStyle == AnimStyle.None;
+        _entryProgress = new float[_items.Count];
+
+        // Fan: full alpha immediately — items fly in individually
+        // Glide/Spring: start transparent, fade in as group
+        _currentAlpha = _animStyle == AnimStyle.Fan || _animStyle == AnimStyle.None ? (byte)255 : (byte)0;
+
         _fadeTimer = new System.Windows.Forms.Timer { Interval = 16 };
         _fadeTimer.Tick += OnFadeTick;
         _fadeTimer.Start();
-        // Render one frame immediately so the window appears without waiting
-        // for the first timer tick (~16 ms).
-        OnFadeTick(null, EventArgs.Empty);
+        DrawToLayeredWindow();
     }
 
     private void OnFadeTick(object? sender, EventArgs e)
     {
-        _fadeProgress += 16f / FadeDurationMs;
-        if (_fadeProgress >= 1f)
+        if (_entryDone) { _fadeTimer?.Stop(); _fadeTimer?.Dispose(); _fadeTimer = null; return; }
+
+        _entryElapsed += 16f;
+
+        switch (_animStyle)
         {
-            _fadeProgress = 1f;
-            _fadeTimer?.Stop();
-            _fadeTimer?.Dispose();
-            _fadeTimer = null;
+            case AnimStyle.Fan:    UpdateFanEntry();    break;
+            case AnimStyle.Glide:  UpdateGlideEntry();  break;
+            case AnimStyle.Spring: UpdateSpringEntry(); break;
+            default: _entryDone = true; _currentAlpha = 255; break;
         }
 
-        // Ease-out cubic: fast start, smooth deceleration
-        float t = 1f - MathF.Pow(1f - _fadeProgress, 3f);
-
-        _currentAlpha = (byte)Math.Clamp((int)(t * 255f), 0, 255);
-        Top = _targetTop + (int)(SlideDistance * (1f - t));
         DrawToLayeredWindow();
+    }
+
+    // ─── Fan Entry ──────────────────────────────────────────────
+    // Items radiate one-by-one from the arc hinge to their final positions.
+    private const float FanStaggerMs   = 30f;
+    private const float FanItemMs      = 300f;
+
+    private void UpdateFanEntry()
+    {
+        bool allDone = true;
+        for (int i = 0; i < _entryProgress.Length; i++)
+        {
+            float start = i * FanStaggerMs;
+            float t     = Math.Clamp((_entryElapsed - start) / FanItemMs, 0f, 1f);
+            _entryProgress[i] = EaseOutQuart(t);
+            if (t < 1f) allDone = false;
+        }
+        _entryDone = allDone;
+    }
+
+    // ─── Glide Entry ────────────────────────────────────────────
+    // All items drift up 30px while window fades in together.
+    private const float GlideDurationMs = 280f;
+
+    private void UpdateGlideEntry()
+    {
+        float t = EaseOutExpo(Math.Clamp(_entryElapsed / GlideDurationMs, 0f, 1f));
+        for (int i = 0; i < _entryProgress.Length; i++) _entryProgress[i] = t;
+        _currentAlpha  = (byte)Math.Clamp((int)(t * 255f), 0, 255);
+        _entryDone     = _entryElapsed >= GlideDurationMs;
+        if (_entryDone) _currentAlpha = 255;
+    }
+
+    // ─── Spring Entry ───────────────────────────────────────────
+    // Window fades in fast (80ms), then items spring-scale 0→1 with stagger.
+    private const float SpringFadeMs   = 80f;
+    private const float SpringStaggerMs = 24f;
+    private const float SpringItemMs   = 380f;
+
+    private void UpdateSpringEntry()
+    {
+        // Group alpha
+        float alphaT   = Math.Clamp(_entryElapsed / SpringFadeMs, 0f, 1f);
+        _currentAlpha  = (byte)Math.Clamp((int)(EaseOutQuart(alphaT) * 255f), 0, 255);
+
+        bool allDone = true;
+        for (int i = 0; i < _entryProgress.Length; i++)
+        {
+            float start = i * SpringStaggerMs;
+            float t     = Math.Clamp((_entryElapsed - start) / SpringItemMs, 0f, 1f);
+            _entryProgress[i] = SpringOut(t);
+            if (t < 1f) allDone = false;
+        }
+        _entryDone = allDone;
+        if (_entryDone) _currentAlpha = 255;
     }
 
     private void InitAnimation()
@@ -205,9 +265,50 @@ internal sealed class FanForm : Form
     }
 
     /// <summary>Ease-out cubic: fast start, smooth deceleration — no initial delay.</summary>
-    private static float EaseInOut(float t)
+    private static float EaseInOut(float t)          => 1f - MathF.Pow(1f - t, 3f);
+    private static float EaseOutQuart(float t)       => 1f - MathF.Pow(1f - t, 4f);
+    private static float EaseOutExpo(float t)        => t >= 1f ? 1f : 1f - MathF.Pow(2f, -10f * t);
+    private static float EaseOutCubic(float t)       => 1f - MathF.Pow(1f - t, 3f);
+    private static float SpringOut(float t)
     {
-        return 1f - MathF.Pow(1f - t, 3f);
+        // Smooth spring with ~7% overshoot around t≈0.65
+        return EaseOutCubic(t) + MathF.Sin(t * MathF.PI) * 0.12f;
+    }
+
+    // Returns (dx, dy offset from rest, scale multiplier, alpha 0-255) for item i during entry.
+    private (float dx, float dy, float scale, float alpha) GetEntryAnim(int i)
+    {
+        if (_entryDone || _animStyle == AnimStyle.None)
+            return (0f, 0f, 1f, 255f);
+
+        float p = i < _entryProgress.Length ? _entryProgress[i] : 1f;
+
+        switch (_animStyle)
+        {
+            case AnimStyle.Fan:
+            {
+                // Fly from arc hinge to rest position
+                var rest = _iconPositions[i];
+                float fromX = _arcOriginInForm.X - _iconSize * 0.5f;
+                float fromY = _arcOriginInForm.Y - _iconSize * 0.5f;
+                float dx    = (fromX - rest.X) * (1f - p);
+                float dy    = (fromY - rest.Y) * (1f - p);
+                return (dx, dy, p, p * 255f);
+            }
+            case AnimStyle.Glide:
+            {
+                const float GlideShift = 30f;
+                return (0f, GlideShift * (1f - p), 1f, 255f); // alpha handled globally via _currentAlpha
+            }
+            case AnimStyle.Spring:
+            {
+                // scale 0 → 1.07 → 1.0 (SpringOut handles the overshoot)
+                float scale = Math.Max(p, 0f);
+                return (0f, 0f, scale, Math.Clamp(p * 255f * 3f, 0f, 255f));
+            }
+            default:
+                return (0f, 0f, 1f, 255f);
+        }
     }
 
     // ═════════════════════════════════════════════════════════
@@ -452,6 +553,7 @@ internal sealed class FanForm : Form
         // Icon positions and hit rects in form-local coords
         float offX = -minX;
         float offY = -minY;
+        _arcOriginInForm = new PointF(offX, offY); // arc hinge maps to form origin
         _iconPositions = new PointF[count];
         _hitRects = new RectangleF[count];
 
@@ -768,12 +870,20 @@ internal sealed class FanForm : Form
         var item = _items[i];
         var iconPos = _iconPositions[i];
 
-        // ── Animated scale via eased progress ──
+        // ── Entry animation offset + scale ──
+        var (eDx, eDy, eScale, eAlpha) = GetEntryAnim(i);
+        float entryAlpha = Math.Clamp(eAlpha, 0f, 255f);
+
+        // ── Hover scale via eased progress ──
         float t = (i < _animProgress.Length) ? EaseInOut(_animProgress[i]) : 0f;
-        float scale = 1f + t * (HoverScaleMax - 1f);
-        float drawSize = _iconSize * scale;
-        float drawX = iconPos.X - (_iconSize * (scale - 1f) / 2f);
-        float drawY = iconPos.Y - (_iconSize * (scale - 1f) / 2f);
+        float hoverScale = 1f + t * (HoverScaleMax - 1f);
+
+        float combinedScale = hoverScale * eScale;
+        float drawSize = _iconSize * combinedScale;
+        float cx = iconPos.X + eDx + _iconSize * 0.5f;
+        float cy = iconPos.Y + eDy + _iconSize * 0.5f;
+        float drawX = cx - drawSize * 0.5f;
+        float drawY = cy - drawSize * 0.5f;
 
         if (item.IsArrow) { DrawArrow(g, drawX, drawY, drawSize); return; }
 
@@ -793,40 +903,35 @@ internal sealed class FanForm : Form
 
             if (item.MeasuredTextWidth < 0f)
             {
-                // Cache with GDI+ (same engine as g.DrawString) so the pill
-                // is sized accurately for the base (non-hover) state.
                 item.MeasuredTextWidth = g.MeasureString(item.Name, font,
                     new SizeF(float.MaxValue, 32f), sf).Width;
             }
 
-            // On hover remeasure with the scaled font — GDI+ is the only
-            // engine that matches g.DrawString; TextRenderer (GDI) can differ.
             float rawTextW = ownFont
                 ? g.MeasureString(item.Name, drawFont, new SizeF(float.MaxValue, 32f), sf).Width
                 : item.MeasuredTextWidth;
 
-            // No hard cap here — CalculateArcLayout already sized the form to
-            // fit the widest label.  pillLeft clamps to the form edge as safety.
             float textW = rawTextW;
 
             float pillW     = textW + PillPadH * 2f;
             float pillH     = emPx + PillPadV * 2f;
-            float pillRight = iconPos.X - LabelGap;
+            float pillRight = iconPos.X + eDx - LabelGap;
             float pillLeft  = MathF.Max(0f, pillRight - pillW);
             pillW = pillRight - pillLeft;
             if (pillW >= PillPadH * 2f + 4f)
             {
-                float pillTop = iconPos.Y + (_iconSize - pillH) / 2f;
+                float pillTop = iconPos.Y + eDy + (_iconSize - pillH) / 2f;
                 float radius  = MathF.Min(pillH / 2f - 0.5f, pillW / 2f - 0.5f);
 
                 using var pillPath = SquirclePath(new RectangleF(pillLeft, pillTop, pillW, pillH), radius);
-                int bgAlpha = (int)(190 + t * 30);
-                using var pillBrush = new SolidBrush(Color.FromArgb(bgAlpha, 20, 20, 20));
+                int bgAlpha = (int)((190 + t * 30) * entryAlpha / 255f);
+                using var pillBrush = new SolidBrush(Color.FromArgb(Math.Clamp(bgAlpha, 0, 255), 20, 20, 20));
                 g.FillPath(pillBrush, pillPath);
 
                 float textAreaW = pillW - PillPadH * 2f;
                 var layoutRect = new RectangleF(pillLeft + PillPadH, pillTop + PillPadV, textAreaW, emPx + PillPadV);
-                using var textBrush = new SolidBrush(Color.White);
+                int textAlpha = Math.Clamp((int)entryAlpha, 0, 255);
+                using var textBrush = new SolidBrush(Color.FromArgb(textAlpha, 255, 255, 255));
                 g.DrawString(item.Name, drawFont, textBrush, layoutRect, sf);
             }
         }
@@ -853,7 +958,24 @@ internal sealed class FanForm : Form
                     DrawShadowPass(g, item.Bmp, srcRect, drawX, drawY, drawSize,
                         offset, alpha: (int)(t * peakAlpha));
             }
-            g.DrawImage(item.Bmp, new RectangleF(drawX, drawY, drawSize, drawSize));
+
+            if (entryAlpha >= 254f)
+            {
+                g.DrawImage(item.Bmp, new RectangleF(drawX, drawY, drawSize, drawSize));
+            }
+            else
+            {
+                // Apply per-item alpha during entry animation
+                using var ia = MakeAlphaAttributes(entryAlpha / 255f);
+                var srcRect = new RectangleF(0, 0, item.Bmp.Width, item.Bmp.Height);
+                PointF[] destPts =
+                {
+                    new PointF(drawX,            drawY),
+                    new PointF(drawX + drawSize,  drawY),
+                    new PointF(drawX,             drawY + drawSize),
+                };
+                g.DrawImage(item.Bmp, destPts, srcRect, GraphicsUnit.Pixel, ia);
+            }
         }
     }
 
@@ -881,6 +1003,21 @@ internal sealed class FanForm : Form
                 new[] { r.Location, new PointF(r.Right, r.Top), new PointF(r.Left, r.Bottom) },
                 srcRect, GraphicsUnit.Pixel, ia);
         }
+    }
+
+    private static System.Drawing.Imaging.ImageAttributes MakeAlphaAttributes(float alpha)
+    {
+        var cm = new System.Drawing.Imaging.ColorMatrix(new float[][]
+        {
+            new float[] { 1, 0, 0, 0, 0 },
+            new float[] { 0, 1, 0, 0, 0 },
+            new float[] { 0, 0, 1, 0, 0 },
+            new float[] { 0, 0, 0, alpha, 0 },
+            new float[] { 0, 0, 0, 0, 1 },
+        });
+        var ia = new System.Drawing.Imaging.ImageAttributes();
+        ia.SetColorMatrix(cm);
+        return ia;
     }
 
     private Font CreateItemFont()

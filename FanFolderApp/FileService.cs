@@ -22,6 +22,17 @@ public enum SortMode
 }
 
 /// <summary>
+/// Controls the opening animation played when the fan menu appears.
+/// </summary>
+public enum AnimStyle
+{
+    Fan,     // Items radiate one-by-one from the taskbar edge (default)
+    Glide,   // All items drift upward together while fading in
+    Spring,  // Items spring-scale into place with elastic overshoot
+    None,    // No animation — instant appearance
+}
+
+/// <summary>
 /// Provides file-system operations: fetching top-N recent items and
 /// extracting native shell icons via SHGetImageList.
 /// </summary>

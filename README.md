@@ -170,6 +170,37 @@ Remove-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "FilterRegex" -ErrorA
 
 ---
 
+### AnimationStyle
+
+**Type:** `REG_SZ`  
+**Default:** `Fan`  
+**Values:** `Fan`, `Glide`, `Spring`, `None`
+
+Controls the visual animation when the fan menu opens.
+
+| Value | Effect |
+|-------|--------|
+| `Fan` | Items radiate one-by-one from the taskbar edge to their arc positions, staggered with an ease-out-quart curve. ~550 ms total. |
+| `Glide` | All items drift upward 30 px while the window fades in together. Smooth ease-out-expo, ~280 ms. |
+| `Spring` | Window fades in quickly, then items spring-scale from 0 with a slight overshoot bounce, staggered. ~600 ms total. |
+| `None` | Instant — no animation. |
+
+```powershell
+# Fan (default) — items fly in one by one from the arc origin
+Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "AnimationStyle" -Value "Fan"
+
+# Glide — whole menu drifts up while fading in
+Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "AnimationStyle" -Value "Glide"
+
+# Spring — items scale in with a bouncy spring effect
+Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "AnimationStyle" -Value "Spring"
+
+# None — no animation, instant display
+Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "AnimationStyle" -Value "None"
+```
+
+---
+
 ## Apply changes
 
 Registry settings are read at startup. Restart the app after making changes:

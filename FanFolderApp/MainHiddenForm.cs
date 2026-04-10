@@ -14,6 +14,7 @@ internal sealed class MainHiddenForm : Form
     private readonly int      _maxItems;
     private readonly bool     _includeDirs;
     private readonly string?  _filterRegex;
+    private readonly AnimStyle _animStyle;
     private FanForm? _fanForm;
     private FanForm? _prewarmFanForm;
     private bool _suppressNextActivation;
@@ -38,13 +39,15 @@ internal sealed class MainHiddenForm : Form
                           SortMode sortMode    = SortMode.DateModifiedDesc,
                           int      maxItems    = 15,
                           bool     includeDirs = true,
-                          string?  filterRegex = null)
+                          string?  filterRegex = null,
+                          AnimStyle animStyle  = AnimStyle.Fan)
     {
         _folderPath  = folderPath;
         _sortMode    = sortMode;
         _maxItems    = maxItems;
         _includeDirs = includeDirs;
         _filterRegex = filterRegex;
+        _animStyle   = animStyle;
 
         // Keep taskbar icon, but make form invisible
         Text = "Fan Folder";
@@ -105,7 +108,7 @@ internal sealed class MainHiddenForm : Form
     private void BuildPrewarmForm(IReadOnlyList<FileSystemInfo> items)
     {
         _prewarmFanForm?.Dispose();
-        _prewarmFanForm = new FanForm(_folderPath, _sortMode, _maxItems, _includeDirs, _filterRegex, items);
+        _prewarmFanForm = new FanForm(_folderPath, _sortMode, _maxItems, _includeDirs, _filterRegex, items, _animStyle);
         _ = _prewarmFanForm.Handle; // force HWND creation now, not on click
     }
 
@@ -354,7 +357,7 @@ internal sealed class MainHiddenForm : Form
             // Fallback: pre-warm wasn't ready yet.
             var items = _cachedItems;
             _cachedItems = null;
-            form = new FanForm(_folderPath, _sortMode, _maxItems, _includeDirs, _filterRegex, items);
+            form = new FanForm(_folderPath, _sortMode, _maxItems, _includeDirs, _filterRegex, items, _animStyle);
         }
 
         form.Reposition(); // snap to current cursor — fast (no arc recalc)

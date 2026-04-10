@@ -10,6 +10,7 @@ static class Program
     internal const string RegValueMax     = "MaxItems";
     internal const string RegValueDirs    = "IncludeDirectories";
     internal const string RegValueRegex   = "FilterRegex";
+    internal const string RegValueAnim    = "AnimationStyle";
 
     // Retained for back-compat (old code that references RegValue by name).
     internal const string RegValue = RegValueFolder;
@@ -26,8 +27,9 @@ static class Program
         int      maxItems    = LoadMaxItems();
         bool     includeDirs = LoadIncludeDirs();
         string?  filterRegex = LoadFilterRegex();
+        AnimStyle animStyle  = LoadAnimStyle();
 
-        Application.Run(new MainHiddenForm(folder, sortMode, maxItems, includeDirs, filterRegex));
+        Application.Run(new MainHiddenForm(folder, sortMode, maxItems, includeDirs, filterRegex, animStyle));
     }
 
     private static string LoadFolderPath()
@@ -164,6 +166,19 @@ static class Program
         }
         catch { }
         return null;
+    }
+
+    private static AnimStyle LoadAnimStyle()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RegKey);
+            if (key?.GetValue(RegValueAnim) is string raw
+                && Enum.TryParse<AnimStyle>(raw, ignoreCase: true, out var style))
+                return style;
+        }
+        catch { }
+        return AnimStyle.Fan; // default
     }
 
     internal static void SaveIncludeDirs(bool include)
