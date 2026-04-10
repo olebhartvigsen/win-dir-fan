@@ -427,6 +427,38 @@ internal static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, [MarshalAs(UnmanagedType.Bool)] bool bRedraw);
 
+    // ─── Message loop primitives (dedicated hook thread) ──────────────
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MSG
+    {
+        public IntPtr hwnd;
+        public uint   message;
+        public IntPtr wParam;
+        public IntPtr lParam;
+        public uint   time;
+        public POINT  pt;
+    }
+
+    [DllImport("user32.dll")]
+    internal static extern int GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool TranslateMessage(ref MSG lpMsg);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr DispatchMessage(ref MSG lpmsg);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool PostThreadMessage(int idThread, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("kernel32.dll")]
+    internal static extern int GetCurrentThreadId();
+
+    internal const uint WM_QUIT = 0x0012;
+
     // ─── Global Mouse Hook (WH_MOUSE_LL) ───────────────────────────────
 
     internal const int WH_MOUSE_LL     = 14;
@@ -459,4 +491,116 @@ internal static class NativeMethods
 
     [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
     internal static extern IntPtr GetModuleHandle(string? lpModuleName);
+
+    // ─── Shell Context Menu (IShellFolder / IContextMenu) ─────────────
+
+    internal static readonly Guid IID_IShellFolder = new("000214E6-0000-0000-C000-000000000046");
+    internal static readonly Guid IID_IContextMenu  = new("000214E4-0000-0000-C000-000000000046");
+    internal static readonly Guid IID_IContextMenu2 = new("000214F4-0000-0000-C000-000000000046");
+
+    /// <summary>Binds to the parent folder of <paramref name="pidl"/> and returns the
+    /// relative child PIDL within that folder.  The child PIDL points into the
+    /// original <paramref name="pidl"/> allocation — do NOT free it separately.</summary>
+    [DllImport("shell32.dll")]
+    internal static extern int SHBindToParent(
+        IntPtr pidl, ref Guid riid,
+        [MarshalAs(UnmanagedType.Interface)] out IShellFolder ppv,
+        out IntPtr ppidlLast);
+
+    [ComImport]
+    [Guid("000214E6-0000-0000-C000-000000000046")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IShellFolder
+    {
+        [PreserveSig] int ParseDisplayName(IntPtr hwnd, IntPtr pbc,
+            [MarshalAs(UnmanagedType.LPWStr)] string pszDisplayName,
+            out uint pchEaten, out IntPtr ppidl, ref uint pdwAttributes);
+        [PreserveSig] int EnumObjects(IntPtr hwnd, uint grfFlags, out IntPtr ppenumIDList);
+        [PreserveSig] int BindToObject(IntPtr pidl, IntPtr pbc, ref Guid riid, out IntPtr ppv);
+        [PreserveSig] int BindToStorage(IntPtr pidl, IntPtr pbc, ref Guid riid, out IntPtr ppv);
+        [PreserveSig] int CompareIDs(IntPtr lParam, IntPtr pidl1, IntPtr pidl2);
+        [PreserveSig] int CreateViewObject(IntPtr hwnd, ref Guid riid, out IntPtr ppv);
+        [PreserveSig] int GetAttributesOf(uint cidl,
+            [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 0)] IntPtr[] apidl,
+            ref uint rgfInOut);
+        [PreserveSig] int GetUIObjectOf(IntPtr hwnd, uint cidl,
+            [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 1)] IntPtr[] apidl,
+            ref Guid riid, IntPtr rgfReserved,
+            [MarshalAs(UnmanagedType.Interface)] out object ppv);
+    }
+
+    [ComImport]
+    [Guid("000214E4-0000-0000-C000-000000000046")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IContextMenu
+    {
+        [PreserveSig] int QueryContextMenu(IntPtr hmenu, uint indexMenu,
+            int idCmdFirst, int idCmdLast, uint uFlags);
+        [PreserveSig] int InvokeCommand(ref CMINVOKECOMMANDINFO lpici);
+        [PreserveSig] int GetCommandString(UIntPtr idCmd, uint uType,
+            IntPtr pReserved, IntPtr pszName, uint cchMax);
+    }
+
+    /// <summary>IContextMenu2 adds HandleMenuMsg needed to populate owner-draw
+    /// submenus (e.g. "Send to", "Open with") during TrackPopupMenu's message loop.</summary>
+    [ComImport]
+    [Guid("000214F4-0000-0000-C000-000000000046")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IContextMenu2
+    {
+        [PreserveSig] int QueryContextMenu(IntPtr hmenu, uint indexMenu,
+            int idCmdFirst, int idCmdLast, uint uFlags);
+        [PreserveSig] int InvokeCommand(ref CMINVOKECOMMANDINFO lpici);
+        [PreserveSig] int GetCommandString(UIntPtr idCmd, uint uType,
+            IntPtr pReserved, IntPtr pszName, uint cchMax);
+        [PreserveSig] int HandleMenuMsg(uint uMsg, IntPtr wParam, IntPtr lParam);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct CMINVOKECOMMANDINFO
+    {
+        public int    cbSize;
+        public uint   fMask;
+        public IntPtr hwnd;
+        public IntPtr lpVerb;       // MAKEINTRESOURCE(cmd - idCmdFirst) or verb string
+        public IntPtr lpParameters;
+        public IntPtr lpDirectory;
+        public int    nShow;
+        public uint   dwHotKey;
+        public IntPtr hIcon;
+    }
+
+    internal const uint CMF_EXPLORE   = 0x00000001; // Explorer-style context menu
+    internal const int  ID_CMD_FIRST  = 1;
+    internal const int  ID_CMD_LAST   = 0x7FFF;
+    internal const int  SW_SHOWNORMAL = 1;
+
+    // ─── Win32 popup menu ─────────────────────────────────────────────
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr CreatePopupMenu();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool DestroyMenu(IntPtr hMenu);
+
+    internal const uint TPM_RETURNCMD   = 0x0100;
+    internal const uint TPM_RIGHTBUTTON = 0x0002;
+
+    [DllImport("user32.dll")]
+    internal static extern int TrackPopupMenu(
+        IntPtr hMenu, uint uFlags,
+        int x, int y, int nReserved,
+        IntPtr hWnd, IntPtr prcRect);
+
+    // Required before TrackPopupMenu on non-foreground windows
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    internal const uint WM_NULL = 0x0000;
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 }
