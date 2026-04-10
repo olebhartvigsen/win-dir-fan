@@ -624,19 +624,31 @@ internal sealed class FanForm : Form
         var edge = DetectTaskbarEdge(out var taskbarRect);
         NativeMethods.GetCursorPos(out var cursor);
 
-        // Is the cursor actually on/near the taskbar? (real click vs Alt+Tab)
-        bool cursorNearTaskbar = edge switch
+        // Find our actual taskbar button center and bounds.
+        int btnCenter = FindTaskbarButtonCenter(taskbarRect, out var btnRect);
+
+        // Is the cursor actually over our taskbar button?
+        // Use the button rect when available (Win10); fall back to a proximity
+        // check for Win11/fallback where btnRect may be all-zeros.
+        bool cursorOnOurButton;
+        if (btnRect.Right > btnRect.Left)
         {
-            TaskbarEdge.Top   => cursor.Y <= taskbarRect.Bottom + 60,
-            TaskbarEdge.Left  => cursor.X <= taskbarRect.Right  + 60,
-            TaskbarEdge.Right => cursor.X >= taskbarRect.Left   - 60,
-            _                 => cursor.Y >= taskbarRect.Top    - 60
-        };
+            // Inflate by a few pixels to tolerate DPI rounding.
+            cursorOnOurButton = cursor.X >= btnRect.Left  - 4 && cursor.X <= btnRect.Right  + 4
+                             && cursor.Y >= btnRect.Top   - 4 && cursor.Y <= btnRect.Bottom + 4;
+        }
+        else
+        {
+            // Fallback: cursor within 50px of the button center along the taskbar axis.
+            cursorOnOurButton = edge == TaskbarEdge.Bottom || edge == TaskbarEdge.Top
+                ? Math.Abs(cursor.X - btnCenter) <= 50
+                : Math.Abs(cursor.Y - btnCenter) <= 50;
+        }
 
         int anchorX = cursor.X;
         int anchorY = cursor.Y;
 
-        if (cursorNearTaskbar)
+        if (cursorOnOurButton)
         {
             // Real taskbar click — cursor IS on the icon. Cache for future Alt+Tab.
             _lastTaskbarAnchorX = (edge == TaskbarEdge.Bottom || edge == TaskbarEdge.Top)
@@ -644,13 +656,11 @@ internal sealed class FanForm : Form
         }
         else
         {
-            // Alt+Tab or keyboard: find the actual taskbar button center.
-            int btnCenter = FindTaskbarButtonCenterX(taskbarRect);
+            // Alt+Tab or keyboard: use the located button center.
             if (edge == TaskbarEdge.Bottom || edge == TaskbarEdge.Top)
                 anchorX = btnCenter;
             else
                 anchorY = btnCenter;
-            // Also update cache so subsequent calls are instant.
             _lastTaskbarAnchorX = btnCenter;
         }
 
@@ -678,7 +688,13 @@ internal sealed class FanForm : Form
     /// then to the horizontal center of the taskbar rect (Windows 11 fallback).
     /// </summary>
     private static int FindTaskbarButtonCenterX(NativeMethods.RECT taskbarRect)
+        => FindTaskbarButtonCenter(taskbarRect, out _);
+
+    /// <summary>Returns the center of our taskbar button and sets <paramref name="buttonRect"/>
+    /// to its screen rect (all zeros if not found via win32 walk).</summary>
+    private static int FindTaskbarButtonCenter(NativeMethods.RECT taskbarRect, out NativeMethods.RECT buttonRect)
     {
+        buttonRect = default;
         try
         {
             uint ourPid = (uint)Environment.ProcessId;
@@ -694,16 +710,18 @@ internal sealed class FanForm : Form
                 if (list != IntPtr.Zero)
                 {
                     int found = -1;
+                    NativeMethods.RECT foundRect = default;
                     NativeMethods.EnumChildWindows(list, (hwnd, _) =>
                     {
                         NativeMethods.GetWindowThreadProcessId(hwnd, out uint pid);
                         if (pid != ourPid) return true;
                         NativeMethods.GetWindowRect(hwnd, out var r);
+                        foundRect = r;
                         found = (r.Left + r.Right) / 2;
                         return false; // stop enumeration
                     }, IntPtr.Zero);
 
-                    if (found >= 0) return found;
+                    if (found >= 0) { buttonRect = foundRect; return found; }
                 }
             }
         }
