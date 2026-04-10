@@ -30,6 +30,59 @@ internal sealed class FileService
             .ToList();
     }
 
+    // Extensions handled by GDI+ natively
+    private static readonly HashSet<string> GdiImageExts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif", ".webp"
+    };
+
+    /// <summary>
+    /// For image files, returns a scaled thumbnail of the actual image content
+    /// centred in a <paramref name="targetSize"/>×<paramref name="targetSize"/>
+    /// transparent square.  Returns <c>null</c> if the path is not a recognised
+    /// image type or the file cannot be decoded.
+    /// </summary>
+    public static Bitmap? GetImageThumbnail(string path, int targetSize)
+    {
+        var ext = Path.GetExtension(path);
+        if (GdiImageExts.Contains(ext))
+            return TryGdiThumbnail(path, targetSize);
+        return null;
+    }
+
+    private static Bitmap? TryGdiThumbnail(string path, int targetSize)
+    {
+        try
+        {
+            using var src = Image.FromFile(path);
+            return ScaleToSquare(src, targetSize);
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Scales <paramref name="src"/> to fit inside a
+    /// <paramref name="targetSize"/>×<paramref name="targetSize"/> square
+    /// while preserving aspect ratio, centred on a transparent background.
+    /// </summary>
+    private static Bitmap ScaleToSquare(Image src, int targetSize)
+    {
+        float scale = Math.Min((float)targetSize / src.Width, (float)targetSize / src.Height);
+        int dw = (int)(src.Width  * scale);
+        int dh = (int)(src.Height * scale);
+        int ox = (targetSize - dw) / 2;
+        int oy = (targetSize - dh) / 2;
+
+        var bmp = new Bitmap(targetSize, targetSize,
+            System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+        using var g = Graphics.FromImage(bmp);
+        g.Clear(Color.Transparent);
+        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+        g.PixelOffsetMode   = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+        g.DrawImage(src, ox, oy, dw, dh);
+        return bmp;
+    }
+
     /// <summary>
     /// Returns the best-quality <see cref="Bitmap"/> for display at
     /// <paramref name="targetSize"/>×<paramref name="targetSize"/> pixels.

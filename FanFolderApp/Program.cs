@@ -1,48 +1,79 @@
-using Microsoft.Extensions.Configuration;
+using Microsoft.Win32;
 
 namespace FanFolderApp;
 
 static class Program
 {
+    internal const string RegKey   = @"SOFTWARE\FanFolder";
+    internal const string RegValue = "FolderPath";
+
     [STAThread]
     static void Main()
     {
-        // High-DPI + visual styles
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
-        // Load configuration
-        string folderPath = LoadFolderPath();
-
-        // Run with a hidden main form (keeps the taskbar icon alive)
-        Application.Run(new MainHiddenForm(folderPath));
+        Application.Run(new MainHiddenForm(LoadFolderPath()));
     }
 
     private static string LoadFolderPath()
     {
+        // 1. Registry (primary store)
         try
         {
-            var config = new ConfigurationBuilder()
-                .SetBasePath(AppContext.BaseDirectory)
-                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: false)
-                .Build();
-
-            string? path = config["FanFolderPath"];
-
-            if (!string.IsNullOrWhiteSpace(path))
+            using var key = Registry.CurrentUser.OpenSubKey(RegKey);
+            if (key?.GetValue(RegValue) is string path
+                && !string.IsNullOrWhiteSpace(path)
+                && Directory.Exists(path))
                 return path;
         }
-        catch (Exception ex)
-        {
-            MessageBox.Show(
-                $"Failed to load appsettings.json:\n{ex.Message}",
-                "Fan Folder – Configuration Error",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
-        }
+        catch { }
 
-        // Fallback to user's Desktop
-        return Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+        // 2. One-time migration from appsettings.json (previous installs)
+        string? migrated = TryMigrateFromJson();
+        if (migrated != null) { SaveFolderPath(migrated); return migrated; }
+
+        // 3. Default: Downloads folder
+        string fallback = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+        if (!Directory.Exists(fallback))
+            fallback = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+
+        SaveFolderPath(fallback);
+        return fallback;
+    }
+
+    private static string? TryMigrateFromJson()
+    {
+        try
+        {
+            string jsonPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+            if (!File.Exists(jsonPath)) return null;
+
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(jsonPath));
+            if (doc.RootElement.TryGetProperty("FanFolderPath", out var elem))
+            {
+                string? path = elem.GetString();
+                if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+                    return path;
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    /// <summary>
+    /// Persists <paramref name="path"/> to the registry so it survives restarts.
+    /// Called on first run and by the "Change folder…" menu item.
+    /// </summary>
+    internal static void SaveFolderPath(string path)
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(RegKey, writable: true);
+            key.SetValue(RegValue, path);
+        }
+        catch { }
     }
 }

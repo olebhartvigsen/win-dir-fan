@@ -313,22 +313,15 @@ internal sealed class MainHiddenForm : Form
     /// </summary>
     private void ProvideIconicThumbnail(int maxW, int maxH)
     {
-        int sz = Math.Min(Math.Min(maxW, maxH), 256);
-        if (sz <= 0) sz = 128;
+        // Provide a minimal 48×48 thumbnail — just the app icon, no chrome.
+        const int sz = 48;
 
-        // Render onto a premultiplied-alpha bitmap (required by DWM)
         using var bmp = new Bitmap(sz, sz, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
         using (var g = System.Drawing.Graphics.FromImage(bmp))
         {
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             g.Clear(Color.Transparent);
 
-            // Faint rounded-rect background so the icon is visible on any colour popup
-            float pad = sz * 0.06f;
-            using var bgBrush = new SolidBrush(Color.FromArgb(30, 255, 255, 255));
-            g.FillRectangle(bgBrush, pad, pad, sz - pad * 2, sz - pad * 2);
-
-            // Reuse the same drawing logic as the taskbar icon
             float cx = sz * 0.50f, pivotY = sz * 0.86f;
             float dW = sz * 0.46f, dH = sz * 0.75f;
             float cr = sz * 0.04f, fold = sz * 0.11f;

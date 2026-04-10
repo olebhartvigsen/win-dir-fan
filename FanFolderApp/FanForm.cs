@@ -281,6 +281,11 @@ internal sealed class FanForm : Form
                 var path = item.FullPath;
                 return Task.Run(() =>
                 {
+                    // For image files, show a thumbnail of the actual content.
+                    var thumbBmp = FileService.GetImageThumbnail(path, targetSize);
+                    if (thumbBmp != null)
+                        return (item, icon: (Icon?)null, bmp: (Bitmap?)thumbBmp);
+
                     var icon = FileService.GetShellIcon(path);
                     var bmp  = FileService.GetShellBitmap(path, targetSize);
                     return (item, icon, bmp);
@@ -557,6 +562,16 @@ internal sealed class FanForm : Form
                 _drawOrder[j + 1] = key;
             }
 
+            // Arrow is always drawn first (lowest z-order) — never covers file icons.
+            int arrowSlot = Array.FindIndex(_drawOrder,
+                idx => idx < _items.Count && _items[idx].IsArrow);
+            if (arrowSlot > 0)
+            {
+                int tmp = _drawOrder[arrowSlot];
+                Array.Copy(_drawOrder, 0, _drawOrder, 1, arrowSlot);
+                _drawOrder[0] = tmp;
+            }
+
             foreach (int i in _drawOrder)
                 DrawItem(g, i, font, _sf!);
         }
@@ -646,19 +661,9 @@ internal sealed class FanForm : Form
         float drawX = iconPos.X - (_iconSize * (scale - 1f) / 2f);
         float drawY = iconPos.Y - (_iconSize * (scale - 1f) / 2f);
 
-        // ── Icon or Arrow ──
-        if (item.IsArrow)
-        {
-            DrawArrow(g, drawX, drawY, drawSize);
-        }
-        else if (item.Bmp != null)
-        {
-            g.DrawImage(item.Bmp, new RectangleF(drawX, drawY, drawSize, drawSize));
-        }
+        if (item.IsArrow) { DrawArrow(g, drawX, drawY, drawSize); return; }
 
-        // ── Text label ──
-        if (item.IsArrow) return; // arrow item has no label
-
+        // ── Text label (drawn first so icon renders on top) ──
         float textScale = 1f + t * 0.08f;
         bool ownFont = textScale > 1.005f;
         Font drawFont = ownFont
@@ -669,46 +674,90 @@ internal sealed class FanForm : Form
         {
             float emPx = g.DpiY * (ownFont ? _fontSize * textScale : _fontSize) / 72f;
 
-            const float PillPadH = 8f;   // horizontal padding inside pill
-            const float PillPadV = 3f;   // vertical padding inside pill
-            const float MaxPillW = 260f; // cap for very long names
+            const float PillPadH = 8f;
+            const float PillPadV = 3f;
+            const float MaxPillW = 260f;
 
-            // Measure actual text width (cached per item — font only changes on hover scale
-            // which is capped at 8%, so we invalidate if item hasn't been measured yet).
             if (item.MeasuredTextWidth < 0f)
             {
-                var measSize = TextRenderer.MeasureText(item.Name, drawFont,
+                var measSize = TextRenderer.MeasureText(item.Name, font,
                     new Size(int.MaxValue, 32),
                     TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
                 item.MeasuredTextWidth = measSize.Width;
             }
-            float textW = MathF.Min(item.MeasuredTextWidth, MaxPillW - PillPadH * 2f);
+            float textW = MathF.Min(item.MeasuredTextWidth * textScale, MaxPillW - PillPadH * 2f);
 
             float pillW     = textW + PillPadH * 2f;
             float pillH     = emPx + PillPadV * 2f;
             float pillRight = iconPos.X - LabelGap;
             float pillLeft  = MathF.Max(0f, pillRight - pillW);
-            pillW = pillRight - pillLeft; // recompute in case clamped at left edge
-            if (pillW < PillPadH * 2f + 4f) return;
-            float pillTop = iconPos.Y + (_iconSize - pillH) / 2f;
-            float radius  = MathF.Min(pillH / 2f - 0.5f, pillW / 2f - 0.5f);
+            pillW = pillRight - pillLeft;
+            if (pillW >= PillPadH * 2f + 4f)
+            {
+                float pillTop = iconPos.Y + (_iconSize - pillH) / 2f;
+                float radius  = MathF.Min(pillH / 2f - 0.5f, pillW / 2f - 0.5f);
 
-            // ── Pill background (dark, semi-transparent → readable on any bg) ──
-            using var pillPath = SquirclePath(new RectangleF(pillLeft, pillTop, pillW, pillH), radius);
-            int bgAlpha = (int)(190 + t * 30);
-            using var pillBrush = new SolidBrush(Color.FromArgb(bgAlpha, 20, 20, 20));
-            g.FillPath(pillBrush, pillPath);
+                using var pillPath = SquirclePath(new RectangleF(pillLeft, pillTop, pillW, pillH), radius);
+                int bgAlpha = (int)(190 + t * 30);
+                using var pillBrush = new SolidBrush(Color.FromArgb(bgAlpha, 20, 20, 20));
+                g.FillPath(pillBrush, pillPath);
 
-            // ── White text drawn into the pill ──
-            float textAreaW = pillW - PillPadH * 2f;
-            var layoutRect = new RectangleF(pillLeft + PillPadH, pillTop + PillPadV, textAreaW, emPx + 2);
-
-            using var textBrush = new SolidBrush(Color.White);
-            g.DrawString(item.Name, drawFont, textBrush, layoutRect, sf);
+                float textAreaW = pillW - PillPadH * 2f;
+                var layoutRect = new RectangleF(pillLeft + PillPadH, pillTop + PillPadV, textAreaW, emPx + PillPadV);
+                using var textBrush = new SolidBrush(Color.White);
+                g.DrawString(item.Name, drawFont, textBrush, layoutRect, sf);
+            }
         }
         finally
         {
             if (ownFont) drawFont.Dispose();
+        }
+
+        // ── Icon (drawn after label so it sits on top) ──
+        if (item.Bmp != null)
+        {
+            if (t > 0.01f)
+            {
+                var srcRect = new RectangleF(0, 0, item.Bmp.Width, item.Bmp.Height);
+                (float offset, float peakAlpha)[] passes =
+                {
+                    (2f,  18f),
+                    (4f,  14f),
+                    (6f,  10f),
+                    (8f,   6f),
+                    (11f,  3f),
+                };
+                foreach (var (offset, peakAlpha) in passes)
+                    DrawShadowPass(g, item.Bmp, srcRect, drawX, drawY, drawSize,
+                        offset, alpha: (int)(t * peakAlpha));
+            }
+            g.DrawImage(item.Bmp, new RectangleF(drawX, drawY, drawSize, drawSize));
+        }
+    }
+
+    private static void DrawShadowPass(Graphics g, Bitmap bmp, RectangleF srcRect,
+        float drawX, float drawY, float drawSize, float offset, int alpha)
+    {
+        if (alpha <= 0) return;
+        var cm = new System.Drawing.Imaging.ColorMatrix(new float[][]
+        {
+            new float[] { 0, 0, 0, 0, 0 },
+            new float[] { 0, 0, 0, 0, 0 },
+            new float[] { 0, 0, 0, 0, 0 },
+            new float[] { 0, 0, 0, alpha / 255f, 0 },
+            new float[] { 0, 0, 0, 0, 1 },
+        });
+        using var ia = new System.Drawing.Imaging.ImageAttributes();
+        ia.SetColorMatrix(cm);
+        float[] offs = { -offset, 0, offset };
+        foreach (float ox in offs)
+        foreach (float oy in offs)
+        {
+            if (ox == 0f && oy == 0f) continue;
+            var r = new RectangleF(drawX + ox, drawY + oy, drawSize, drawSize);
+            g.DrawImage(bmp,
+                new[] { r.Location, new PointF(r.Right, r.Top), new PointF(r.Left, r.Bottom) },
+                srcRect, GraphicsUnit.Pixel, ia);
         }
     }
 
