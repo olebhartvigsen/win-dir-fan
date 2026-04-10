@@ -624,44 +624,46 @@ internal sealed class FanForm : Form
         var edge = DetectTaskbarEdge(out var taskbarRect);
         NativeMethods.GetCursorPos(out var cursor);
 
-        // Find our actual taskbar button center and bounds.
+        // Try to locate our taskbar button via the win32 window hierarchy.
+        // When found, the button rect is authoritative for both real clicks and
+        // Alt+Tab (the cursor may be anywhere on the taskbar in either case).
         int btnCenter = FindTaskbarButtonCenter(taskbarRect, out var btnRect);
+        bool buttonFound = btnRect.Right > btnRect.Left;
 
-        // Is the cursor actually over our taskbar button?
-        // Use the button rect when available (Win10); fall back to a proximity
-        // check for Win11/fallback where btnRect may be all-zeros.
-        bool cursorOnOurButton;
-        if (btnRect.Right > btnRect.Left)
+        // Cursor is on the taskbar → could be a real click or Alt+Tab.
+        bool cursorOnTaskbar = cursor.X >= taskbarRect.Left && cursor.X <= taskbarRect.Right
+                            && cursor.Y >= taskbarRect.Top  && cursor.Y <= taskbarRect.Bottom;
+
+        int anchorX;
+        int anchorY;
+
+        if (buttonFound)
         {
-            // Inflate by a few pixels to tolerate DPI rounding.
-            cursorOnOurButton = cursor.X >= btnRect.Left  - 4 && cursor.X <= btnRect.Right  + 4
-                             && cursor.Y >= btnRect.Top   - 4 && cursor.Y <= btnRect.Bottom + 4;
+            // Win10: we have the exact button rect — always use its center.
+            anchorX = (edge == TaskbarEdge.Bottom || edge == TaskbarEdge.Top)
+                ? btnCenter : cursor.X;
+            anchorY = (edge == TaskbarEdge.Bottom || edge == TaskbarEdge.Top)
+                ? cursor.Y : btnCenter;
+            _lastTaskbarAnchorX = btnCenter;
         }
-        else
+        else if (cursorOnTaskbar)
         {
-            // Fallback: cursor within 50px of the button center along the taskbar axis.
-            cursorOnOurButton = edge == TaskbarEdge.Bottom || edge == TaskbarEdge.Top
-                ? Math.Abs(cursor.X - btnCenter) <= 50
-                : Math.Abs(cursor.Y - btnCenter) <= 50;
-        }
-
-        int anchorX = cursor.X;
-        int anchorY = cursor.Y;
-
-        if (cursorOnOurButton)
-        {
-            // Real taskbar click — cursor IS on the icon. Cache for future Alt+Tab.
+            // Win11 / button not found: cursor on taskbar → treat as real click,
+            // use cursor position and cache it for future Alt+Tab.
+            anchorX = cursor.X;
+            anchorY = cursor.Y;
             _lastTaskbarAnchorX = (edge == TaskbarEdge.Bottom || edge == TaskbarEdge.Top)
                 ? cursor.X : cursor.Y;
         }
         else
         {
-            // Alt+Tab or keyboard: use the located button center.
+            // Alt+Tab, cursor off taskbar: use cached position or taskbar center.
+            anchorX = cursor.X;
+            anchorY = cursor.Y;
             if (edge == TaskbarEdge.Bottom || edge == TaskbarEdge.Top)
-                anchorX = btnCenter;
+                anchorX = btnCenter; // btnCenter falls back to cache or taskbar center
             else
                 anchorY = btnCenter;
-            _lastTaskbarAnchorX = btnCenter;
         }
 
         PointF origin = edge switch
