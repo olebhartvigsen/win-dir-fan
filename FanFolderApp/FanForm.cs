@@ -119,6 +119,7 @@ internal sealed class FanForm : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
+        ApplyInputRegion();   // restrict hit-testing to icon+label areas only
         _targetTop = Top;
         _currentAlpha = 0;
         _fadeProgress = 0f;
@@ -528,6 +529,29 @@ internal sealed class FanForm : Form
                 _iconSize + extentLeft,
                 _iconSize);
         }
+    }
+
+    /// <summary>
+    /// Restricts the window's interactive surface to the union of all icon+label
+    /// hit rectangles (plus a small padding for the hover-scale effect).
+    /// Mouse events over the transparent areas of the form's bounding rectangle
+    /// are never routed to this window — eliminating the WM_NCHITTEST overhead
+    /// that caused cursor jitter when the fan was open.
+    /// </summary>
+    private void ApplyInputRegion()
+    {
+        if (!IsHandleCreated || _hitRects.Length == 0) return;
+
+        int pad = (int)(_iconSize * 0.25f); // headroom for HoverScaleMax expansion
+        using var rgn = new System.Drawing.Region(RectangleF.Empty);
+        foreach (var r in _hitRects)
+            rgn.Union(new RectangleF(r.X - pad, r.Y - pad,
+                                     r.Width + pad * 2, r.Height + pad * 2));
+
+        using var g = CreateGraphics();
+        IntPtr hRgn = rgn.GetHrgn(g);
+        // SetWindowRgn takes ownership of hRgn — do not DeleteObject it.
+        NativeMethods.SetWindowRgn(Handle, hRgn, false);
     }
 
     private static TaskbarEdge DetectTaskbarEdge(out NativeMethods.RECT taskbarRect)
@@ -1022,11 +1046,15 @@ internal sealed class FanForm : Form
     /// </summary>
     protected override void WndProc(ref Message m)
     {
-        const int WM_NCHITTEST   = 0x0084;
-        const int HTCLIENT       = 1;
-        const int HTTRANSPARENT  = -1;
+        const int WM_NCHITTEST  = 0x0084;
+        const int HTCLIENT      = 1;
+        const int HTTRANSPARENT = -1;
         if (m.Msg == WM_NCHITTEST)
         {
+            // The window region (SetWindowRgn) already excludes transparent
+            // gaps, so most empty-area mouse moves never reach us.  For the
+            // small padded margin around each icon we still need to verify
+            // the cursor is truly over an icon/label before claiming HTCLIENT.
             int screenX = (short)(m.LParam.ToInt32() & 0xFFFF);
             int screenY = (short)((m.LParam.ToInt32() >> 16) & 0xFFFF);
             var client  = PointToClient(new Point(screenX, screenY));

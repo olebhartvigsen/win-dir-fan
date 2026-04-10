@@ -424,6 +424,9 @@ internal static class NativeMethods
         ref BLENDFUNCTION pblend,
         uint dwFlags);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, [MarshalAs(UnmanagedType.Bool)] bool bRedraw);
+
     // ─── Global Mouse Hook (WH_MOUSE_LL) ───────────────────────────────
 
     internal const int WH_MOUSE_LL     = 14;
