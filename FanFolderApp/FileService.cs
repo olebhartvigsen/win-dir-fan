@@ -43,11 +43,6 @@ internal sealed class FileService
     /// </summary>
     public static Bitmap? GetShellBitmap(string path, int targetSize)
     {
-        // ── Custom icon for archive files (always used, no shell fallback) ──
-        var ext = Path.GetExtension(path).ToLowerInvariant();
-        if (ext is ".zip" or ".7z")
-            return TryLoadZipIcon(targetSize);
-
         // ── Primary: IShellItemImageFactory ─────────────────────────────
         var direct = TryShellItemImage(path, targetSize);
         if (direct != null) return direct;
@@ -65,33 +60,6 @@ internal sealed class FileService
         using var src = icon.ToBitmap();
         g.DrawImage(src, 0, 0, targetSize, targetSize);
         return dst;
-    }
-
-    /// <summary>
-    /// Loads the embedded zip-icon.png, renders it onto a white background
-    /// (the source is a black-on-transparent vector), scales to
-    /// <paramref name="size"/>×<paramref name="size"/> and returns it.
-    /// </summary>
-    private static Bitmap? TryLoadZipIcon(int size)
-    {
-        try
-        {
-            var asm = System.Reflection.Assembly.GetExecutingAssembly();
-            using var stream = asm.GetManifestResourceStream(
-                "FanFolderApp.zip-icon.png");
-            if (stream == null) return null;
-
-            using var src = new Bitmap(stream);
-            var dst = new Bitmap(size, size,
-                System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
-            using var g = Graphics.FromImage(dst);
-            g.Clear(Color.Transparent);
-            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-            g.PixelOffsetMode   = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-            g.DrawImage(src, 0, 0, size, size);
-            return dst;
-        }
-        catch { return null; }
     }
 
     /// <summary>

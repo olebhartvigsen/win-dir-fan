@@ -59,13 +59,6 @@ internal sealed class FanForm : Form
     private float _layoutMinX;            // saved arc origin→form-edge offset for Reposition()
     private float _layoutMinY;
 
-    // ─── Archive file types that use a drawn icon instead of shell extraction ──
-    private static readonly HashSet<string> ArchiveExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".zip", ".7z", ".rar", ".tar", ".gz", ".tgz", ".bz2", ".xz",
-        ".cab", ".iso", ".lzh", ".lha", ".zst", ".br"
-    };
-
     // ─── Rendering Cache ─────────────────────────────────────────────
     private Bitmap? _offscreenBmp;  // 1× final bitmap fed to UpdateLayeredWindow
     private Bitmap? _hiresBmp;      // 2× super-sampled render buffer (SSAA)
@@ -281,16 +274,10 @@ internal sealed class FanForm : Form
             .Select(item =>
             {
                 var path = item.FullPath;
-                var ext  = Path.GetExtension(path);
-                bool isArchive = ArchiveExtensions.Contains(ext);
                 return Task.Run(() =>
                 {
-                    var icon = FileService.GetShellIcon(path); // kept for drag-and-drop
-                    // Use a consistently-drawn icon for archive types whose shell
-                    // icons are unreliable (stub bitmaps, thumbnails, size mismatch).
-                    Bitmap? bmp = isArchive
-                        ? CreateArchiveIcon(ext, targetSize)
-                        : FileService.GetShellBitmap(path, targetSize);
+                    var icon = FileService.GetShellIcon(path);
+                    var bmp  = FileService.GetShellBitmap(path, targetSize);
                     return (item, icon, bmp);
                 });
             })
@@ -311,108 +298,6 @@ internal sealed class FanForm : Form
             _animTimer?.Start();
         }
     }
-
-    /// <summary>
-    /// Draws a file/document icon matching the SVG spec (viewBox 115.28 × 122.88):
-    /// white paper body with dog-ear top-right corner, a dark rounded-rect label
-    /// band on the right side, and the extension as bold text on the paper.
-    /// </summary>
-    private static Bitmap CreateArchiveIcon(string ext, int size)
-    {
-        string label = ext.TrimStart('.').ToUpperInvariant();
-        if (label.Length > 4) label = label[..4];
-
-        var bmp = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
-        using var g = Graphics.FromImage(bmp);
-        g.Clear(Color.Transparent);
-        g.SmoothingMode   = SmoothingMode.AntiAlias;
-        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-
-        // SVG viewBox: 115.28 × 122.88
-        float sx = size / 115.28f;
-        float sy = size / 122.88f;
-
-        // ── Document body (paper) ────────────────────────────────────────
-        // Outer boundary from SVG outer path, key vertices:
-        float dL = 5.81f*sx,   dR = 91.99f*sx;
-        float dT = 1.75f*sy,   dB = 121.89f*sy;
-        float dogX = 64.53f*sx; // dog-ear notch starts here on the top edge
-        float dogY = 33.10f*sy; // dog-ear notch ends here on the right edge
-        float cr = 4.10f*sx;    // body corner radius
-
-        using var docPath = new GraphicsPath();
-        docPath.AddArc (dL,      dT,      cr*2, cr*2,  180,  90); // top-left
-        docPath.AddLine(dL+cr,   dT,      dogX, dT);               // top to dog-ear
-        docPath.AddLine(dogX,    dT,      dR,   dogY);              // dog-ear diagonal
-        docPath.AddLine(dR,      dogY,    dR,   dB-cr);             // right side
-        docPath.AddArc (dR-cr*2, dB-cr*2, cr*2, cr*2,    0,  90); // bottom-right
-        docPath.AddLine(dR-cr,   dB,      dL+cr, dB);              // bottom
-        docPath.AddArc (dL,      dB-cr*2, cr*2, cr*2,   90,  90); // bottom-left
-        docPath.CloseFigure();
-
-        using var paperBrush = new SolidBrush(Color.FromArgb(255, 245, 246, 252));
-        g.FillPath(paperBrush, docPath);
-
-        // ── Dog-ear fold triangle ─────────────────────────────────────────
-        using var foldPath = new GraphicsPath();
-        foldPath.AddLine(dogX, dT,   dR,   dogY);
-        foldPath.AddLine(dR,   dogY, dogX, dogY);
-        foldPath.CloseFigure();
-        using var foldBrush = new SolidBrush(Color.FromArgb(255, 198, 204, 228));
-        g.FillPath(foldBrush, foldPath);
-
-        // ── Document border ───────────────────────────────────────────────
-        float bw = MathF.Max(1f, size / 56f);
-        using var borderPen = new Pen(Color.FromArgb(255, 100, 110, 160), bw)
-            { LineJoin = LineJoin.Round };
-        g.DrawPath(borderPen, docPath);
-
-        // ── Label band (rounded rect on right side, matching SVG protrusion) ─
-        float bL  = 97.79f*sx, bR  = size - bw;
-        float bT  = 57.00f*sy, bBo = 103.54f*sy;
-        float br  = MathF.Min(7.56f*sx, (bR-bL)*0.49f);
-
-        using var bandPath = new GraphicsPath();
-        bandPath.AddArc (bL,      bT,       br*2, br*2,  180,  90);
-        bandPath.AddLine(bL+br,   bT,       bR-br, bT);
-        bandPath.AddArc (bR-br*2, bT,       br*2, br*2,  270,  90);
-        bandPath.AddLine(bR,      bT+br,    bR,   bBo-br);
-        bandPath.AddArc (bR-br*2, bBo-br*2, br*2, br*2,    0,  90);
-        bandPath.AddLine(bR-br,   bBo,      bL+br, bBo);
-        bandPath.AddArc (bL,      bBo-br*2, br*2, br*2,   90,  90);
-        bandPath.CloseFigure();
-
-        using var bandBrush = new SolidBrush(Color.FromArgb(255, 74, 81, 133));
-        g.FillPath(bandBrush, bandPath);
-
-        // ── Extension text on paper ───────────────────────────────────────
-        // Centred in the lower content area of the paper (y=57–103 SVG units,
-        // x=17–92 SVG units) — matching where the Z/I/P glyphs are in the SVG.
-        float tL = 17.82f*sx, tR = dR;
-        float tT = 57.00f*sy, tBo = 103.54f*sy;
-        float tCX = (tL + tR) / 2f;
-        float tCY = (tT + tBo) / 2f;
-        float em  = (tBo - tT) * 0.42f;
-
-        using var lp = new GraphicsPath();
-        using var lf = new Font("Arial", em, FontStyle.Bold, GraphicsUnit.Pixel);
-        using var sf = new StringFormat
-        {
-            Alignment = StringAlignment.Center,
-            LineAlignment = StringAlignment.Center
-        };
-        lp.AddString(label, lf.FontFamily, (int)FontStyle.Bold, em,
-            new RectangleF(tCX - (tR-tL)*0.5f, tCY - em*0.6f, tR-tL, em*1.2f), sf);
-
-        using var outPen = new Pen(Color.FromArgb(180, 245, 246, 255), MathF.Max(1.5f, em*0.10f))
-            { LineJoin = LineJoin.Round };
-        g.DrawPath(outPen, lp);
-        using var textBrush = new SolidBrush(Color.FromArgb(255, 60, 68, 115));
-        g.FillPath(textBrush, lp);
-
-        return bmp;
-    }
-
 
     // ═════════════════════════════════════════════════════════
     //  Arc Layout
