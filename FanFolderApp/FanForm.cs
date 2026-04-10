@@ -76,6 +76,7 @@ internal sealed class FanForm : Form
     private CancellationTokenSource _iconLoadCts = new();
     private bool _dirty;   // render needed on next timer tick
     private bool _contextMenuOpen; // true while the right-click context menu is visible
+    private NativeMethods.IContextMenu2? _activeContextMenu2; // forwarded WM_INITMENUPOPUP etc.
 
     // ─── Inner Model ─────────────────────────────────────────
     private sealed class FanItem
@@ -1005,45 +1006,66 @@ internal sealed class FanForm : Form
 
     private void ShowItemContextMenu(FanItem item, Point localPt)
     {
-        var menu = new ContextMenuStrip();
-        menu.RenderMode = ToolStripRenderMode.System;
+        var pidl = NativeMethods.ILCreateFromPath(item.FullPath);
+        if (pidl == IntPtr.Zero) return;
 
-        menu.Items.Add("Open", null, (_, _) => { LaunchItem(item); Close(); });
-        menu.Items.Add("Show in folder", null, (_, _) =>
+        try
         {
-            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{item.FullPath}\"")
-                { UseShellExecute = false });
-            Close();
-        });
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Copy path", null, (_, _) => Clipboard.SetText(item.FullPath));
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Properties", null, (_, _) => { ShowShellProperties(item.FullPath); Close(); });
+            var iidSF = NativeMethods.IID_IShellFolder;
+            if (NativeMethods.SHBindToParent(pidl, ref iidSF, out var psf, out var pidlChild) != 0) return;
 
-        _contextMenuOpen = true;
-        menu.Closed += (_, args) =>
+            try
+            {
+                var iidCM2  = NativeMethods.IID_IContextMenu2;
+                var apidl   = new[] { pidlChild };
+                if (psf.GetUIObjectOf(Handle, 1, apidl, ref iidCM2, IntPtr.Zero, out var obj) != 0) return;
+
+                var pcm2 = (NativeMethods.IContextMenu2)obj;
+                var hMenu = NativeMethods.CreatePopupMenu();
+                try
+                {
+                    pcm2.QueryContextMenu(hMenu, 0,
+                        NativeMethods.ID_CMD_FIRST, NativeMethods.ID_CMD_LAST,
+                        NativeMethods.CMF_EXPLORE);
+
+                    var screenPt = PointToScreen(localPt);
+                    _contextMenuOpen   = true;
+                    _activeContextMenu2 = pcm2;
+
+                    int cmd = NativeMethods.TrackPopupMenu(hMenu,
+                        NativeMethods.TPM_RETURNCMD | NativeMethods.TPM_RIGHTBUTTON,
+                        screenPt.X, screenPt.Y, 0, Handle, IntPtr.Zero);
+
+                    _activeContextMenu2 = null;
+                    _contextMenuOpen    = false;
+
+                    if (cmd >= NativeMethods.ID_CMD_FIRST)
+                    {
+                        var ici = new NativeMethods.CMINVOKECOMMANDINFO
+                        {
+                            cbSize = Marshal.SizeOf<NativeMethods.CMINVOKECOMMANDINFO>(),
+                            lpVerb = (IntPtr)(cmd - NativeMethods.ID_CMD_FIRST),
+                            nShow  = NativeMethods.SW_SHOWNORMAL,
+                        };
+                        pcm2.InvokeCommand(ref ici);
+                    }
+                    Close();
+                }
+                finally
+                {
+                    NativeMethods.DestroyMenu(hMenu);
+                    Marshal.ReleaseComObject(pcm2);
+                }
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(psf);
+            }
+        }
+        finally
         {
-            _contextMenuOpen = false;
-            // If the user dismissed the menu without choosing an item, close the fan too
-            if (args.CloseReason != ToolStripDropDownCloseReason.ItemClicked)
-                Close();
-            menu.Dispose();
-        };
-
-        menu.Show(PointToScreen(localPt));
-    }
-
-    private static void ShowShellProperties(string path)
-    {
-        var info = new NativeMethods.SHELLEXECUTEINFO
-        {
-            cbSize     = Marshal.SizeOf<NativeMethods.SHELLEXECUTEINFO>(),
-            fMask      = NativeMethods.SEE_MASK_INVOKEIDLIST,
-            lpVerb     = "properties",
-            lpFile     = path,
-            nShow      = NativeMethods.SW_SHOWNORMAL,
-        };
-        NativeMethods.ShellExecuteEx(ref info);
+            NativeMethods.ILFree(pidl);
+        }
     }
 
     private int HitTest(Point pt)
@@ -1099,9 +1121,23 @@ internal sealed class FanForm : Form
     /// </summary>
     protected override void WndProc(ref Message m)
     {
-        const int WM_NCHITTEST  = 0x0084;
-        const int HTCLIENT      = 1;
-        const int HTTRANSPARENT = -1;
+        const int WM_NCHITTEST     = 0x0084;
+        const int HTCLIENT         = 1;
+        const int HTTRANSPARENT    = -1;
+        const int WM_INITMENUPOPUP = 0x0117;
+        const int WM_DRAWITEM      = 0x002B;
+        const int WM_MEASUREITEM   = 0x002C;
+
+        // Forward menu messages to IContextMenu2 so owner-draw submenus
+        // (Send to, Open with, etc.) render and populate correctly.
+        if (_activeContextMenu2 != null &&
+            (m.Msg == WM_INITMENUPOPUP || m.Msg == WM_DRAWITEM || m.Msg == WM_MEASUREITEM))
+        {
+            _activeContextMenu2.HandleMenuMsg((uint)m.Msg, m.WParam, m.LParam);
+            m.Result = IntPtr.Zero;
+            return;
+        }
+
         if (m.Msg == WM_NCHITTEST)
         {
             // The window region (SetWindowRgn) already excludes transparent
