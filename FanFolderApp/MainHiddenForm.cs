@@ -12,6 +12,8 @@ internal sealed class MainHiddenForm : Form
     private readonly string   _folderPath;
     private readonly SortMode _sortMode;
     private readonly int      _maxItems;
+    private readonly bool     _includeDirs;
+    private readonly string?  _filterRegex;
     private FanForm? _fanForm;
     private FanForm? _prewarmFanForm;
     private bool _suppressNextActivation;
@@ -32,11 +34,17 @@ internal sealed class MainHiddenForm : Form
     private volatile List<FileSystemInfo>? _cachedItems;
     private int _prewarmGeneration; // incremented each time a new prewarm is started
 
-    public MainHiddenForm(string folderPath, SortMode sortMode = SortMode.DateModifiedDesc, int maxItems = 15)
+    public MainHiddenForm(string folderPath,
+                          SortMode sortMode    = SortMode.DateModifiedDesc,
+                          int      maxItems    = 15,
+                          bool     includeDirs = true,
+                          string?  filterRegex = null)
     {
-        _folderPath = folderPath;
-        _sortMode   = sortMode;
-        _maxItems   = maxItems;
+        _folderPath  = folderPath;
+        _sortMode    = sortMode;
+        _maxItems    = maxItems;
+        _includeDirs = includeDirs;
+        _filterRegex = filterRegex;
 
         // Keep taskbar icon, but make form invisible
         Text = "Fan Folder";
@@ -77,7 +85,7 @@ internal sealed class MainHiddenForm : Form
     {
         var path = _folderPath;
         int gen = ++_prewarmGeneration;
-        Task.Run(() => FileService.GetRecentItems(path, _sortMode, _maxItems))
+        Task.Run(() => FileService.GetRecentItems(path, _sortMode, _maxItems, _includeDirs, _filterRegex))
             .ContinueWith(t =>
             {
                 // If a newer prewarm was started, discard this stale result.
@@ -97,7 +105,7 @@ internal sealed class MainHiddenForm : Form
     private void BuildPrewarmForm(IReadOnlyList<FileSystemInfo> items)
     {
         _prewarmFanForm?.Dispose();
-        _prewarmFanForm = new FanForm(_folderPath, _sortMode, _maxItems, items);
+        _prewarmFanForm = new FanForm(_folderPath, _sortMode, _maxItems, _includeDirs, _filterRegex, items);
         _ = _prewarmFanForm.Handle; // force HWND creation now, not on click
     }
 
@@ -406,7 +414,7 @@ internal sealed class MainHiddenForm : Form
             // Fallback: pre-warm wasn't ready yet.
             var items = _cachedItems;
             _cachedItems = null;
-            form = new FanForm(_folderPath, _sortMode, _maxItems, items);
+            form = new FanForm(_folderPath, _sortMode, _maxItems, _includeDirs, _filterRegex, items);
         }
 
         form.Reposition(); // snap to current cursor — fast (no arc recalc)

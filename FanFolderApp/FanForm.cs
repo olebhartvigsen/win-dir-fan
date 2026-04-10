@@ -14,7 +14,6 @@ namespace FanFolderApp;
 internal sealed class FanForm : Form
 {
     // ─── Layout ──────────────────────────────────────────────
-    private const int MaxItems = 15;
     private const int FormMargin = 20;
     private const int LabelGap = 6;         // gap between label and icon
 
@@ -46,6 +45,8 @@ internal sealed class FanForm : Form
     private readonly string   _folderPath;
     private readonly SortMode _sortMode;
     private readonly int      _maxItems;
+    private readonly bool     _includeDirs;
+    private readonly string?  _filterRegex;
     private RectangleF[] _hitRects = [];   // icon hit area per item
     private PointF[] _iconPositions = [];  // top-left of each icon
     private int _hoveredIndex = -1;
@@ -98,14 +99,18 @@ internal sealed class FanForm : Form
     //  Construction
     // ═════════════════════════════════════════════════════════
 
-    public FanForm(string folderPath,
-                   SortMode sortMode = SortMode.DateModifiedDesc,
-                   int maxItems = 15,
+    public FanForm(string   folderPath,
+                   SortMode sortMode    = SortMode.DateModifiedDesc,
+                   int      maxItems    = 15,
+                   bool     includeDirs = true,
+                   string?  filterRegex = null,
                    IReadOnlyList<FileSystemInfo>? preloadedItems = null)
     {
-        _folderPath = folderPath;
-        _sortMode   = sortMode;
-        _maxItems   = maxItems;
+        _folderPath  = folderPath;
+        _sortMode    = sortMode;
+        _maxItems    = maxItems;
+        _includeDirs = includeDirs;
+        _filterRegex = filterRegex;
 
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
@@ -120,10 +125,10 @@ internal sealed class FanForm : Form
         InitAnimation();
         _sf = new StringFormat
         {
-            Alignment = StringAlignment.Far,
+            Alignment     = StringAlignment.Far,
             LineAlignment = StringAlignment.Center,
-            Trimming = StringTrimming.EllipsisCharacter,
-            FormatFlags = StringFormatFlags.NoWrap
+            Trimming      = StringTrimming.None,      // never ellipsize — pill is sized to fit
+            FormatFlags   = StringFormatFlags.NoWrap | StringFormatFlags.NoClip
         };
     }
 
@@ -240,7 +245,7 @@ internal sealed class FanForm : Form
             return;
         }
 
-        var entries = preloadedItems ?? FileService.GetRecentItems(_folderPath, _sortMode, _maxItems);
+        var entries = preloadedItems ?? FileService.GetRecentItems(_folderPath, _sortMode, _maxItems, _includeDirs, _filterRegex);
 
         foreach (var entry in entries)
         {
@@ -347,7 +352,16 @@ internal sealed class FanForm : Form
         float halfIcon = _iconSize / 2f;
         var relCentres = new PointF[count];
 
-        // Ensure total stack height fits within 75 % of screen
+        // Always use the spacing that 15 items would produce when filling the
+        // stack height — this keeps density constant regardless of item count,
+        // so the menu gets proportionally shorter with fewer items.
+        const int BaselineItems = 15;
+        float baselineSpacing = (BaselineItems > 1)
+            ? (_maxStackHeight - StartDistance - halfIcon) / (BaselineItems - 1)
+            : _itemSpacing;
+        _itemSpacing = baselineSpacing;
+
+        // If the actual item count still overflows (e.g. MaxItems > 15), compress further.
         float totalNeeded = StartDistance + _itemSpacing * (count - 1) + halfIcon;
         if (totalNeeded > _maxStackHeight)
         {
@@ -683,7 +697,6 @@ internal sealed class FanForm : Form
 
             const float PillPadH = 8f;
             const float PillPadV = 3f;
-            const float MaxPillW = 260f;
 
             if (item.MeasuredTextWidth < 0f)
             {
@@ -692,7 +705,18 @@ internal sealed class FanForm : Form
                     TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
                 item.MeasuredTextWidth = measSize.Width;
             }
-            float textW = MathF.Min(item.MeasuredTextWidth * textScale, MaxPillW - PillPadH * 2f);
+
+            // When hovering, measure with the actual (larger) font so the pill
+            // grows to fit — prevents text from being clipped or ellipsized.
+            float rawTextW = ownFont
+                ? TextRenderer.MeasureText(item.Name, drawFont,
+                    new Size(int.MaxValue, 32),
+                    TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine).Width
+                : item.MeasuredTextWidth;
+
+            // Cap at form's label reservation (maxLabelW = 280 in CalculateArcLayout)
+            const float MaxLabelW = 280f;
+            float textW = MathF.Min(rawTextW, MaxLabelW - PillPadH * 2f);
 
             float pillW     = textW + PillPadH * 2f;
             float pillH     = emPx + PillPadV * 2f;
