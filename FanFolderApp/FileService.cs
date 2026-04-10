@@ -45,21 +45,30 @@ internal sealed class FileService
     {
         // ── Primary: IShellItemImageFactory ─────────────────────────────
         var direct = TryShellItemImage(path, targetSize);
-        if (direct != null) return direct;
+        if (direct != null && BitmapHasVisiblePixels(direct)) return direct;
+        direct?.Dispose();
 
-        // ── Fallback: existing SHIL / SHDefExtractIcon chain ────────────
+        // ── Fallback: SHIL / SHDefExtractIcon chain ──────────────────────
+        // Convert the HICON to a bitmap, then strip any transparent padding
+        // before scaling up to targetSize (e.g. .zip EXTRALARGE icon is 48px
+        // but may have a smaller graphic centred inside it).
         using var icon = GetShellIcon(path);
         if (icon == null) return null;
 
-        var dst = new Bitmap(targetSize, targetSize,
+        using var src = icon.ToBitmap();
+        var content = FindContentRect(src);
+
+        var bmp = new Bitmap(targetSize, targetSize,
             System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
-        using var g = Graphics.FromImage(dst);
+        using var g = Graphics.FromImage(bmp);
         g.Clear(Color.Transparent);
         g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
         g.PixelOffsetMode   = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-        using var src = icon.ToBitmap();
-        g.DrawImage(src, 0, 0, targetSize, targetSize);
-        return dst;
+        g.DrawImage(src,
+            new Rectangle(0, 0, targetSize, targetSize),
+            content,
+            GraphicsUnit.Pixel);
+        return bmp;
     }
 
     /// <summary>
@@ -84,7 +93,10 @@ internal sealed class FileService
                 hr = factory.GetImage(sz, NativeMethods.SIIGBF_ICONONLY, out IntPtr hbm);
                 if (hr != 0 || hbm == IntPtr.Zero) return null;
 
-                try   { return HBitmapToBitmap(hbm, size); }
+                try
+                {
+                    return HBitmapToBitmap(hbm, size);
+                }
                 finally { NativeMethods.DeleteObject(hbm); }
             }
             finally { Marshal.ReleaseComObject(factory); }
@@ -119,9 +131,7 @@ internal sealed class FileService
         NativeMethods.ReleaseDC(IntPtr.Zero, hdc);
         if (rows == 0) return null;
 
-        // Copy raw premultiplied BGRA bytes straight into a PArgb bitmap.
-        // GDI and GDI+ both use BGRA byte order for 32 bpp bitmaps so no
-        // channel-swapping is needed.
+        // Copy raw BGRA bytes into a PArgb bitmap (no channel-swap needed).
         var dst = new Bitmap(size, size,
             System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
         var rect = new Rectangle(0, 0, size, size);
@@ -133,9 +143,43 @@ internal sealed class FileService
         return dst;
     }
 
+    /// <summary>
+    /// Returns the bounding rectangle of visible (alpha &gt; 8) pixels in the
+    /// bitmap.  If the content already covers the full bitmap, the full rect
+    /// is returned unchanged.
+    /// </summary>
+    private static unsafe Rectangle FindContentRect(Bitmap bmp)
+    {
+        int w = bmp.Width, h = bmp.Height;
+        int minX = w, maxX = 0, minY = h, maxY = 0;
+
+        var rect = new Rectangle(0, 0, w, h);
+        var data = bmp.LockBits(rect,
+            System.Drawing.Imaging.ImageLockMode.ReadOnly,
+            System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        try
+        {
+            byte* p = (byte*)data.Scan0;
+            for (int y = 0; y < h; y++)
+            {
+                byte* row = p + y * w * 4;
+                for (int x = 0; x < w; x++)
+                    if (row[x * 4 + 3] > 8)
+                    {
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                    }
+            }
+        }
+        finally { bmp.UnlockBits(data); }
+
+        if (minX > maxX || minY > maxY) return rect; // fully transparent — use full rect
+        return new Rectangle(minX, minY, maxX - minX + 1, maxY - minY + 1);
+    }
 
     /// <summary>
-    /// Returns a shell icon for use in drag-and-drop operations.
     /// Uses the SHIL image-list chain (JUMBO → EXTRALARGE → LARGE) and
     /// falls back to <see cref="Icon.ExtractAssociatedIcon"/>.
     /// The returned Icon is owned by the caller and must be disposed.
@@ -192,7 +236,32 @@ internal sealed class FileService
     }
 
     /// <summary>
-    /// Returns true only when the icon's visible pixels span ≥ 50 % of the canvas
+    /// Returns true when the bitmap contains at least one pixel with alpha &gt; 8.
+    /// Used to detect fully-transparent HBITMAPs returned by IShellItemImageFactory
+    /// for certain file types (e.g. .zip) on some Windows versions.
+    /// </summary>
+    private static unsafe bool BitmapHasVisiblePixels(Bitmap bmp)
+    {
+        try
+        {
+            var rect = new Rectangle(0, 0, bmp.Width, bmp.Height);
+            var data = bmp.LockBits(rect,
+                System.Drawing.Imaging.ImageLockMode.ReadOnly,
+                System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            try
+            {
+                byte* p = (byte*)data.Scan0;
+                int total = bmp.Width * bmp.Height;
+                for (int i = 0; i < total; i++)
+                    if (p[i * 4 + 3] > 8) return true;
+                return false;
+            }
+            finally { bmp.UnlockBits(data); }
+        }
+        catch { return true; }
+    }
+
+    /// <summary>
     /// in each dimension.  Rejects "stub" HICONs that place a tiny graphic inside
     /// a large canvas (e.g. SHIL_JUMBO for .zip on some Windows versions).
     /// </summary>
