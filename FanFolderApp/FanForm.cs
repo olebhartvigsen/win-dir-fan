@@ -43,7 +43,9 @@ internal sealed class FanForm : Form
 
     // ─── State ───────────────────────────────────────────────────
     private readonly List<FanItem> _items = [];
-    private readonly string _folderPath;
+    private readonly string   _folderPath;
+    private readonly SortMode _sortMode;
+    private readonly int      _maxItems;
     private RectangleF[] _hitRects = [];   // icon hit area per item
     private PointF[] _iconPositions = [];  // top-left of each icon
     private int _hoveredIndex = -1;
@@ -96,9 +98,14 @@ internal sealed class FanForm : Form
     //  Construction
     // ═════════════════════════════════════════════════════════
 
-    public FanForm(string folderPath, IReadOnlyList<FileSystemInfo>? preloadedItems = null)
+    public FanForm(string folderPath,
+                   SortMode sortMode = SortMode.DateModifiedDesc,
+                   int maxItems = 15,
+                   IReadOnlyList<FileSystemInfo>? preloadedItems = null)
     {
         _folderPath = folderPath;
+        _sortMode   = sortMode;
+        _maxItems   = maxItems;
 
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
@@ -233,7 +240,7 @@ internal sealed class FanForm : Form
             return;
         }
 
-        var entries = preloadedItems ?? FileService.GetRecentItems(_folderPath);
+        var entries = preloadedItems ?? FileService.GetRecentItems(_folderPath, _sortMode, _maxItems);
 
         foreach (var entry in entries)
         {

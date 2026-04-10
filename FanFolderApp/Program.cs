@@ -4,8 +4,13 @@ namespace FanFolderApp;
 
 static class Program
 {
-    internal const string RegKey   = @"SOFTWARE\FanFolder";
-    internal const string RegValue = "FolderPath";
+    internal const string RegKey          = @"SOFTWARE\FanFolder";
+    internal const string RegValueFolder  = "FolderPath";
+    internal const string RegValueSort    = "SortMode";
+    internal const string RegValueMax     = "MaxItems";
+
+    // Retained for back-compat (old code that references RegValue by name).
+    internal const string RegValue = RegValueFolder;
 
     [STAThread]
     static void Main()
@@ -14,7 +19,11 @@ static class Program
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
-        Application.Run(new MainHiddenForm(LoadFolderPath()));
+        string   folder   = LoadFolderPath();
+        SortMode sortMode = LoadSortMode();
+        int      maxItems = LoadMaxItems();
+
+        Application.Run(new MainHiddenForm(folder, sortMode, maxItems));
     }
 
     private static string LoadFolderPath()
@@ -23,7 +32,7 @@ static class Program
         try
         {
             using var key = Registry.CurrentUser.OpenSubKey(RegKey);
-            if (key?.GetValue(RegValue) is string path
+            if (key?.GetValue(RegValueFolder) is string path
                 && !string.IsNullOrWhiteSpace(path)
                 && Directory.Exists(path))
                 return path;
@@ -42,6 +51,36 @@ static class Program
 
         SaveFolderPath(fallback);
         return fallback;
+    }
+
+    private static SortMode LoadSortMode()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RegKey);
+            if (key?.GetValue(RegValueSort) is string raw
+                && Enum.TryParse<SortMode>(raw, ignoreCase: true, out var mode))
+                return mode;
+        }
+        catch { }
+        return SortMode.DateModifiedDesc;
+    }
+
+    private static int LoadMaxItems()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RegKey);
+            if (key?.GetValue(RegValueMax) is int n && n is >= 1 and <= 50)
+                return n;
+            // Registry stores REG_SZ on some editors — try string parse too.
+            if (key?.GetValue(RegValueMax) is string s
+                && int.TryParse(s, out int parsed)
+                && parsed is >= 1 and <= 50)
+                return parsed;
+        }
+        catch { }
+        return 15;
     }
 
     private static string? TryMigrateFromJson()
@@ -72,7 +111,27 @@ static class Program
         try
         {
             using var key = Registry.CurrentUser.CreateSubKey(RegKey, writable: true);
-            key.SetValue(RegValue, path);
+            key.SetValue(RegValueFolder, path);
+        }
+        catch { }
+    }
+
+    internal static void SaveSortMode(SortMode mode)
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(RegKey, writable: true);
+            key.SetValue(RegValueSort, mode.ToString());
+        }
+        catch { }
+    }
+
+    internal static void SaveMaxItems(int count)
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(RegKey, writable: true);
+            key.SetValue(RegValueMax, count, RegistryValueKind.DWord);
         }
         catch { }
     }

@@ -3,31 +3,61 @@ using System.Runtime.InteropServices;
 namespace FanFolderApp;
 
 /// <summary>
+/// Controls the order in which items appear in the fan menu.
+/// Values mirror the sort options available in Windows Explorer.
+/// </summary>
+public enum SortMode
+{
+    DateModifiedDesc,   // Default — most recently modified first
+    DateModifiedAsc,    // Oldest modification first
+    NameAsc,            // File name A → Z
+    NameDesc,           // File name Z → A
+    SizeDesc,           // Largest first
+    SizeAsc,            // Smallest first
+    TypeAsc,            // File extension / type A → Z
+    TypeDesc,           // File extension / type Z → A
+    DateCreatedDesc,    // Most recently created first
+    DateCreatedAsc,     // Oldest creation first
+}
+
+/// <summary>
 /// Provides file-system operations: fetching top-N recent items and
 /// extracting native shell icons via SHGetImageList.
 /// </summary>
 internal sealed class FileService
 {
-    private const int MaxItems = 15;
-
     /// <summary>
-    /// Returns the 15 most recently modified file-system entries in the
-    /// given folder, sorted descending by LastWriteTime (newest first).
-    /// The caller is expected to reverse display order so the newest
-    /// item appears at the bottom (nearest the taskbar).
+    /// Returns up to <paramref name="maxItems"/> file-system entries from
+    /// <paramref name="folderPath"/>, ordered according to
+    /// <paramref name="sort"/>.  Hidden items are excluded.
     /// </summary>
-    public static List<FileSystemInfo> GetRecentItems(string folderPath)
+    public static List<FileSystemInfo> GetRecentItems(
+        string folderPath,
+        SortMode sort    = SortMode.DateModifiedDesc,
+        int      maxItems = 15)
     {
         if (!Directory.Exists(folderPath))
             return [];
 
-        var dir = new DirectoryInfo(folderPath);
+        var entries = new DirectoryInfo(folderPath)
+            .GetFileSystemInfos()
+            .Where(f => (f.Attributes & FileAttributes.Hidden) == 0);
 
-        return dir.GetFileSystemInfos()
-            .Where(f => (f.Attributes & FileAttributes.Hidden) == 0)
-            .OrderByDescending(f => f.LastWriteTime)
-            .Take(MaxItems)
-            .ToList();
+        IOrderedEnumerable<FileSystemInfo> ordered = sort switch
+        {
+            SortMode.DateModifiedAsc  => entries.OrderBy(f => f.LastWriteTime),
+            SortMode.NameAsc          => entries.OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase),
+            SortMode.NameDesc         => entries.OrderByDescending(f => f.Name, StringComparer.OrdinalIgnoreCase),
+            SortMode.SizeDesc         => entries.OrderByDescending(f => (f as FileInfo)?.Length ?? 0),
+            SortMode.SizeAsc          => entries.OrderBy(f => (f as FileInfo)?.Length ?? 0),
+            SortMode.TypeAsc          => entries.OrderBy(f => Path.GetExtension(f.Name), StringComparer.OrdinalIgnoreCase),
+            SortMode.TypeDesc         => entries.OrderByDescending(f => Path.GetExtension(f.Name), StringComparer.OrdinalIgnoreCase),
+            SortMode.DateCreatedDesc  => entries.OrderByDescending(f => f.CreationTime),
+            SortMode.DateCreatedAsc   => entries.OrderBy(f => f.CreationTime),
+            _                         => entries.OrderByDescending(f => f.LastWriteTime), // DateModifiedDesc
+        };
+
+        return ordered.Take(maxItems).ToList();
     }
 
     // Extensions handled by GDI+ natively
