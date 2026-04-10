@@ -409,7 +409,7 @@ internal sealed class MainHiddenForm : Form
 
         form.Reposition(); // snap to current cursor — fast (no arc recalc)
         _fanForm = form;
-        _fanForm.FormClosed += (_, _) => { _fanForm = null; Icon = _stackIcon; };
+        _fanForm.FormClosed += (_, _) => { _fanForm = null; Icon = _stackIcon; StartPrewarm(); };
 
         // Record when we opened the fan so the Deactivate handler can ignore the
         // spurious event that fires when base.WndProc(SC_RESTORE) briefly activates
