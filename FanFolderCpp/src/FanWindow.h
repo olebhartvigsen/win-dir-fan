@@ -61,7 +61,11 @@ private:
     int   _dragIdx   = -1;
     bool  _dragging  = false;
 
+    // Cached taskbar button center from last real click — reused for Alt+Tab
+    static int s_lastTaskbarAnchorX;
+
     void CalculateLayout();
+    static int FindTaskbarButtonCenter(RECT taskbarRect);
     void DrawToLayeredWindow();
     void DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha);
     void DrawLabelPill(Gdiplus::Graphics& g, float x, float y, float w, float h, float radius,
