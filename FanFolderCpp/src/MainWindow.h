@@ -29,10 +29,11 @@ private:
     // Prewarm cache — file list + pre-loaded icons
     struct PrewarmData {
         std::vector<FileItem>  items;
-        std::vector<HBITMAP>   bitmaps;   // parallel to items; nullptr = use icon
-        std::vector<HICON>     icons;     // parallel to items; nullptr = use bitmap
+        std::vector<HBITMAP>   bitmaps;
+        std::vector<HICON>     icons;
         int                    iconSize = 0;
         bool                   ready    = false;
+        int                    gen      = 0;   // matches _prewarmGen at post time
 
         void FreeHandles() {
             for (auto h : bitmaps) if (h) DeleteObject(h);
@@ -42,8 +43,9 @@ private:
             ready = false;
         }
     };
-    PrewarmData  _prewarm;
-    std::mutex   _prewarmMutex;
+    PrewarmData          _prewarm;
+    std::mutex           _prewarmMutex;
+    std::atomic<int>     _prewarmGen{0};  // incremented each StartPrewarm; stale threads self-discard
 
     // Hook thread
     std::thread      _hookThread;

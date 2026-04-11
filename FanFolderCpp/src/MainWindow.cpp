@@ -152,9 +152,10 @@ void MainWindow::CloseFan() {
 
 // ---------------------------------------------------------------------------
 void MainWindow::StartPrewarm() {
-    ConfigData cfg  = _config;
-    HWND       hwnd = _hwnd;
-    std::thread([this, cfg, hwnd]() {
+    ConfigData cfg   = _config;
+    HWND       hwnd  = _hwnd;
+    int        myGen = ++_prewarmGen;  // invalidates any still-running prewarm thread
+    std::thread([this, cfg, hwnd, myGen]() {
         // Calculate icon size using the same formula as FanWindow::CalculateLayout
         int iconSize = 64;
         HWND hTray = FindWindowW(L"Shell_TrayWnd", nullptr);
@@ -193,6 +194,13 @@ void MainWindow::StartPrewarm() {
             }
         }
 
+        // Only post if still the current generation; discard stale results
+        if (myGen != _prewarmGen.load()) {
+            data->FreeHandles();
+            delete data;
+            return;
+        }
+        data->gen = myGen;
         PostMessageW(hwnd, WM_MAIN_PREWARM, 0, (LPARAM)data);
     }).detach();
 }
@@ -546,8 +554,13 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         auto* data = reinterpret_cast<PrewarmData*>(lParam);
         if (data) {
             std::lock_guard<std::mutex> lk(self->_prewarmMutex);
-            self->_prewarm.FreeHandles();
-            self->_prewarm = std::move(*data);
+            // Discard if a newer prewarm was started after this one was posted
+            if (data->gen == self->_prewarmGen.load()) {
+                self->_prewarm.FreeHandles();
+                self->_prewarm = std::move(*data);
+            } else {
+                data->FreeHandles();
+            }
             delete data;
         }
         return 0;
@@ -558,6 +571,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if (cfg) {
             self->_config = *cfg;
             delete cfg;
+        }
+        // Invalidate stale prewarm — it was built with old settings (wrong sort order etc.)
+        // CloseFan (posted next by FanWindow) will call StartPrewarm with new config.
+        {
+            std::lock_guard<std::mutex> lk(self->_prewarmMutex);
+            self->_prewarm.FreeHandles();
         }
         return 0;
     }

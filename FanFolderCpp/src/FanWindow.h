@@ -43,11 +43,12 @@ private:
     std::vector<float> _labelWidths;
     int                _labelOffsetX = 0;
 
-    // Icons
-    std::vector<HBITMAP> _bitmaps;
-    std::vector<HICON>   _icons;
-    std::vector<bool>    _iconLoaded;
-    std::mutex           _iconMutex;
+    // Icons — raw handles (ownership) + one-time-cached GDI+ bitmaps (no per-frame alloc)
+    std::vector<HBITMAP>          _bitmaps;
+    std::vector<HICON>            _icons;
+    std::vector<bool>             _iconLoaded;
+    std::vector<Gdiplus::Bitmap*> _gdiBitmaps;  // lazily filled; nullptr = not yet converted
+    std::mutex                    _iconMutex;
 
     // Cached backbuffer — recreated only when window size changes
     HBITMAP          _hBackDIB  = nullptr;
@@ -92,6 +93,9 @@ private:
     void DrawShellBitmap(Gdiplus::Graphics& g, HBITMAP hBmp, float x, float y, float size);
     void DrawShellBitmapIA(Gdiplus::Graphics& g, HBITMAP hBmp, float x, float y, float size,
                            Gdiplus::ImageAttributes* ia);
+    static void DrawCachedBitmapIA(Gdiplus::Graphics& g, Gdiplus::Bitmap* bmp,
+                                   float x, float y, float size, Gdiplus::ImageAttributes* ia);
+    static Gdiplus::Bitmap* HBitmapToGdiBitmap(HBITMAP hBmp);
     void PremultiplyBitmap(Gdiplus::BitmapData& data);
     int  HitTest(int x, int y) const;
     void LaunchItem(int idx);
