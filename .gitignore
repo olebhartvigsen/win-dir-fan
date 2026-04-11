@@ -2,6 +2,9 @@
 **/bin/
 **/obj/
 
+## Installer output
+installer/output/
+
 ## User-specific files
 *.user
 *.suo

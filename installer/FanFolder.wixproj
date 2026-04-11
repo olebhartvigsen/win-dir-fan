@@ -1,0 +1,12 @@
+<Project Sdk="WixToolset.Sdk/4.0.5">
+  <PropertyGroup>
+    <OutputName>FanFolderSetup</OutputName>
+    <Platform>x64</Platform>
+    <IntermediateOutputPath>obj\</IntermediateOutputPath>
+    <OutputPath>output\</OutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext" Version="4.0.5" />
+  </ItemGroup>
+</Project>

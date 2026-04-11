@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <Package Name="Fan Folder"
+           Version="1.0.0"
+           Manufacturer="Fan Folder"
+           UpgradeCode="A1B2C3D4-E5F6-7890-ABCD-EF1234567890"
+           Language="1033"
+           Scope="perUser">
+
+    <SummaryInformation Description="Fan Folder — macOS-style fan menu for Windows taskbar" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Fan Folder is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- ── Install directory ──────────────────────────────────── -->
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="INSTALLFOLDER" Name="FanFolder" />
+    </StandardDirectory>
+
+    <!-- ── Main application component ───────────────────────── -->
+    <ComponentGroup Id="AppComponents" Directory="INSTALLFOLDER">
+      <Component Id="MainExe" Guid="B1C2D3E4-F5A6-7890-BCDE-F12345678901">
+        <File Id="FanFolderExe"
+              Source="..\FanFolderCpp\build\Release\FanFolderCpp.exe"
+              Name="FanFolderCpp.exe" />
+        <!-- Per-user installs must use a registry KeyPath, not a file -->
+        <RegistryValue Root="HKCU"
+                       Key="Software\FanFolder"
+                       Name="InstallDir"
+                       Value="[INSTALLFOLDER]"
+                       Type="string"
+                       KeyPath="yes" />
+        <!-- Clean up install folder on uninstall -->
+        <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- ── Startup registry component (optional feature) ─────── -->
+    <ComponentGroup Id="StartupComponents" Directory="INSTALLFOLDER">
+      <Component Id="StartupRegistry" Guid="C2D3E4F5-A6B7-8901-CDEF-123456789012">
+        <RegistryValue Root="HKCU"
+                       Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                       Name="FanFolder"
+                       Value="&quot;[INSTALLFOLDER]FanFolderCpp.exe&quot;"
+                       Type="string"
+                       Action="write"
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- ── Features ──────────────────────────────────────────── -->
+    <Feature Id="ProductFeature" Title="Fan Folder" Level="1"
+             Description="Installs Fan Folder application."
+             Display="expand">
+      <ComponentGroupRef Id="AppComponents" />
+
+      <Feature Id="StartupFeature" Title="Start with Windows" Level="1"
+               Description="Automatically launch Fan Folder when Windows starts."
+               Display="expand">
+        <ComponentGroupRef Id="StartupComponents" />
+      </Feature>
+    </Feature>
+
+    <!-- ── WiX standard UI with feature tree ─────────────────── -->
+    <WixUI Id="WixUI_FeatureTree" xmlns="http://wixtoolset.org/schemas/v4/wxs/ui" />
+
+    <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+
+  </Package>
+</Wix>
