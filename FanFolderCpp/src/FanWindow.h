@@ -22,11 +22,14 @@ public:
     static const wchar_t* ClassName() { return L"FanFolderCppFan"; }
     static void Register(HINSTANCE hInst);
 
+    // Message sent to hwndOwner when settings change (lParam = new ConfigData*)
+    static constexpr UINT WM_SETTINGS_CHANGED = WM_USER + 10;
+
 private:
     HINSTANCE _hInst;
     HWND      _hwndOwner;
     HWND      _hwnd = nullptr;
-    std::wstring _folderPath;
+    ConfigData _config;
     std::vector<FileItem> _items;
 
     // Layout
@@ -68,7 +71,6 @@ private:
     int   _hoverIdx   = -1;
     bool  _animating  = true;
     DWORD _createTick = 0;
-    ConfigData::AnimStyle _animStyle = ConfigData::AnimStyle::Spring;
     int _arcOriginX = 0;
     int _arcOriginY = 0;
 
@@ -94,6 +96,7 @@ private:
     int  HitTest(int x, int y) const;
     void LaunchItem(int idx);
     void ShowContextMenu(int idx, POINT screenPt);
+    void ShowSettingsMenu(POINT screenPt);
     void StartIconLoad(int idx);
     void FreeBackBuffer();
 

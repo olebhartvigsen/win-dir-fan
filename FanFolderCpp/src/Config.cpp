@@ -150,6 +150,15 @@ ConfigData Config::Load() {
     return cfg;
 }
 
+void Config::Save(const ConfigData& cfg) {
+    SaveFolderPath(cfg.folderPath);
+    SaveSortMode(cfg.sortMode);
+    SaveMaxItems(cfg.maxItems);
+    SaveIncludeDirs(cfg.includeDirs);
+    SaveFilterRegex(cfg.filterRegex);
+    SaveAnimStyle(cfg.animStyle);
+}
+
 void Config::SaveFolderPath(const std::wstring& path) {
     HKEY hKey = nullptr;
     if (RegCreateKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\FanFolder", 0, nullptr,
@@ -157,6 +166,71 @@ void Config::SaveFolderPath(const std::wstring& path) {
         RegSetValueExW(hKey, L"FolderPath", 0, REG_SZ,
                        (const BYTE*)path.c_str(),
                        (DWORD)((path.size() + 1) * sizeof(wchar_t)));
+        RegCloseKey(hKey);
+    }
+}
+
+void Config::SaveSortMode(ConfigData::SortMode mode) {
+    const wchar_t* s = L"DateModifiedDesc";
+    switch (mode) {
+    case ConfigData::SortMode::DateModifiedAsc: s = L"DateModifiedAsc"; break;
+    case ConfigData::SortMode::NameAsc:         s = L"NameAsc";         break;
+    case ConfigData::SortMode::NameDesc:        s = L"NameDesc";        break;
+    default: break;
+    }
+    HKEY hKey = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\FanFolder", 0, nullptr,
+                        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
+        RegSetValueExW(hKey, L"SortMode", 0, REG_SZ,
+                       (const BYTE*)s, (DWORD)((wcslen(s) + 1) * sizeof(wchar_t)));
+        RegCloseKey(hKey);
+    }
+}
+
+void Config::SaveMaxItems(int count) {
+    HKEY hKey = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\FanFolder", 0, nullptr,
+                        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
+        DWORD val = (DWORD)count;
+        RegSetValueExW(hKey, L"MaxItems", 0, REG_DWORD, (const BYTE*)&val, sizeof(val));
+        RegCloseKey(hKey);
+    }
+}
+
+void Config::SaveIncludeDirs(bool include) {
+    HKEY hKey = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\FanFolder", 0, nullptr,
+                        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
+        DWORD val = include ? 1 : 0;
+        RegSetValueExW(hKey, L"IncludeDirectories", 0, REG_DWORD, (const BYTE*)&val, sizeof(val));
+        RegCloseKey(hKey);
+    }
+}
+
+void Config::SaveFilterRegex(const std::wstring& pattern) {
+    HKEY hKey = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\FanFolder", 0, nullptr,
+                        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
+        RegSetValueExW(hKey, L"FilterRegex", 0, REG_SZ,
+                       (const BYTE*)pattern.c_str(),
+                       (DWORD)((pattern.size() + 1) * sizeof(wchar_t)));
+        RegCloseKey(hKey);
+    }
+}
+
+void Config::SaveAnimStyle(ConfigData::AnimStyle style) {
+    const wchar_t* s = L"Spring";
+    switch (style) {
+    case ConfigData::AnimStyle::Fan:   s = L"Fan";   break;
+    case ConfigData::AnimStyle::Glide: s = L"Glide"; break;
+    case ConfigData::AnimStyle::None:  s = L"None";  break;
+    default: break;
+    }
+    HKEY hKey = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\FanFolder", 0, nullptr,
+                        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
+        RegSetValueExW(hKey, L"AnimationStyle", 0, REG_SZ,
+                       (const BYTE*)s, (DWORD)((wcslen(s) + 1) * sizeof(wchar_t)));
         RegCloseKey(hKey);
     }
 }

@@ -2,6 +2,7 @@
 #include "MainWindow.h"
 #include "FanWindow.h"
 #include "FileService.h"
+#include "Config.h"
 #include "../resources/resource.h"
 
 // DWM constants not always present
@@ -18,10 +19,10 @@
 #define DWMWA_EXCLUDED_FROM_PEEK 12
 #endif
 
-static constexpr UINT WM_MAIN_SHOW_MIN  = WM_USER + 20;
-static constexpr UINT WM_MAIN_PREWARM   = WM_USER + 3;
-static constexpr UINT WM_MAIN_CLOSE_FAN = WM_USER + 4;
-static constexpr int  TOGGLE_COOLDOWN_MS = 250;
+static constexpr UINT WM_MAIN_SHOW_MIN     = WM_USER + 20;
+static constexpr UINT WM_MAIN_PREWARM      = WM_USER + 3;
+static constexpr UINT WM_MAIN_CLOSE_FAN    = WM_USER + 4;
+static constexpr int  TOGGLE_COOLDOWN_MS   = 250;
 
 MainWindow* MainWindow::s_instance = nullptr;
 
@@ -390,8 +391,16 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         return 0;
     }
 
-    case WM_MAIN_CLOSE_FAN: // WM_USER+4
-        self->CloseFan();
+    case FanWindow::WM_SETTINGS_CHANGED: {
+        auto* cfg = reinterpret_cast<ConfigData*>(lParam);
+        if (cfg) {
+            self->_config = *cfg;
+            delete cfg;
+        }
+        return 0;
+    }
+
+    case WM_MAIN_CLOSE_FAN: // WM_USER+4        self->CloseFan();
         return 0;
 
     case WM_DESTROY:
