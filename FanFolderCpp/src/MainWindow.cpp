@@ -2,6 +2,7 @@
 #include "MainWindow.h"
 #include "FanWindow.h"
 #include "FileService.h"
+#include "../resources/resource.h"
 
 // DWM constants not always present
 #ifndef DWMWA_FORCE_ICONIC_REPRESENTATION
@@ -31,7 +32,7 @@ void MainWindow::Register(HINSTANCE hInst) {
     wc.style         = 0;
     wc.lpfnWndProc   = WndProc;
     wc.hInstance     = hInst;
-    wc.hIcon         = LoadIcon(nullptr, IDI_APPLICATION);
+    wc.hIcon         = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_APP));
     wc.hCursor       = LoadCursor(nullptr, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wc.lpszClassName = ClassName();
