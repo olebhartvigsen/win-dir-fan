@@ -51,11 +51,15 @@ FanWindow::~FanWindow() {
 
 bool FanWindow::Create() {
     CalculateLayout();
+    // Do NOT set hwndOwner: when the main window re-minimizes itself inside
+    // WM_ACTIVATE, Win32 hides all owned popups — which would immediately
+    // hide the fan.  WS_EX_TOOLWINDOW + WS_EX_TOPMOST handle z-order and
+    // taskbar exclusion without needing an owner relationship.
     _hwnd = CreateWindowExW(
         WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
         ClassName(), L"", WS_POPUP,
         _winX, _winY, _winWidth, _winHeight,
-        _hwndOwner, nullptr, _hInst, this);
+        nullptr, nullptr, _hInst, this);
     return _hwnd != nullptr;
 }
 
