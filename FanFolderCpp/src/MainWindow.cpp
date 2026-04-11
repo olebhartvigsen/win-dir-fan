@@ -69,12 +69,12 @@ bool MainWindow::Create() {
     // Show minimised in taskbar
     ShowWindow(_hwnd, SW_SHOWMINNOACTIVE);
 
-    // DWM iconic thumbnail attributes
+    // DWM iconic thumbnail — show app icon on taskbar hover
     BOOL val = TRUE;
     DwmSetWindowAttribute(_hwnd, DWMWA_FORCE_ICONIC_REPRESENTATION, &val, sizeof(val));
-    DwmSetWindowAttribute(_hwnd, DWMWA_HAS_ICONIC_BITMAP, &val, sizeof(val));
-    DwmSetWindowAttribute(_hwnd, DWMWA_DISALLOW_PEEK, &val, sizeof(val));
-    DwmSetWindowAttribute(_hwnd, DWMWA_EXCLUDED_FROM_PEEK, &val, sizeof(val));
+    DwmSetWindowAttribute(_hwnd, DWMWA_HAS_ICONIC_BITMAP,           &val, sizeof(val));
+    DwmSetWindowAttribute(_hwnd, DWMWA_DISALLOW_PEEK,               &val, sizeof(val));
+    DwmSetWindowAttribute(_hwnd, DWMWA_EXCLUDED_FROM_PEEK,          &val, sizeof(val));
 
     // Set taskbar icon from embedded resource
     HICON hIcoSmall = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
@@ -286,7 +286,6 @@ void CALLBACK MainWindow::WinEventProc(HWINEVENTHOOK, DWORD event, HWND hwnd,
 void MainWindow::ProvideIconicThumbnail(int w, int h) {
     if (w <= 0 || h <= 0) return;
 
-    // Load at 256×256 — the largest standard icon size, gives crisp source
     static constexpr int SrcSize = 256;
     HICON hIco = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
                                     IMAGE_ICON, SrcSize, SrcSize, LR_DEFAULTCOLOR);
@@ -295,17 +294,13 @@ void MainWindow::ProvideIconicThumbnail(int w, int h) {
                                   IMAGE_ICON, 0, 0, LR_DEFAULTCOLOR);
     if (!hIco) return;
 
-    // Step 1: draw the icon into a 256×256 DIB so DrawIconEx preserves alpha
-    auto makeDib = [](int sz, void** ppBits) -> HBITMAP {
-        BITMAPINFOHEADER bh = {};
-        bh.biSize = sizeof(bh); bh.biWidth = sz; bh.biHeight = -sz;
-        bh.biPlanes = 1; bh.biBitCount = 32; bh.biCompression = BI_RGB;
-        return CreateDIBSection(nullptr, reinterpret_cast<BITMAPINFO*>(&bh),
-                                DIB_RGB_COLORS, ppBits, nullptr, 0);
-    };
-
+    // Draw into a 256×256 DIB — DrawIconEx preserves premultiplied alpha
+    BITMAPINFOHEADER bh = {};
+    bh.biSize = sizeof(bh); bh.biWidth = SrcSize; bh.biHeight = -SrcSize;
+    bh.biPlanes = 1; bh.biBitCount = 32; bh.biCompression = BI_RGB;
     void* srcBits = nullptr;
-    HBITMAP hSrc = makeDib(SrcSize, &srcBits);
+    HBITMAP hSrc = CreateDIBSection(nullptr, reinterpret_cast<BITMAPINFO*>(&bh),
+                                     DIB_RGB_COLORS, &srcBits, nullptr, 0);
     if (!hSrc) { DestroyIcon(hIco); return; }
     {
         HDC hdc = CreateCompatibleDC(nullptr);
@@ -318,15 +313,10 @@ void MainWindow::ProvideIconicThumbnail(int w, int h) {
     }
     DestroyIcon(hIco);
 
-    // Step 2: scale to thumbnail size using GDI+ high-quality bicubic
+    // Scale to requested thumbnail size with high-quality bicubic
     int iconSize = std::min(w, h);
-    int x = (w - iconSize) / 2;
-    int y = (h - iconSize) / 2;
-
-    // Wrap source DIB bits in a GDI+ Bitmap (premultiplied ARGB — matches DrawIconEx output)
-    Gdiplus::Bitmap srcGdi(SrcSize, SrcSize, SrcSize * 4, PixelFormat32bppPARGB,
-                           static_cast<BYTE*>(srcBits));
-
+    Gdiplus::Bitmap srcGdi(SrcSize, SrcSize, SrcSize * 4,
+                           PixelFormat32bppPARGB, static_cast<BYTE*>(srcBits));
     Gdiplus::Bitmap dstGdi(w, h, PixelFormat32bppPARGB);
     {
         Gdiplus::Graphics g(&dstGdi);
@@ -334,17 +324,13 @@ void MainWindow::ProvideIconicThumbnail(int w, int h) {
         g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
         g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
         g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
-        g.DrawImage(&srcGdi, x, y, iconSize, iconSize);
+        g.DrawImage(&srcGdi, (w - iconSize) / 2, (h - iconSize) / 2, iconSize, iconSize);
     }
     DeleteObject(hSrc);
 
-    // Step 3: get HBITMAP for DwmSetIconicThumbnail
     HBITMAP hOut = nullptr;
     dstGdi.GetHBITMAP(Gdiplus::Color(0, 0, 0, 0), &hOut);
-    if (hOut) {
-        DwmSetIconicThumbnail(_hwnd, hOut, 0);
-        DeleteObject(hOut);
-    }
+    if (hOut) { DwmSetIconicThumbnail(_hwnd, hOut, 0); DeleteObject(hOut); }
 }
 
 // ---------------------------------------------------------------------------
