@@ -95,10 +95,6 @@ void FanWindow::Show() {
     _entryAlpha   = 0.f;
     _animating    = true;
 
-    // High-resolution timing — eliminates the 15.6ms GetTickCount quantization
-    QueryPerformanceFrequency(&_qpcFreq);
-    QueryPerformanceCounter(&_createQPC);
-
     // Raise system timer resolution to 1ms so SetTimer(16ms) fires consistently
     if (!_timerPeriodActive) { timeBeginPeriod(1); _timerPeriodActive = true; }
 
@@ -134,6 +130,13 @@ void FanWindow::Show() {
 
     DrawToLayeredWindow();
     ShowWindow(_hwnd, SW_SHOWNOACTIVATE);
+
+    // Capture animation start time AFTER ShowWindow — first-time layered window
+    // creation can block in DWM for 100-300ms, and that time must not be counted
+    // as elapsed animation time or all items appear at their final state instantly.
+    QueryPerformanceFrequency(&_qpcFreq);
+    QueryPerformanceCounter(&_createQPC);
+
     SetTimer(_hwnd, 1, 16, nullptr);
 
     TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, _hwnd, 0 };
@@ -1035,8 +1038,10 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
             if (dirty) self->DrawToLayeredWindow();
 
-            // Kill the timer once everything has fully settled — restart it on hover events
-            if (!dirty && self->_hoverIdx < 0) {
+            // Kill the timer once everything has fully settled, but only after the
+            // animation is guaranteed complete (500ms). This guards against the timer
+            // being killed prematurely on edge-case first ticks where dirty is false.
+            if (!dirty && elapsed > 500.f && self->_hoverIdx < 0) {
                 KillTimer(hwnd, 1);
                 if (self->_timerPeriodActive) {
                     timeEndPeriod(1);
