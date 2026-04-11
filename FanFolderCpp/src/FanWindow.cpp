@@ -43,15 +43,16 @@ FanWindow::FanWindow(HINSTANCE hInst, HWND hwndOwner,
 {}
 
 FanWindow::~FanWindow() {
+    if (_timerPeriodActive) { timeEndPeriod(1); _timerPeriodActive = false; }
     FreeBackBuffer();
     if (_hwnd) {
         KillTimer(_hwnd, 1);
         DestroyWindow(_hwnd);
         _hwnd = nullptr;
     }
-    std::lock_guard<std::mutex> lk(_iconMutex);
     for (auto h : _bitmaps) if (h) DeleteObject(h);
     for (auto h : _icons)   if (h) DestroyIcon(h);
+    for (auto p : _gdiBitmaps) delete p;
 }
 
 bool FanWindow::Create() {
@@ -89,9 +90,17 @@ void FanWindow::Show() {
     _iconLoaded.assign(total, false);
     _bitmaps.assign(total, nullptr);
     _icons.assign(total, nullptr);
+    for (auto p : _gdiBitmaps) delete p;
+    _gdiBitmaps.assign(total, nullptr);
     _entryAlpha   = 0.f;
     _animating    = true;
-    _createTick   = GetTickCount();
+
+    // High-resolution timing — eliminates the 15.6ms GetTickCount quantization
+    QueryPerformanceFrequency(&_qpcFreq);
+    QueryPerformanceCounter(&_createQPC);
+
+    // Raise system timer resolution to 1ms so SetTimer(16ms) fires consistently
+    if (!_timerPeriodActive) { timeBeginPeriod(1); _timerPeriodActive = true; }
 
     if (_config.animStyle == ConfigData::AnimStyle::None) {
         std::fill(_entryProgress.begin(), _entryProgress.end(), 1.f);
@@ -120,6 +129,9 @@ void FanWindow::Show() {
     _prewarmIcons.clear();
     _prewarmIconSize = 0;
 
+    // Pre-convert all loaded icons to GDI+ bitmaps so DrawItem needs zero allocation per frame
+    for (int i = 0; i < total; i++) CacheGdiBitmap(i);
+
     DrawToLayeredWindow();
     ShowWindow(_hwnd, SW_SHOWNOACTIVATE);
     SetTimer(_hwnd, 1, 16, nullptr);
@@ -129,6 +141,7 @@ void FanWindow::Show() {
 }
 
 void FanWindow::Close() {
+    if (_timerPeriodActive) { timeEndPeriod(1); _timerPeriodActive = false; }
     if (_hwnd) {
         KillTimer(_hwnd, 1);
         DestroyWindow(_hwnd);
@@ -370,19 +383,19 @@ void FanWindow::CalculateLayout() {
 
 // ---------------------------------------------------------------------------
 void FanWindow::PremultiplyBitmap(Gdiplus::BitmapData& data) {
-    auto* p = static_cast<BYTE*>(data.Scan0);
-    for (UINT y = 0; y < data.Height; y++) {
-        BYTE* row = p + y * data.Stride;
+    // Process as 32-bit integers; skip the common fully-opaque case
+    int stride32 = data.Stride / 4;
+    auto* row = static_cast<UINT32*>(data.Scan0);
+    for (UINT y = 0; y < data.Height; y++, row += stride32) {
         for (UINT x = 0; x < data.Width; x++) {
-            BYTE* px = row + x * 4;
-            BYTE  a  = px[3];
-            if (a == 0) {
-                px[0] = px[1] = px[2] = 0;
-            } else if (a < 255) {
-                px[0] = (BYTE)((px[0] * a) / 255);
-                px[1] = (BYTE)((px[1] * a) / 255);
-                px[2] = (BYTE)((px[2] * a) / 255);
-            }
+            UINT32 c = row[x];
+            BYTE a = (BYTE)(c >> 24);
+            if (a == 255) continue;
+            if (a == 0)   { row[x] = 0; continue; }
+            row[x] = (c & 0xFF000000u)
+                   | ((BYTE)(((c >> 16 & 0xFF) * a) / 255u) << 16)
+                   | ((BYTE)(((c >>  8 & 0xFF) * a) / 255u) <<  8)
+                   | ((BYTE)(((c       & 0xFF) * a) / 255u));
         }
     }
 }
@@ -477,16 +490,15 @@ void FanWindow::DrawToLayeredWindow() {
 }
 
 // ---------------------------------------------------------------------------
-void FanWindow::DrawShellBitmapIA(Gdiplus::Graphics& g, HBITMAP hBmp,
-                                   float x, float y, float size,
-                                   Gdiplus::ImageAttributes* ia) {
+// HBitmapToGdiBitmap— convert an HBITMAP to a Gdiplus::Bitmap that owns its
+// pixel data. Called once per icon; result is cached in _gdiBitmaps[].
+Gdiplus::Bitmap* FanWindow::HBitmapToGdiBitmap(HBITMAP hBmp) {
+    if (!hBmp) return nullptr;
     BITMAP bm = {};
-    GetObject(hBmp, sizeof(bm), &bm);
-    if (bm.bmWidth <= 0) return;
+    if (!GetObject(hBmp, sizeof(bm), &bm) || bm.bmWidth <= 0) return nullptr;
 
     int w = bm.bmWidth;
     int h = std::abs(bm.bmHeight);
-
     std::vector<BYTE> bits((size_t)w * h * 4);
 
     // GetDIBits(BI_RGB) zeroes the alpha byte — transparent PARGB bitmaps
@@ -498,19 +510,14 @@ void FanWindow::DrawShellBitmapIA(Gdiplus::Graphics& g, HBITMAP hBmp,
                  && ds.dsBmih.biBitCount == 32;
 
     if (isDib) {
-        // dsBmih.biHeight < 0  → top-down DIB  (first memory row = image top)
-        // dsBmih.biHeight > 0  → bottom-up DIB (first memory row = image bottom)
         bool topDown = (ds.dsBmih.biHeight < 0);
         int  stride  = ds.dsBm.bmWidthBytes;
         BYTE* src    = static_cast<BYTE*>(ds.dsBm.bmBits);
         for (int row = 0; row < h; row++) {
             int srcRow = topDown ? row : (h - 1 - row);
             memcpy(bits.data() + (size_t)row * w * 4,
-                   src + (size_t)srcRow * stride,
-                   (size_t)w * 4);
+                   src + (size_t)srcRow * stride, (size_t)w * 4);
         }
-        // Guard: if the DIB was somehow allocated without alpha (all zeros),
-        // fall back to fully opaque so content is still visible.
         bool hasAlpha = false;
         for (int i = 0; i < w * h && !hasAlpha; i++)
             if (bits[(size_t)i * 4 + 3] != 0) hasAlpha = true;
@@ -518,10 +525,8 @@ void FanWindow::DrawShellBitmapIA(Gdiplus::Graphics& g, HBITMAP hBmp,
             for (int i = 0; i < w * h; i++)
                 bits[(size_t)i * 4 + 3] = 255;
     } else {
-        // DDB or non-32-bit bitmap: GetDIBits is fine; alpha is absent → force opaque.
         HDC     hdc  = CreateCompatibleDC(nullptr);
         HBITMAP hOld = (HBITMAP)SelectObject(hdc, hBmp);
-
         BITMAPINFO bi = {};
         bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
         bi.bmiHeader.biWidth       = w;
@@ -529,37 +534,63 @@ void FanWindow::DrawShellBitmapIA(Gdiplus::Graphics& g, HBITMAP hBmp,
         bi.bmiHeader.biPlanes      = 1;
         bi.bmiHeader.biBitCount    = 32;
         bi.bmiHeader.biCompression = BI_RGB;
-
         GetDIBits(hdc, hBmp, 0, h, bits.data(), &bi, DIB_RGB_COLORS);
         SelectObject(hdc, hOld);
         DeleteDC(hdc);
-
         for (int i = 0; i < w * h; i++)
             bits[(size_t)i * 4 + 3] = 255;
     }
 
-    Gdiplus::Bitmap bmpG(w, h, w * 4, PixelFormat32bppPARGB, bits.data());
+    // Create a GDI+ bitmap that owns a persistent copy of the pixel data
+    auto* result = new Gdiplus::Bitmap(w, h, PixelFormat32bppARGB);
+    Gdiplus::Rect lockRect(0, 0, w, h);
+    Gdiplus::BitmapData bmpData;
+    if (result->LockBits(&lockRect, Gdiplus::ImageLockModeWrite,
+                         PixelFormat32bppARGB, &bmpData) == Gdiplus::Ok) {
+        BYTE* dst = static_cast<BYTE*>(bmpData.Scan0);
+        for (int row = 0; row < h; row++)
+            memcpy(dst + (size_t)row * bmpData.Stride,
+                   bits.data() + (size_t)row * w * 4, (size_t)w * 4);
+        result->UnlockBits(&bmpData);
+    }
+    return result;
+}
 
-    // Letterbox: fit bitmap into icon square preserving aspect ratio
-    float scale = std::min(size / (float)w, size / (float)h);
+// CacheGdiBitmap — build _gdiBitmaps[idx] from whatever handle is loaded.
+// Must be called from the UI thread (no locking needed).
+void FanWindow::CacheGdiBitmap(int idx) {
+    if (idx < 0 || idx >= (int)_gdiBitmaps.size()) return;
+    delete _gdiBitmaps[idx];
+    _gdiBitmaps[idx] = nullptr;
+
+    if (idx < (int)_bitmaps.size() && _bitmaps[idx]) {
+        _gdiBitmaps[idx] = HBitmapToGdiBitmap(_bitmaps[idx]);
+    } else if (idx < (int)_icons.size() && _icons[idx]) {
+        _gdiBitmaps[idx] = Gdiplus::Bitmap::FromHICON(_icons[idx]);
+    }
+}
+
+// DrawGdiBitmapFit — draw a pre-cached GDI+ bitmap letterboxed into a square.
+// This is called every animation frame and does NO allocation.
+void FanWindow::DrawGdiBitmapFit(Gdiplus::Graphics& g, Gdiplus::Bitmap* bmp,
+                                  float x, float y, float size,
+                                  Gdiplus::ImageAttributes* ia) {
+    if (!bmp) return;
+    float w = (float)bmp->GetWidth();
+    float h = (float)bmp->GetHeight();
+    if (w <= 0 || h <= 0) return;
+
+    float scale = std::min(size / w, size / h);
     float dstW  = w * scale;
     float dstH  = h * scale;
     float dstX  = x + (size - dstW) * 0.5f;
     float dstY  = y + (size - dstH) * 0.5f;
     Gdiplus::RectF dest(dstX, dstY, dstW, dstH);
 
-    if (ia) {
-        g.DrawImage(&bmpG, dest, 0, 0,
-                    (Gdiplus::REAL)w, (Gdiplus::REAL)h,
-                    Gdiplus::UnitPixel, ia);
-    } else {
-        g.DrawImage(&bmpG, dest);
-    }
-}
-
-void FanWindow::DrawShellBitmap(Gdiplus::Graphics& g, HBITMAP hBmp,
-                                   float x, float y, float size) {
-    DrawShellBitmapIA(g, hBmp, x, y, size, nullptr);
+    if (ia)
+        g.DrawImage(bmp, dest, 0, 0, w, h, Gdiplus::UnitPixel, ia);
+    else
+        g.DrawImage(bmp, dest);
 }
 
 void FanWindow::DrawLabelPill(Gdiplus::Graphics& g,
@@ -657,20 +688,13 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
         return;
     }
 
-    // File icon
+    // Use pre-cached GDI+ bitmap — zero allocations in the hot animation path
+    Gdiplus::Bitmap* gdiBmp = (idx < (int)_gdiBitmaps.size()) ? _gdiBitmaps[idx] : nullptr;
     float iconX = cx - drawSz / 2.f;
     float iconY = cy - drawSz / 2.f;
 
-    HBITMAP bmp = nullptr;
-    HICON   ico  = nullptr;
-    {
-        std::lock_guard<std::mutex> lk(_iconMutex);
-        if (idx < (int)_bitmaps.size()) bmp = _bitmaps[idx];
-        if (idx < (int)_icons.size())   ico = _icons[idx];
-    }
-
     bool hoverActive = (idx < (int)_hoverScale.size() && _hoverScale[idx] > 1.01f);
-    if (!isArrow && hoverActive && bmp != nullptr) {
+    if (!isArrow && hoverActive && gdiBmp != nullptr) {
         float hoverT = (hsc - 1.f) / (HoverScaleMax - 1.f);
         struct ShadowPass { float offset; float peakAlpha; };
         static const ShadowPass passes[] = {
@@ -691,32 +715,15 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
             float offsets[] = {-pass.offset, 0.f, pass.offset};
             for (float ox : offsets) for (float oy : offsets) {
                 if (ox == 0.f && oy == 0.f) continue;
-                DrawShellBitmapIA(g, bmp, iconX + ox, iconY + oy, drawSz, &ia);
+                DrawGdiBitmapFit(g, gdiBmp, iconX + ox, iconY + oy, drawSz, &ia);
             }
         }
     }
 
-    if (bmp) {
-        DrawShellBitmap(g, bmp, iconX, iconY, drawSz);
-    } else if (ico) {
-        Gdiplus::Bitmap* iconBmp = Gdiplus::Bitmap::FromHICON(ico);
-        if (iconBmp) {
-            Gdiplus::RectF dest(iconX, iconY, drawSz, drawSz);
-            Gdiplus::ColorMatrix cm = {
-                1,0,0,0,0, 0,1,0,0,0, 0,0,1,0,0,
-                0,0,0,itemAlpha,0, 0,0,0,0,1
-            };
-            Gdiplus::ImageAttributes ia;
-            ia.SetColorMatrix(&cm, Gdiplus::ColorMatrixFlagsDefault,
-                              Gdiplus::ColorAdjustTypeBitmap);
-            g.DrawImage(iconBmp, dest, 0, 0,
-                        (Gdiplus::REAL)iconBmp->GetWidth(),
-                        (Gdiplus::REAL)iconBmp->GetHeight(),
-                        Gdiplus::UnitPixel, &ia);
-            delete iconBmp;
-        }
+    if (gdiBmp) {
+        DrawGdiBitmapFit(g, gdiBmp, iconX, iconY, drawSz, nullptr);
     } else {
-        // Placeholder
+        // Placeholder while icon loads asynchronously
         Gdiplus::SolidBrush ph(Gdiplus::Color((BYTE)(80.f * itemAlpha), 150, 150, 150));
         g.FillRectangle(&ph, Gdiplus::RectF(iconX, iconY, drawSz, drawSz));
     }
@@ -971,8 +978,10 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     // ── Animation tick ─────────────────────────────────────────────────────
     case WM_TIMER:
         if (wParam == 1) {
-            DWORD now     = GetTickCount();
-            float elapsed = (float)(now - self->_createTick);
+            LARGE_INTEGER now;
+            QueryPerformanceCounter(&now);
+            float elapsed = (float)((now.QuadPart - self->_createQPC.QuadPart)
+                                    * 1000.0 / self->_qpcFreq.QuadPart);
             bool  dirty   = false;
 
             int total = (int)self->_items.size() + 1;
@@ -1025,6 +1034,15 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             }
 
             if (dirty) self->DrawToLayeredWindow();
+
+            // Kill the timer once everything has fully settled — restart it on hover events
+            if (!dirty && self->_hoverIdx < 0) {
+                KillTimer(hwnd, 1);
+                if (self->_timerPeriodActive) {
+                    timeEndPeriod(1);
+                    self->_timerPeriodActive = false;
+                }
+            }
         }
         return 0;
 
@@ -1047,6 +1065,9 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         if (hit != self->_hoverIdx) {
             self->_hoverIdx = hit;
             SetCursor(LoadCursor(nullptr, hit >= 0 ? IDC_HAND : IDC_ARROW));
+            // Restart timer if it was killed after animation settled
+            if (!self->_timerPeriodActive) { timeBeginPeriod(1); self->_timerPeriodActive = true; }
+            SetTimer(hwnd, 1, 16, nullptr);
         }
 
         TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
@@ -1056,6 +1077,9 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
     case WM_MOUSELEAVE:
         self->_hoverIdx = -1;
+        // Restart timer so hover decay animates back to 1.0
+        if (!self->_timerPeriodActive) { timeBeginPeriod(1); self->_timerPeriodActive = true; }
+        SetTimer(hwnd, 1, 16, nullptr);
         return 0;
 
     case WM_LBUTTONDOWN: {
@@ -1103,15 +1127,13 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     case WM_USER + 1: { // bitmap
         int     idx = (int)wParam;
         HBITMAP bmp = (HBITMAP)lParam;
-        {
-            std::lock_guard<std::mutex> lk(self->_iconMutex);
-            if (idx < (int)self->_bitmaps.size()) {
-                if (self->_bitmaps[idx]) DeleteObject(self->_bitmaps[idx]);
-                self->_bitmaps[idx]   = bmp;
-            }
-            if (idx < (int)self->_iconLoaded.size())
-                self->_iconLoaded[idx] = true;
+        if (idx < (int)self->_bitmaps.size()) {
+            if (self->_bitmaps[idx]) DeleteObject(self->_bitmaps[idx]);
+            self->_bitmaps[idx] = bmp;
         }
+        if (idx < (int)self->_iconLoaded.size())
+            self->_iconLoaded[idx] = true;
+        self->CacheGdiBitmap(idx);
         self->DrawToLayeredWindow();
         return 0;
     }
@@ -1119,15 +1141,13 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     case WM_USER + 2: { // icon
         int   idx = (int)wParam;
         HICON ico = (HICON)lParam;
-        {
-            std::lock_guard<std::mutex> lk(self->_iconMutex);
-            if (idx < (int)self->_icons.size()) {
-                if (self->_icons[idx]) DestroyIcon(self->_icons[idx]);
-                self->_icons[idx] = ico;
-            }
-            if (idx < (int)self->_iconLoaded.size())
-                self->_iconLoaded[idx] = true;
+        if (idx < (int)self->_icons.size()) {
+            if (self->_icons[idx]) DestroyIcon(self->_icons[idx]);
+            self->_icons[idx] = ico;
         }
+        if (idx < (int)self->_iconLoaded.size())
+            self->_iconLoaded[idx] = true;
+        self->CacheGdiBitmap(idx);
         self->DrawToLayeredWindow();
         return 0;
     }

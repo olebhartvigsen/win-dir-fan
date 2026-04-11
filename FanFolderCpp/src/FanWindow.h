@@ -43,11 +43,11 @@ private:
     std::vector<float> _labelWidths;
     int                _labelOffsetX = 0;
 
-    // Icons
-    std::vector<HBITMAP> _bitmaps;
-    std::vector<HICON>   _icons;
-    std::vector<bool>    _iconLoaded;
-    std::mutex           _iconMutex;
+    // Icons — raw handles (ownership) + cached GDI+ bitmaps (draw-ready, no per-frame alloc)
+    std::vector<HBITMAP>          _bitmaps;
+    std::vector<HICON>            _icons;
+    std::vector<bool>             _iconLoaded;
+    std::vector<Gdiplus::Bitmap*> _gdiBitmaps;  // populated once per icon, used every frame
 
     // Cached backbuffer — recreated only when window size changes
     HBITMAP          _hBackDIB  = nullptr;
@@ -70,7 +70,9 @@ private:
     bool  _entryDone  = false;
     int   _hoverIdx   = -1;
     bool  _animating  = true;
-    DWORD _createTick = 0;
+    LARGE_INTEGER _createQPC  = {};  // QPC tick at fan open — sub-millisecond precision
+    LARGE_INTEGER _qpcFreq    = {};  // QPC frequency
+    bool  _timerPeriodActive  = false;  // tracks timeBeginPeriod(1) state
     int _arcOriginX = 0;
     int _arcOriginY = 0;
 
@@ -89,9 +91,8 @@ private:
     void DrawLabelPill(Gdiplus::Graphics& g, float x, float y, float w, float h, float radius,
                        const std::wstring& text, float alpha);
     void DrawArrowItem(Gdiplus::Graphics& g, float cx, float cy, float sz, float alpha);
-    void DrawShellBitmap(Gdiplus::Graphics& g, HBITMAP hBmp, float x, float y, float size);
-    void DrawShellBitmapIA(Gdiplus::Graphics& g, HBITMAP hBmp, float x, float y, float size,
-                           Gdiplus::ImageAttributes* ia);
+    void DrawGdiBitmapFit(Gdiplus::Graphics& g, Gdiplus::Bitmap* bmp,
+                          float x, float y, float size, Gdiplus::ImageAttributes* ia);
     void PremultiplyBitmap(Gdiplus::BitmapData& data);
     int  HitTest(int x, int y) const;
     void LaunchItem(int idx);
@@ -99,6 +100,8 @@ private:
     void ShowSettingsMenu(POINT screenPt);
     void StartIconLoad(int idx);
     void FreeBackBuffer();
+    void CacheGdiBitmap(int idx);   // convert _bitmaps[idx] or _icons[idx] → _gdiBitmaps[idx]
+    static Gdiplus::Bitmap* HBitmapToGdiBitmap(HBITMAP hBmp);
 
     static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
     static FanWindow* FromHWND(HWND hwnd);

@@ -53,3 +53,5 @@ namespace Gdiplus {
 #include <gdiplus.h>
 
 #pragma comment(lib, "gdiplus.lib")
+#pragma comment(lib, "winmm.lib")
+#include <mmsystem.h>
