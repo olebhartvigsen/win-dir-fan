@@ -13,9 +13,9 @@ int FanWindow::s_lastTaskbarAnchorX = -1;
 static constexpr float HoverScaleMax      = 1.4f;
 static constexpr float AnimSpeed_In       = 0.55f;
 static constexpr float AnimSpeed_Out      = 0.65f;
-static constexpr float EntryFadeDurationMs = 120.f;
-static constexpr float ItemStageDurationMs = 28.f;
-static constexpr float ItemAnimDurationMs  = 420.f;
+static constexpr float EntryFadeDurationMs = 60.f;
+static constexpr float ItemStageDurationMs = 14.f;
+static constexpr float ItemAnimDurationMs  = 200.f;
 static constexpr float kPI = 3.14159265358979f;
 
 static const UINT WM_ICON_BITMAP = WM_USER + 1;
@@ -43,6 +43,7 @@ FanWindow::FanWindow(HINSTANCE hInst, HWND hwndOwner,
 {}
 
 FanWindow::~FanWindow() {
+    FreeBackBuffer();
     if (_hwnd) {
         KillTimer(_hwnd, 1);
         DestroyWindow(_hwnd);
@@ -67,6 +68,17 @@ bool FanWindow::Create() {
     return _hwnd != nullptr;
 }
 
+void FanWindow::AcceptPrewarmIcons(std::vector<HBITMAP>&& bitmaps,
+                                    std::vector<HICON>&&   icons,
+                                    int                    iconSize) {
+    // Free any previous (shouldn't happen, but be safe)
+    for (auto h : _prewarmBitmaps) if (h) DeleteObject(h);
+    for (auto h : _prewarmIcons)   if (h) DestroyIcon(h);
+    _prewarmBitmaps  = std::move(bitmaps);
+    _prewarmIcons    = std::move(icons);
+    _prewarmIconSize = iconSize;
+}
+
 void FanWindow::Show() {
     if (!_hwnd) return;
 
@@ -86,10 +98,27 @@ void FanWindow::Show() {
         _entryAlpha = 1.f;
     }
 
+    // Use pre-warmed icons if the icon size matches; otherwise load async
+    bool usePrewarm = (_prewarmIconSize == _iconSize) &&
+                      ((int)_prewarmBitmaps.size() == (int)_items.size());
+
     // Arrow item doesn't need async load
     _iconLoaded[total - 1] = true;
-    for (int i = 0; i < (int)_items.size(); i++)
-        StartIconLoad(i);
+    for (int i = 0; i < (int)_items.size(); i++) {
+        if (usePrewarm) {
+            _bitmaps[i]    = _prewarmBitmaps[i];  _prewarmBitmaps[i] = nullptr;
+            _icons[i]      = _prewarmIcons[i];    _prewarmIcons[i]   = nullptr;
+            _iconLoaded[i] = true;
+        } else {
+            StartIconLoad(i);
+        }
+    }
+    // Release any leftover prewarm handles (size mismatch case)
+    for (auto h : _prewarmBitmaps) if (h) DeleteObject(h);
+    for (auto h : _prewarmIcons)   if (h) DestroyIcon(h);
+    _prewarmBitmaps.clear();
+    _prewarmIcons.clear();
+    _prewarmIconSize = 0;
 
     DrawToLayeredWindow();
     ShowWindow(_hwnd, SW_SHOWNOACTIVATE);
@@ -358,85 +387,92 @@ void FanWindow::PremultiplyBitmap(Gdiplus::BitmapData& data) {
     }
 }
 
+void FanWindow::FreeBackBuffer() {
+    delete _backBmp;   _backBmp   = nullptr;
+    if (_hdcBack)  { DeleteDC(_hdcBack);       _hdcBack   = nullptr; }
+    if (_hBackDIB) { DeleteObject(_hBackDIB);  _hBackDIB  = nullptr; }
+    _pBackBits = nullptr;
+    _backW = _backH = 0;
+}
+
 void FanWindow::DrawToLayeredWindow() {
     if (!_hwnd || _winWidth <= 0 || _winHeight <= 0) return;
 
-    HDC hdcScreen = GetDC(nullptr);
-    HDC hdcMem    = CreateCompatibleDC(hdcScreen);
+    // Recreate backbuffer only when size changes
+    if (_winWidth != _backW || _winHeight != _backH) {
+        FreeBackBuffer();
 
-    BITMAPINFO bi = {};
-    bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
-    bi.bmiHeader.biWidth       = _winWidth;
-    bi.bmiHeader.biHeight      = -_winHeight;
-    bi.bmiHeader.biPlanes      = 1;
-    bi.bmiHeader.biBitCount    = 32;
-    bi.bmiHeader.biCompression = BI_RGB;
+        BITMAPINFO bi = {};
+        bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+        bi.bmiHeader.biWidth       = _winWidth;
+        bi.bmiHeader.biHeight      = -_winHeight;
+        bi.bmiHeader.biPlanes      = 1;
+        bi.bmiHeader.biBitCount    = 32;
+        bi.bmiHeader.biCompression = BI_RGB;
 
-    void* pBits = nullptr;
-    HBITMAP hDIB = CreateDIBSection(hdcScreen, &bi, DIB_RGB_COLORS, &pBits, nullptr, 0);
-    if (!hDIB) {
-        DeleteDC(hdcMem);
+        HDC hdcScreen = GetDC(nullptr);
+        _hBackDIB = CreateDIBSection(hdcScreen, &bi, DIB_RGB_COLORS, &_pBackBits, nullptr, 0);
+        _hdcBack  = CreateCompatibleDC(hdcScreen);
         ReleaseDC(nullptr, hdcScreen);
-        return;
-    }
-    HBITMAP hOld = (HBITMAP)SelectObject(hdcMem, hDIB);
 
+        if (!_hBackDIB || !_hdcBack) { FreeBackBuffer(); return; }
+        SelectObject(_hdcBack, _hBackDIB);
+
+        _backBmp = new Gdiplus::Bitmap(_winWidth, _winHeight, PixelFormat32bppARGB);
+        _backW   = _winWidth;
+        _backH   = _winHeight;
+    }
+
+    // Clear and render into the cached GDI+ bitmap
     {
-        Gdiplus::Bitmap bmp(_winWidth, _winHeight, PixelFormat32bppARGB);
-        {
-            Gdiplus::Graphics g(&bmp);
-            g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-            g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-            g.Clear(Gdiplus::Color(0, 0, 0, 0));
+        Gdiplus::Graphics g(_backBmp);
+        g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+        g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+        g.Clear(Gdiplus::Color(0, 0, 0, 0));
 
-            int total = (int)_items.size() + 1;
-            auto getItemAlpha = [&](int i) -> float {
-                switch (_animStyle) {
-                case ConfigData::AnimStyle::Spring: {
-                    float ip = (i < (int)_itemProgress.size()) ? _itemProgress[i] : 0.f;
-                    return std::clamp(ip, 0.f, 1.f) * _entryAlpha;
-                }
-                case ConfigData::AnimStyle::Fan:
-                case ConfigData::AnimStyle::Glide:
-                    return (i < (int)_entryProgress.size()) ? _entryProgress[i] : 0.f;
-                case ConfigData::AnimStyle::None:
-                    return 1.f;
-                }
-                return 1.f;
-            };
-
-            // Draw non-hovered items first, hovered item last (on top).
-            for (int i = 0; i < total; i++) {
-                if (i == _hoverIdx) continue;
-                DrawItem(g, i, getItemAlpha(i));
+        int total = (int)_items.size() + 1;
+        auto getItemAlpha = [&](int i) -> float {
+            switch (_animStyle) {
+            case ConfigData::AnimStyle::Spring: {
+                float ip = (i < (int)_itemProgress.size()) ? _itemProgress[i] : 0.f;
+                return std::clamp(ip, 0.f, 1.f) * _entryAlpha;
             }
-            if (_hoverIdx >= 0 && _hoverIdx < total)
-                DrawItem(g, _hoverIdx, getItemAlpha(_hoverIdx));
-        }
+            case ConfigData::AnimStyle::Fan:
+            case ConfigData::AnimStyle::Glide:
+                return (i < (int)_entryProgress.size()) ? _entryProgress[i] : 0.f;
+            case ConfigData::AnimStyle::None:
+                return 1.f;
+            }
+            return 1.f;
+        };
 
-        Gdiplus::Rect rect(0, 0, _winWidth, _winHeight);
-        Gdiplus::BitmapData bd;
-        if (bmp.LockBits(&rect,
-                         Gdiplus::ImageLockModeRead | Gdiplus::ImageLockModeWrite,
-                         PixelFormat32bppARGB, &bd) == Gdiplus::Ok) {
-            PremultiplyBitmap(bd);
-            auto* src = static_cast<BYTE*>(bd.Scan0);
-            auto* dst = static_cast<BYTE*>(pBits);
-            for (int y = 0; y < _winHeight; y++)
-                memcpy(dst + y * _winWidth * 4, src + y * bd.Stride, _winWidth * 4);
-            bmp.UnlockBits(&bd);
+        for (int i = 0; i < total; i++) {
+            if (i == _hoverIdx) continue;
+            DrawItem(g, i, getItemAlpha(i));
         }
+        if (_hoverIdx >= 0 && _hoverIdx < total)
+            DrawItem(g, _hoverIdx, getItemAlpha(_hoverIdx));
     }
 
+    Gdiplus::Rect rect(0, 0, _winWidth, _winHeight);
+    Gdiplus::BitmapData bd;
+    if (_backBmp->LockBits(&rect,
+                           Gdiplus::ImageLockModeRead | Gdiplus::ImageLockModeWrite,
+                           PixelFormat32bppARGB, &bd) == Gdiplus::Ok) {
+        PremultiplyBitmap(bd);
+        auto* src = static_cast<BYTE*>(bd.Scan0);
+        auto* dst = static_cast<BYTE*>(_pBackBits);
+        for (int y = 0; y < _winHeight; y++)
+            memcpy(dst + y * _winWidth * 4, src + y * bd.Stride, _winWidth * 4);
+        _backBmp->UnlockBits(&bd);
+    }
+
+    HDC hdcScreen = GetDC(nullptr);
     POINT ptSrc = {0, 0};
     SIZE  szWin = {_winWidth, _winHeight};
     POINT ptDst = {_winX, _winY};
     BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
-    UpdateLayeredWindow(_hwnd, hdcScreen, &ptDst, &szWin, hdcMem, &ptSrc, 0, &blend, ULW_ALPHA);
-
-    SelectObject(hdcMem, hOld);
-    DeleteObject(hDIB);
-    DeleteDC(hdcMem);
+    UpdateLayeredWindow(_hwnd, hdcScreen, &ptDst, &szWin, _hdcBack, &ptSrc, 0, &blend, ULW_ALPHA);
     ReleaseDC(nullptr, hdcScreen);
 }
 
@@ -836,8 +872,8 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             }
             case ConfigData::AnimStyle::Fan: {
                 for (int i = 0; i < total && i < (int)self->_entryProgress.size(); i++) {
-                    float stagger = i * 30.f;
-                    float t = std::clamp((elapsed - stagger) / 330.f, 0.f, 1.f);
+                    float stagger = i * 15.f;
+                    float t = std::clamp((elapsed - stagger) / 165.f, 0.f, 1.f);
                     float u = 1.f - t;
                     float eased = 1.f - u * u * u * u;
                     if (eased != self->_entryProgress[i]) { self->_entryProgress[i] = eased; dirty = true; }
@@ -845,7 +881,7 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 break;
             }
             case ConfigData::AnimStyle::Glide: {
-                float t = std::clamp(elapsed / 800.f, 0.f, 1.f);
+                float t = std::clamp(elapsed / 400.f, 0.f, 1.f);
                 float u = 1.f - t;
                 float eased = 1.f - u * u * u;
                 for (int i = 0; i < total && i < (int)self->_entryProgress.size(); i++) {

@@ -25,10 +25,24 @@ private:
     DWORD  _fanOpenTick    = 0;
     bool   _fanOpen        = false;
 
-    // Prewarm cache
-    std::vector<FileItem>  _prewarmItems;
-    std::mutex             _prewarmMutex;
-    bool                   _prewarmReady = false;
+    // Prewarm cache — file list + pre-loaded icons
+    struct PrewarmData {
+        std::vector<FileItem>  items;
+        std::vector<HBITMAP>   bitmaps;   // parallel to items; nullptr = use icon
+        std::vector<HICON>     icons;     // parallel to items; nullptr = use bitmap
+        int                    iconSize = 0;
+        bool                   ready    = false;
+
+        void FreeHandles() {
+            for (auto h : bitmaps) if (h) DeleteObject(h);
+            for (auto h : icons)   if (h) DestroyIcon(h);
+            bitmaps.clear();
+            icons.clear();
+            ready = false;
+        }
+    };
+    PrewarmData  _prewarm;
+    std::mutex   _prewarmMutex;
 
     // Hook thread
     std::thread      _hookThread;

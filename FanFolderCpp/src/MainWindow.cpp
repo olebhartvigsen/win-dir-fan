@@ -103,23 +103,32 @@ void MainWindow::ToggleFan() {
 void MainWindow::OpenFan() {
     CloseFan();
 
-    std::vector<FileItem> items;
+    // Take ownership of pre-warmed data (items + icons) under the lock
+    PrewarmData prewarm;
     {
         std::lock_guard<std::mutex> lk(_prewarmMutex);
-        if (_prewarmReady)
-            items = _prewarmItems;
+        if (_prewarm.ready)
+            prewarm = std::move(_prewarm);
     }
-    if (items.empty())
-        items = FileService::ScanFolder(_config.folderPath, _config.maxItems,
-                                        _config.includeDirs, _config.filterRegex, _config.sortMode);
+
+    std::vector<FileItem> items = prewarm.ready
+        ? prewarm.items
+        : FileService::ScanFolder(_config.folderPath, _config.maxItems,
+                                  _config.includeDirs, _config.filterRegex, _config.sortMode);
 
     _fanWindow = std::make_unique<FanWindow>(_hInst, _hwnd, _config, std::move(items));
+
+    // Inject pre-warmed icons; FanWindow::Show() will skip async loading for them
+    if (prewarm.ready)
+        _fanWindow->AcceptPrewarmIcons(std::move(prewarm.bitmaps),
+                                       std::move(prewarm.icons),
+                                       prewarm.iconSize);
+
     if (_fanWindow->Create()) {
         _fanWindow->Show();
         _fanOpen     = true;
         _fanOpenTick = GetTickCount();
         InstallHooks();
-        StartPrewarm();
     } else {
         _fanWindow.reset();
     }
@@ -134,17 +143,53 @@ void MainWindow::CloseFan() {
     _fanOpen = false;
     _lastToggleTick = GetTickCount();  // prevent SC_RESTORE from immediately reopening
     ShowWindow(_hwnd, SW_SHOWMINNOACTIVE);
+    StartPrewarm();  // pre-load icons while idle, ready for next open
 }
 
 // ---------------------------------------------------------------------------
 void MainWindow::StartPrewarm() {
-    ConfigData cfg = _config;
-    HWND hwnd = _hwnd;
+    ConfigData cfg  = _config;
+    HWND       hwnd = _hwnd;
     std::thread([this, cfg, hwnd]() {
+        // Calculate icon size using the same formula as FanWindow::CalculateLayout
+        int iconSize = 64;
+        HWND hTray = FindWindowW(L"Shell_TrayWnd", nullptr);
+        if (hTray) {
+            RECT tbRect = {};
+            GetWindowRect(hTray, &tbRect);
+            HMONITOR hMon = MonitorFromRect(&tbRect, MONITOR_DEFAULTTOPRIMARY);
+            MONITORINFO mi = { sizeof(mi) };
+            GetMonitorInfoW(hMon, &mi);
+            int screenH = mi.rcMonitor.bottom - mi.rcMonitor.top;
+            iconSize = std::clamp(screenH / 19, 48, 128);
+        }
+
         auto items = FileService::ScanFolder(cfg.folderPath, cfg.maxItems,
                                              cfg.includeDirs, cfg.filterRegex, cfg.sortMode);
-        auto* vec  = new std::vector<FileItem>(std::move(items));
-        PostMessageW(hwnd, WM_MAIN_PREWARM, 0, (LPARAM)vec);
+        auto* data      = new PrewarmData;
+        data->items     = items;
+        data->iconSize  = iconSize;
+        data->ready     = true;
+        data->bitmaps.resize(items.size(), nullptr);
+        data->icons.resize(items.size(), nullptr);
+
+        for (int i = 0; i < (int)items.size(); i++) {
+            const std::wstring& p = items[i].fullPath;
+            HBITMAP bmp = nullptr;
+            if (FileService::IsGdiImageExtension(p))
+                bmp = FileService::GetImageThumbnail(p, iconSize);
+            if (!bmp && FileService::IsShellThumbnailExtension(p))
+                bmp = FileService::GetShellThumbnail(p, iconSize);
+            if (!bmp)
+                bmp = FileService::GetShellBitmap(p, iconSize);
+            if (bmp) {
+                data->bitmaps[i] = bmp;
+            } else {
+                data->icons[i] = FileService::GetShellIcon(p);
+            }
+        }
+
+        PostMessageW(hwnd, WM_MAIN_PREWARM, 0, (LPARAM)data);
     }).detach();
 }
 
@@ -241,45 +286,65 @@ void CALLBACK MainWindow::WinEventProc(HWINEVENTHOOK, DWORD event, HWND hwnd,
 void MainWindow::ProvideIconicThumbnail(int w, int h) {
     if (w <= 0 || h <= 0) return;
 
-    int iconSize = std::min(w, h);
+    // Load at 256×256 — the largest standard icon size, gives crisp source
+    static constexpr int SrcSize = 256;
     HICON hIco = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
-                                    IMAGE_ICON, iconSize, iconSize, LR_DEFAULTCOLOR);
+                                    IMAGE_ICON, SrcSize, SrcSize, LR_DEFAULTCOLOR);
     if (!hIco)
         hIco = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
                                   IMAGE_ICON, 0, 0, LR_DEFAULTCOLOR);
     if (!hIco) return;
 
-    // Create a 32bpp top-down DIB — required by DwmSetIconicThumbnail
-    BITMAPINFOHEADER bmih = {};
-    bmih.biSize        = sizeof(bmih);
-    bmih.biWidth       = w;
-    bmih.biHeight      = -h;   // negative = top-down
-    bmih.biPlanes      = 1;
-    bmih.biBitCount    = 32;
-    bmih.biCompression = BI_RGB;
-    void* bits = nullptr;
-    HBITMAP hDib = CreateDIBSection(nullptr, reinterpret_cast<BITMAPINFO*>(&bmih),
-                                     DIB_RGB_COLORS, &bits, nullptr, 0);
-    if (!hDib) { DestroyIcon(hIco); return; }
+    // Step 1: draw the icon into a 256×256 DIB so DrawIconEx preserves alpha
+    auto makeDib = [](int sz, void** ppBits) -> HBITMAP {
+        BITMAPINFOHEADER bh = {};
+        bh.biSize = sizeof(bh); bh.biWidth = sz; bh.biHeight = -sz;
+        bh.biPlanes = 1; bh.biBitCount = 32; bh.biCompression = BI_RGB;
+        return CreateDIBSection(nullptr, reinterpret_cast<BITMAPINFO*>(&bh),
+                                DIB_RGB_COLORS, ppBits, nullptr, 0);
+    };
 
-    HDC hdc  = CreateCompatibleDC(nullptr);
-    auto* hOld = SelectObject(hdc, hDib);
-
-    // Zero the bitmap (transparent black)
-    if (bits) ZeroMemory(bits, w * h * 4);
-
-    // DrawIconEx writes premultiplied ARGB for 32-bpp icons on Vista+
-    int x = (w - iconSize) / 2;
-    int y = (h - iconSize) / 2;
-    DrawIconEx(hdc, x, y, hIco, iconSize, iconSize, 0, nullptr, DI_NORMAL);
-    GdiFlush();
-
-    SelectObject(hdc, hOld);
-    DeleteDC(hdc);
+    void* srcBits = nullptr;
+    HBITMAP hSrc = makeDib(SrcSize, &srcBits);
+    if (!hSrc) { DestroyIcon(hIco); return; }
+    {
+        HDC hdc = CreateCompatibleDC(nullptr);
+        auto* hOld = SelectObject(hdc, hSrc);
+        ZeroMemory(srcBits, SrcSize * SrcSize * 4);
+        DrawIconEx(hdc, 0, 0, hIco, SrcSize, SrcSize, 0, nullptr, DI_NORMAL);
+        GdiFlush();
+        SelectObject(hdc, hOld);
+        DeleteDC(hdc);
+    }
     DestroyIcon(hIco);
 
-    DwmSetIconicThumbnail(_hwnd, hDib, 0);
-    DeleteObject(hDib);
+    // Step 2: scale to thumbnail size using GDI+ high-quality bicubic
+    int iconSize = std::min(w, h);
+    int x = (w - iconSize) / 2;
+    int y = (h - iconSize) / 2;
+
+    // Wrap source DIB bits in a GDI+ Bitmap (premultiplied ARGB — matches DrawIconEx output)
+    Gdiplus::Bitmap srcGdi(SrcSize, SrcSize, SrcSize * 4, PixelFormat32bppPARGB,
+                           static_cast<BYTE*>(srcBits));
+
+    Gdiplus::Bitmap dstGdi(w, h, PixelFormat32bppPARGB);
+    {
+        Gdiplus::Graphics g(&dstGdi);
+        g.Clear(Gdiplus::Color(0, 0, 0, 0));
+        g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+        g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+        g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
+        g.DrawImage(&srcGdi, x, y, iconSize, iconSize);
+    }
+    DeleteObject(hSrc);
+
+    // Step 3: get HBITMAP for DwmSetIconicThumbnail
+    HBITMAP hOut = nullptr;
+    dstGdi.GetHBITMAP(Gdiplus::Color(0, 0, 0, 0), &hOut);
+    if (hOut) {
+        DwmSetIconicThumbnail(_hwnd, hOut, 0);
+        DeleteObject(hOut);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -328,13 +393,13 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             ShowWindow(hwnd, SW_MINIMIZE);
         return 0;
 
-    case WM_MAIN_PREWARM: { // WM_USER+3
-        auto* vec = reinterpret_cast<std::vector<FileItem>*>(lParam);
-        if (vec) {
+    case WM_MAIN_PREWARM: {
+        auto* data = reinterpret_cast<PrewarmData*>(lParam);
+        if (data) {
             std::lock_guard<std::mutex> lk(self->_prewarmMutex);
-            self->_prewarmItems  = std::move(*vec);
-            self->_prewarmReady  = true;
-            delete vec;
+            self->_prewarm.FreeHandles();
+            self->_prewarm = std::move(*data);
+            delete data;
         }
         return 0;
     }

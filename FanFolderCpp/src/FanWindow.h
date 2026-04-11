@@ -12,6 +12,9 @@ public:
     bool Create();
     void Show();
     void Close();
+    void AcceptPrewarmIcons(std::vector<HBITMAP>&& bitmaps,
+                            std::vector<HICON>&&   icons,
+                            int                    iconSize);
     HWND Handle() const { return _hwnd; }
     bool IsVisible() const;
     void Reposition();
@@ -42,6 +45,19 @@ private:
     std::vector<HICON>   _icons;
     std::vector<bool>    _iconLoaded;
     std::mutex           _iconMutex;
+
+    // Cached backbuffer — recreated only when window size changes
+    HBITMAP          _hBackDIB  = nullptr;
+    void*            _pBackBits = nullptr;
+    HDC              _hdcBack   = nullptr;
+    Gdiplus::Bitmap* _backBmp   = nullptr;
+    int              _backW     = 0;
+    int              _backH     = 0;
+
+    // Pre-warmed icons injected before Show()
+    std::vector<HBITMAP> _prewarmBitmaps;
+    std::vector<HICON>   _prewarmIcons;
+    int                  _prewarmIconSize = 0;
 
     // Animation
     float _entryAlpha = 0.f;
@@ -79,6 +95,7 @@ private:
     void LaunchItem(int idx);
     void ShowContextMenu(int idx, POINT screenPt);
     void StartIconLoad(int idx);
+    void FreeBackBuffer();
 
     static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
     static FanWindow* FromHWND(HWND hwnd);
