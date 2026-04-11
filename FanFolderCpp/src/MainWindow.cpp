@@ -2,6 +2,7 @@
 #include "MainWindow.h"
 #include "FanWindow.h"
 #include "FileService.h"
+#include "../resources/resource.h"
 
 // DWM constants not always present
 #ifndef DWMWA_FORCE_ICONIC_REPRESENTATION
@@ -31,7 +32,7 @@ void MainWindow::Register(HINSTANCE hInst) {
     wc.style         = 0;
     wc.lpfnWndProc   = WndProc;
     wc.hInstance     = hInst;
-    wc.hIcon         = LoadIcon(nullptr, IDI_APPLICATION);
+    wc.hIcon         = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_APP));
     wc.hCursor       = LoadCursor(nullptr, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wc.lpszClassName = ClassName();
@@ -75,12 +76,13 @@ bool MainWindow::Create() {
     DwmSetWindowAttribute(_hwnd, DWMWA_DISALLOW_PEEK, &val, sizeof(val));
     DwmSetWindowAttribute(_hwnd, DWMWA_EXCLUDED_FROM_PEEK, &val, sizeof(val));
 
-    // Set taskbar icon
-    HICON hIco = CreateStackIcon(32);
-    if (hIco) {
-        SendMessageW(_hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIco);
-        SendMessageW(_hwnd, WM_SETICON, ICON_BIG,   (LPARAM)hIco);
-    }
+    // Set taskbar icon from embedded resource
+    HICON hIcoSmall = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
+                                         IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
+    HICON hIcoBig   = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
+                                         IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
+    if (hIcoSmall) SendMessageW(_hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIcoSmall);
+    if (hIcoBig)   SendMessageW(_hwnd, WM_SETICON, ICON_BIG,   (LPARAM)hIcoBig);
 
     StartPrewarm();
     return true;
@@ -130,6 +132,7 @@ void MainWindow::CloseFan() {
         _fanWindow.reset();
     }
     _fanOpen = false;
+    _lastToggleTick = GetTickCount();  // prevent SC_RESTORE from immediately reopening
     ShowWindow(_hwnd, SW_SHOWMINNOACTIVE);
 }
 
@@ -153,8 +156,11 @@ void MainWindow::InstallHooks() {
     _hookThread = std::thread([this, hwnd]() {
         _hookThreadId = GetCurrentThreadId();
 
-        _mouseHook = SetWindowsHookExW(WH_MOUSE_LL,    MouseHookProc,    nullptr, 0);
-        _kbHook    = SetWindowsHookExW(WH_KEYBOARD_LL, KeyboardHookProc, nullptr, 0);
+        _mouseHook  = SetWindowsHookExW(WH_MOUSE_LL,    MouseHookProc,    nullptr, 0);
+        _kbHook     = SetWindowsHookExW(WH_KEYBOARD_LL, KeyboardHookProc, nullptr, 0);
+        _hWinEvent  = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
+                                      nullptr, WinEventProc, 0, 0,
+                                      WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
 
         MSG msg;
         while (GetMessageW(&msg, nullptr, 0, 0)) {
@@ -164,6 +170,7 @@ void MainWindow::InstallHooks() {
 
         if (_mouseHook) { UnhookWindowsHookEx(_mouseHook); _mouseHook = nullptr; }
         if (_kbHook)    { UnhookWindowsHookEx(_kbHook);    _kbHook    = nullptr; }
+        if (_hWinEvent) { UnhookWinEvent(_hWinEvent);       _hWinEvent = nullptr; }
     });
 }
 
@@ -182,12 +189,16 @@ LRESULT CALLBACK MainWindow::MouseHookProc(int nCode, WPARAM wParam, LPARAM lPar
         bool isDown = (wParam == WM_LBUTTONDOWN || wParam == WM_RBUTTONDOWN ||
                        wParam == WM_MBUTTONDOWN  || wParam == WM_NCLBUTTONDOWN);
         if (isDown && s_instance->_fanWindow) {
-            MSLLHOOKSTRUCT* ms = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
             HWND fanHwnd = s_instance->_fanWindow->Handle();
             if (fanHwnd) {
-                RECT rc;
+                // ms->pt is in virtual-screen (physical) pixels — NOT the same coordinate
+                // space as GetWindowRect for a PerMonitorV2-aware process.
+                // GetCursorPos always matches GetWindowRect: both use the process's
+                // logical DPI coordinate space.
+                POINT pt = {};
+                GetCursorPos(&pt);
+                RECT rc = {};
                 GetWindowRect(fanHwnd, &rc);
-                POINT pt = ms->pt;
                 if (pt.x < rc.left || pt.x >= rc.right ||
                     pt.y < rc.top  || pt.y >= rc.bottom) {
                     PostMessageW(s_instance->_hwnd, WM_MAIN_CLOSE_FAN, 0, 0);
@@ -207,86 +218,68 @@ LRESULT CALLBACK MainWindow::KeyboardHookProc(int nCode, WPARAM wParam, LPARAM l
     return CallNextHookEx(nullptr, nCode, wParam, lParam);
 }
 
-// ---------------------------------------------------------------------------
-void MainWindow::ProvideIconicThumbnail(int w, int h) {
-    HICON hIco = CreateStackIcon(std::min(w, h));
-    if (!hIco) return;
+void CALLBACK MainWindow::WinEventProc(HWINEVENTHOOK, DWORD event, HWND hwnd,
+                                        LONG idObject, LONG, DWORD idEventThread, DWORD) {
+    if (event != EVENT_SYSTEM_FOREGROUND || !s_instance || !s_instance->_fanOpen)
+        return;
+    if (idObject != OBJID_WINDOW || hwnd == nullptr)
+        return;
 
-    ICONINFO ii = {};
-    GetIconInfo(hIco, &ii);
-    if (ii.hbmColor) {
-        DwmSetIconicThumbnail(_hwnd, ii.hbmColor, 0);
-        DeleteObject(ii.hbmColor);
-    }
-    if (ii.hbmMask) DeleteObject(ii.hbmMask);
-    DestroyIcon(hIco);
+    // Ignore foreground changes that happen right after opening (e.g. taskbar click)
+    DWORD now = GetTickCount();
+    if (now - s_instance->_fanOpenTick < 500)
+        return;
+
+    // Close the fan if the newly foregrounded window belongs to a different process
+    DWORD fgPid = 0;
+    GetWindowThreadProcessId(hwnd, &fgPid);
+    if (fgPid != GetCurrentProcessId())
+        PostMessageW(s_instance->_hwnd, WM_MAIN_CLOSE_FAN, 0, 0);
 }
 
 // ---------------------------------------------------------------------------
-HICON MainWindow::CreateStackIcon(int size) {
-    if (size <= 0) size = 64;
+void MainWindow::ProvideIconicThumbnail(int w, int h) {
+    if (w <= 0 || h <= 0) return;
 
-    Gdiplus::Bitmap bmp(size, size, PixelFormat32bppARGB);
-    {
-        Gdiplus::Graphics g(&bmp);
-        g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-        g.Clear(Gdiplus::Color(0, 0, 0, 0));
+    int iconSize = std::min(w, h);
+    HICON hIco = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
+                                    IMAGE_ICON, iconSize, iconSize, LR_DEFAULTCOLOR);
+    if (!hIco)
+        hIco = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
+                                  IMAGE_ICON, 0, 0, LR_DEFAULTCOLOR);
+    if (!hIco) return;
 
-        float s   = (float)size;
-        float dw  = s * 0.55f;
-        float dh  = s * 0.68f;
-        float cx  = s * 0.5f;
-        float cy  = s * 0.5f;
-        float r   = s * 0.08f;
-        float fold = s * 0.15f;
+    // Create a 32bpp top-down DIB — required by DwmSetIconicThumbnail
+    BITMAPINFOHEADER bmih = {};
+    bmih.biSize        = sizeof(bmih);
+    bmih.biWidth       = w;
+    bmih.biHeight      = -h;   // negative = top-down
+    bmih.biPlanes      = 1;
+    bmih.biBitCount    = 32;
+    bmih.biCompression = BI_RGB;
+    void* bits = nullptr;
+    HBITMAP hDib = CreateDIBSection(nullptr, reinterpret_cast<BITMAPINFO*>(&bmih),
+                                     DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!hDib) { DestroyIcon(hIco); return; }
 
-        // Helper lambda to draw a single document sheet
-        auto drawDoc = [&](float offX, float offY, float angle,
-                           BYTE rr, BYTE gg, BYTE bb) {
-            Gdiplus::Matrix mat;
-            mat.RotateAt(angle, Gdiplus::PointF(cx, cy));
-            g.SetTransform(&mat);
+    HDC hdc  = CreateCompatibleDC(nullptr);
+    auto* hOld = SelectObject(hdc, hDib);
 
-            float left = cx - dw / 2.f + offX;
-            float top  = cy - dh / 2.f + offY;
+    // Zero the bitmap (transparent black)
+    if (bits) ZeroMemory(bits, w * h * 4);
 
-            Gdiplus::GraphicsPath path;
-            // Body (all corners except top-right which is folded)
-            path.AddLine(left,            top + fold,   left,          top + dh);
-            path.AddLine(left,            top + dh,     left + dw,     top + dh);
-            path.AddLine(left + dw,       top + dh,     left + dw,     top + fold);
-            path.AddLine(left + dw,       top + fold,   left + dw - fold, top);
-            path.AddLine(left + dw - fold, top,         left,          top + fold);
-            path.CloseFigure();
+    // DrawIconEx writes premultiplied ARGB for 32-bpp icons on Vista+
+    int x = (w - iconSize) / 2;
+    int y = (h - iconSize) / 2;
+    DrawIconEx(hdc, x, y, hIco, iconSize, iconSize, 0, nullptr, DI_NORMAL);
+    GdiFlush();
 
-            Gdiplus::SolidBrush brush(Gdiplus::Color(230, rr, gg, bb));
-            g.FillPath(&brush, &path);
+    SelectObject(hdc, hOld);
+    DeleteDC(hdc);
+    DestroyIcon(hIco);
 
-            Gdiplus::Pen pen(Gdiplus::Color(180, (BYTE)(rr/2), (BYTE)(gg/2), (BYTE)(bb/2)), 1.f);
-            g.DrawPath(&pen, &path);
-
-            // Fold triangle
-            Gdiplus::GraphicsPath foldPath;
-            foldPath.AddLine(left + dw - fold, top,      left + dw,     top + fold);
-            foldPath.AddLine(left + dw,        top + fold, left + dw - fold, top + fold);
-            foldPath.CloseFigure();
-            Gdiplus::SolidBrush foldBrush(Gdiplus::Color(160, (BYTE)(rr*3/4), (BYTE)(gg*3/4), (BYTE)(bb*3/4)));
-            g.FillPath(&foldBrush, &foldPath);
-
-            g.ResetTransform();
-        };
-
-        // Blue doc behind left
-        drawDoc(-s * 0.08f, s * 0.04f, -22.f, 70, 130, 220);
-        // Amber doc behind right
-        drawDoc( s * 0.08f, s * 0.04f,  22.f, 230, 160, 40);
-        // White doc in front
-        drawDoc(0.f, 0.f, 0.f, 240, 240, 245);
-    }
-
-    HICON hIcon = nullptr;
-    bmp.GetHICON(&hIcon);
-    return hIcon;
+    DwmSetIconicThumbnail(_hwnd, hDib, 0);
+    DeleteObject(hDib);
 }
 
 // ---------------------------------------------------------------------------

@@ -1,2 +1,3 @@
 #include "resource.h"
+IDI_APP      ICON        "app.ico"
 IDR_MANIFEST RT_MANIFEST "app.manifest"

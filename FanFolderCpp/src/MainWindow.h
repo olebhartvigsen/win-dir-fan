@@ -31,10 +31,11 @@ private:
     bool                   _prewarmReady = false;
 
     // Hook thread
-    std::thread  _hookThread;
-    DWORD        _hookThreadId = 0;
-    HHOOK        _mouseHook    = nullptr;
-    HHOOK        _kbHook       = nullptr;
+    std::thread      _hookThread;
+    DWORD            _hookThreadId = 0;
+    HHOOK            _mouseHook    = nullptr;
+    HHOOK            _kbHook       = nullptr;
+    HWINEVENTHOOK    _hWinEvent    = nullptr;
 
     void ToggleFan();
     void OpenFan();
@@ -44,13 +45,12 @@ private:
     void UninstallHooks();
     void ProvideIconicThumbnail(int w, int h);
 
-    HICON CreateStackIcon(int size);
-
     static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
     static MainWindow* FromHWND(HWND hwnd);
 
     static LRESULT CALLBACK MouseHookProc(int nCode, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam);
+    static void CALLBACK    WinEventProc(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD);
 
     // Statics for hook access
     static MainWindow* s_instance;
