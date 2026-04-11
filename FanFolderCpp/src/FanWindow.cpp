@@ -11,8 +11,8 @@ static constexpr int   BaselineItems      = 15;
 
 int FanWindow::s_lastTaskbarAnchorX = -1;
 static constexpr float HoverScaleMax      = 1.4f;
-static constexpr float AnimSpeed_In       = 0.30f;
-static constexpr float AnimSpeed_Out      = 0.38f;
+static constexpr float AnimSpeed_In       = 0.55f;
+static constexpr float AnimSpeed_Out      = 0.65f;
 static constexpr float EntryFadeDurationMs = 120.f;
 static constexpr float ItemStageDurationMs = 28.f;
 static constexpr float ItemAnimDurationMs  = 420.f;
@@ -120,7 +120,7 @@ void FanWindow::Reposition() {
 // ---------------------------------------------------------------------------
 // Walk Shell_TrayWnd → ReBarWindow32 → MSTaskSwWClass → MSTaskListWClass,
 // enumerate child windows to find the button belonging to our process.
-// Falls back to cached anchor from last direct click, then taskbar center.
+// Returns the button centre X on success, -1 on failure.
 int FanWindow::FindTaskbarButtonCenter(RECT taskbarRect) {
     DWORD ourPid = GetCurrentProcessId();
 
@@ -153,8 +153,7 @@ int FanWindow::FindTaskbarButtonCenter(RECT taskbarRect) {
         }
     }
 
-    if (s_lastTaskbarAnchorX >= 0) return s_lastTaskbarAnchorX;
-    return (taskbarRect.left + taskbarRect.right) / 2;
+    return -1;  // walk failed — let caller use cache or fallback
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +161,16 @@ void FanWindow::CalculateLayout() {
     POINT cursor = {};
     GetCursorPos(&cursor);
 
-    HMONITOR hMon = MonitorFromPoint(cursor, MONITOR_DEFAULTTOPRIMARY);
+    // GetWindowRect(Shell_TrayWnd) returns coordinates in the calling process's
+    // DPI context (per-monitor logical pixels), consistent with GetCursorPos and
+    // GetMonitorInfoW.  SHAppBarMessage returns physical/system-DPI coordinates
+    // which mismatch on monitors with non-100% DPI scaling — do NOT use it.
+    RECT tbRect = {};
+    HWND hTray = FindWindowW(L"Shell_TrayWnd", nullptr);
+    if (hTray)
+        GetWindowRect(hTray, &tbRect);
+
+    HMONITOR hMon = MonitorFromRect(&tbRect, MONITOR_DEFAULTTOPRIMARY);
     MONITORINFO mi = { sizeof(mi) };
     GetMonitorInfoW(hMon, &mi);
     int screenH = mi.rcMonitor.bottom - mi.rcMonitor.top;
@@ -197,36 +205,56 @@ void FanWindow::CalculateLayout() {
         maxLabelW = std::max(maxLabelW, _labelWidths[total - 1]);
     }
 
-    // Taskbar info
-    APPBARDATA abd = { sizeof(abd) };
-    SHAppBarMessage(ABM_GETTASKBARPOS, &abd);
-    int tbH = abd.rc.bottom - abd.rc.top;
-    int tbW = abd.rc.right  - abd.rc.left;
-    bool taskbarAtBottom = tbH < tbW && abd.rc.bottom >= mi.rcMonitor.bottom - 5;
-    bool taskbarAtTop    = tbH < tbW && abd.rc.top    <= mi.rcMonitor.top    + 5;
-    bool taskbarAtLeft   = tbW < tbH && abd.rc.left   <= mi.rcMonitor.left   + 5;
+    int tbH = tbRect.bottom - tbRect.top;
+    int tbW = tbRect.right  - tbRect.left;
+    bool taskbarAtBottom = tbH < tbW && tbRect.bottom >= mi.rcMonitor.bottom - 5;
+    bool taskbarAtTop    = tbH < tbW && tbRect.top    <= mi.rcMonitor.top    + 5;
+    bool taskbarAtLeft   = tbW < tbH && tbRect.left   <= mi.rcMonitor.left   + 5;
     // else taskbar at right
 
-    // Determine anchor: prefer exact taskbar button center (works for Alt+Tab too)
-    bool cursorOnTaskbar = cursor.x >= abd.rc.left && cursor.x <= abd.rc.right
-                        && cursor.y >= abd.rc.top  && cursor.y <= abd.rc.bottom;
+    bool cursorOnTaskbar = cursor.x >= tbRect.left && cursor.x <= tbRect.right
+                        && cursor.y >= tbRect.top  && cursor.y <= tbRect.bottom;
 
-    int btnCenter = FindTaskbarButtonCenter(abd.rc);
-
-    // Use button center as X anchor; cursor Y for vertical taskbars
-    int anchorX = (taskbarAtBottom || taskbarAtTop) ? btnCenter : cursor.x;
-    int anchorY = (taskbarAtBottom || taskbarAtTop) ? cursor.y  : btnCenter;
-
-    // Cache cursor position for future Alt+Tab if cursor was on the taskbar
-    if (cursorOnTaskbar)
-        s_lastTaskbarAnchorX = (taskbarAtBottom || taskbarAtTop) ? cursor.x : cursor.y;
+    // Anchor strategy: always prefer the window-tree walk (FindTaskbarButtonCenter)
+    // because it finds the exact button centre regardless of cursor position.
+    // Cursor position is only used as a last-resort fallback for direct clicks when
+    // the walk fails — the cursor must be on the taskbar for it to be meaningful.
+    int anchorX, anchorY;
+    if (taskbarAtBottom || taskbarAtTop) {
+        int walked = FindTaskbarButtonCenter(tbRect);   // updates s_lastTaskbarAnchorX on success
+        if (walked >= 0) {
+            anchorX = walked;
+        } else if (cursorOnTaskbar) {
+            anchorX = cursor.x;                         // genuine direct click, walk failed
+            s_lastTaskbarAnchorX = anchorX;
+        } else {
+            anchorX = s_lastTaskbarAnchorX >= 0
+                    ? s_lastTaskbarAnchorX
+                    : (tbRect.left + tbRect.right) / 2;
+        }
+        anchorY = cursor.y;
+    } else {
+        // Vertical taskbar — same logic for Y axis
+        int walked = FindTaskbarButtonCenter(tbRect);
+        if (walked >= 0) {
+            anchorY = walked;
+        } else if (cursorOnTaskbar) {
+            anchorY = cursor.y;
+            s_lastTaskbarAnchorX = anchorY;
+        } else {
+            anchorY = s_lastTaskbarAnchorX >= 0
+                    ? s_lastTaskbarAnchorX
+                    : (tbRect.top + tbRect.bottom) / 2;
+        }
+        anchorX = cursor.x;
+    }
 
     // Arc hinge: anchor position on the taskbar edge
     float originX, originY;
-    if (taskbarAtBottom)     { originX = (float)anchorX; originY = (float)abd.rc.top; }
-    else if (taskbarAtTop)   { originX = (float)anchorX; originY = (float)abd.rc.bottom; }
-    else if (taskbarAtLeft)  { originX = (float)abd.rc.right; originY = (float)anchorY; }
-    else                     { originX = (float)abd.rc.left;  originY = (float)anchorY; }
+    if (taskbarAtBottom)     { originX = (float)anchorX; originY = (float)tbRect.top; }
+    else if (taskbarAtTop)   { originX = (float)anchorX; originY = (float)tbRect.bottom; }
+    else if (taskbarAtLeft)  { originX = (float)tbRect.right; originY = (float)anchorY; }
+    else                     { originX = (float)tbRect.left;  originY = (float)anchorY; }
 
     float halfIcon = _iconSize / 2.f;
 
@@ -362,24 +390,28 @@ void FanWindow::DrawToLayeredWindow() {
             g.Clear(Gdiplus::Color(0, 0, 0, 0));
 
             int total = (int)_items.size() + 1;
-            for (int i = 0; i < total; i++) {
-                float itemAlpha = 0.f;
+            auto getItemAlpha = [&](int i) -> float {
                 switch (_animStyle) {
                 case ConfigData::AnimStyle::Spring: {
                     float ip = (i < (int)_itemProgress.size()) ? _itemProgress[i] : 0.f;
-                    itemAlpha = std::clamp(ip, 0.f, 1.f) * _entryAlpha;
-                    break;
+                    return std::clamp(ip, 0.f, 1.f) * _entryAlpha;
                 }
                 case ConfigData::AnimStyle::Fan:
                 case ConfigData::AnimStyle::Glide:
-                    itemAlpha = (i < (int)_entryProgress.size()) ? _entryProgress[i] : 0.f;
-                    break;
+                    return (i < (int)_entryProgress.size()) ? _entryProgress[i] : 0.f;
                 case ConfigData::AnimStyle::None:
-                    itemAlpha = 1.f;
-                    break;
+                    return 1.f;
                 }
-                DrawItem(g, i, itemAlpha);
+                return 1.f;
+            };
+
+            // Draw non-hovered items first, hovered item last (on top).
+            for (int i = 0; i < total; i++) {
+                if (i == _hoverIdx) continue;
+                DrawItem(g, i, getItemAlpha(i));
             }
+            if (_hoverIdx >= 0 && _hoverIdx < total)
+                DrawItem(g, _hoverIdx, getItemAlpha(_hoverIdx));
         }
 
         Gdiplus::Rect rect(0, 0, _winWidth, _winHeight);
@@ -412,61 +444,63 @@ void FanWindow::DrawToLayeredWindow() {
 void FanWindow::DrawShellBitmapIA(Gdiplus::Graphics& g, HBITMAP hBmp,
                                    float x, float y, float size,
                                    Gdiplus::ImageAttributes* ia) {
-    // Prefer reading a DIB section directly — this preserves pre-multiplied alpha
-    // (needed for SVG and other thumbnails with transparent backgrounds).
+    BITMAP bm = {};
+    GetObject(hBmp, sizeof(bm), &bm);
+    if (bm.bmWidth <= 0) return;
+
+    int w = bm.bmWidth;
+    int h = std::abs(bm.bmHeight);
+
+    std::vector<BYTE> bits((size_t)w * h * 4);
+
+    // GetDIBits(BI_RGB) zeroes the alpha byte — transparent PARGB bitmaps
+    // (e.g., SVG shell thumbnails) become invisible / all-black.
+    // Fix: for DIB sections read the raw bits directly so alpha is preserved.
     DIBSECTION ds = {};
-    bool isDibSection = (GetObject(hBmp, sizeof(ds), &ds) == sizeof(ds));
+    bool isDib = (GetObject(hBmp, sizeof(ds), &ds) == sizeof(ds))
+                 && ds.dsBm.bmBits != nullptr
+                 && ds.dsBmih.biBitCount == 32;
 
-    int w = 0, h = 0;
-    std::vector<BYTE> bits;
-
-    if (isDibSection && ds.dsBm.bmBitsPixel == 32 && ds.dsBm.bmBits != nullptr) {
-        w = ds.dsBm.bmWidth;
-        h = std::abs(ds.dsBm.bmHeight);
-        int stride = ds.dsBm.bmWidthBytes;
-        bits.resize((size_t)w * h * 4);
-
-        if (ds.dsBmih.biHeight > 0) {
-            // Bottom-up DIB: flip rows so GDI+ gets a top-down layout
-            for (int row = 0; row < h; row++) {
-                BYTE* src = (BYTE*)ds.dsBm.bmBits + (size_t)(h - 1 - row) * stride;
-                BYTE* dst = bits.data()            + (size_t)row            * w * 4;
-                memcpy(dst, src, (size_t)w * 4);
-            }
-        } else {
-            // Top-down DIB: copy directly
-            memcpy(bits.data(), ds.dsBm.bmBits, bits.size());
+    if (isDib) {
+        // dsBmih.biHeight < 0  → top-down DIB  (first memory row = image top)
+        // dsBmih.biHeight > 0  → bottom-up DIB (first memory row = image bottom)
+        bool topDown = (ds.dsBmih.biHeight < 0);
+        int  stride  = ds.dsBm.bmWidthBytes;
+        BYTE* src    = static_cast<BYTE*>(ds.dsBm.bmBits);
+        for (int row = 0; row < h; row++) {
+            int srcRow = topDown ? row : (h - 1 - row);
+            memcpy(bits.data() + (size_t)row * w * 4,
+                   src + (size_t)srcRow * stride,
+                   (size_t)w * 4);
         }
+        // Guard: if the DIB was somehow allocated without alpha (all zeros),
+        // fall back to fully opaque so content is still visible.
+        bool hasAlpha = false;
+        for (int i = 0; i < w * h && !hasAlpha; i++)
+            if (bits[(size_t)i * 4 + 3] != 0) hasAlpha = true;
+        if (!hasAlpha)
+            for (int i = 0; i < w * h; i++)
+                bits[(size_t)i * 4 + 3] = 255;
     } else {
-        // DDB fallback: GetDIBits, then force alpha=255 (DDBs carry no alpha channel)
-        BITMAP bm = {};
-        GetObject(hBmp, sizeof(bm), &bm);
-        if (bm.bmWidth <= 0) return;
-        w = bm.bmWidth;
-        h = std::abs(bm.bmHeight);
-
+        // DDB or non-32-bit bitmap: GetDIBits is fine; alpha is absent → force opaque.
         HDC     hdc  = CreateCompatibleDC(nullptr);
         HBITMAP hOld = (HBITMAP)SelectObject(hdc, hBmp);
 
         BITMAPINFO bi = {};
         bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
         bi.bmiHeader.biWidth       = w;
-        bi.bmiHeader.biHeight      = -h;   // request top-down output
+        bi.bmiHeader.biHeight      = -h;
         bi.bmiHeader.biPlanes      = 1;
         bi.bmiHeader.biBitCount    = 32;
         bi.bmiHeader.biCompression = BI_RGB;
 
-        bits.resize((size_t)w * h * 4);
         GetDIBits(hdc, hBmp, 0, h, bits.data(), &bi, DIB_RGB_COLORS);
         SelectObject(hdc, hOld);
         DeleteDC(hdc);
 
-        // DDB alpha byte is undefined — set fully opaque so pixels are visible
         for (int i = 0; i < w * h; i++)
             bits[(size_t)i * 4 + 3] = 255;
     }
-
-    if (w <= 0 || h <= 0) return;
 
     Gdiplus::Bitmap bmpG(w, h, w * 4, PixelFormat32bppPARGB, bits.data());
 
@@ -738,7 +772,17 @@ void FanWindow::StartIconLoad(int idx) {
     int       sz   = _iconSize;
 
     std::thread([hwnd, idx, p, sz]() {
-        HBITMAP bmp = FileService::GetShellBitmap(p, sz);
+        HBITMAP bmp = nullptr;
+
+        if (FileService::IsGdiImageExtension(p))
+            bmp = FileService::GetImageThumbnail(p, sz);   // GDI+ direct — actual content
+
+        if (!bmp && FileService::IsShellThumbnailExtension(p))
+            bmp = FileService::GetShellThumbnail(p, sz);   // shell thumbnail (webp, svg)
+
+        if (!bmp)
+            bmp = FileService::GetShellBitmap(p, sz);      // SIIGBF_ICONONLY (pdf, etc.)
+
         if (bmp) {
             PostMessageW(hwnd, WM_ICON_BITMAP, (WPARAM)idx, (LPARAM)bmp);
         } else {

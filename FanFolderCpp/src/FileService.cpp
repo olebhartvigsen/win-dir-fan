@@ -104,18 +104,92 @@ HBITMAP FileService::GetShellBitmap(const std::wstring& path, int size) {
     HRESULT hr = pItem->QueryInterface(IID_IShellItemImageFactory_, (void**)&pFactory);
     pItem->Release();
 
-    if (FAILED(hr) || !pFactory)
+    if (FAILED(hr) || !pFactory) return nullptr;
+
+    HBITMAP hBmp = nullptr;
+    SIZE sz = { size, size };
+    // SIIGBF_ICONONLY: registered file-type icon, never a document/thumbnail preview
+    hr = pFactory->GetImage(sz, SIIGBF_ICONONLY, &hBmp);
+    pFactory->Release();
+    return SUCCEEDED(hr) ? hBmp : nullptr;
+}
+
+// Uses SIIGBF_RESIZETOFIT — shows actual image content via the shell thumbnail
+// handler. Used for WebP and SVG where GDI+ has no native codec.
+HBITMAP FileService::GetShellThumbnail(const std::wstring& path, int size) {
+    IShellItem* pItem = nullptr;
+    if (FAILED(SHCreateItemFromParsingName(path.c_str(), nullptr, IID_PPV_ARGS(&pItem))))
         return nullptr;
+
+    IShellItemImageFactory* pFactory = nullptr;
+    HRESULT hr = pItem->QueryInterface(IID_IShellItemImageFactory_, (void**)&pFactory);
+    pItem->Release();
+
+    if (FAILED(hr) || !pFactory) return nullptr;
 
     HBITMAP hBmp = nullptr;
     SIZE sz = { size, size };
     hr = pFactory->GetImage(sz, SIIGBF_RESIZETOFIT, &hBmp);
     pFactory->Release();
+    return SUCCEEDED(hr) ? hBmp : nullptr;
+}
 
-    if (FAILED(hr))
+// Load an image file directly with GDI+ and return a square HBITMAP thumbnail
+// with the original aspect ratio preserved (letterboxed on transparent bg).
+HBITMAP FileService::GetImageThumbnail(const std::wstring& path, int size) {
+    Gdiplus::Bitmap* src = Gdiplus::Bitmap::FromFile(path.c_str());
+    if (!src || src->GetLastStatus() != Gdiplus::Ok) {
+        delete src;
         return nullptr;
+    }
 
+    int srcW = (int)src->GetWidth();
+    int srcH = (int)src->GetHeight();
+    if (srcW <= 0 || srcH <= 0) { delete src; return nullptr; }
+
+    float scale = std::min((float)size / srcW, (float)size / srcH);
+    int dstW = (int)(srcW * scale);
+    int dstH = (int)(srcH * scale);
+    int offX = (size - dstW) / 2;
+    int offY = (size - dstH) / 2;
+
+    Gdiplus::Bitmap dst(size, size, PixelFormat32bppPARGB);
+    {
+        Gdiplus::Graphics g(&dst);
+        g.Clear(Gdiplus::Color(0, 0, 0, 0));
+        g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+        g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
+        g.DrawImage(src, offX, offY, dstW, dstH);
+    }
+    delete src;
+
+    HBITMAP hBmp = nullptr;
+    dst.GetHBITMAP(Gdiplus::Color(0, 0, 0, 0), &hBmp);
     return hBmp;
+}
+
+bool FileService::IsGdiImageExtension(const std::wstring& path) {
+    auto dot = path.rfind(L'.');
+    if (dot == std::wstring::npos) return false;
+    std::wstring ext = path.substr(dot);
+    for (auto& c : ext) c = towlower(c);
+    static const std::vector<std::wstring> kExts = {
+        L".jpg", L".jpeg", L".png", L".gif",
+        L".bmp", L".tiff", L".tif", L".svg"   // SVG via WIC (Edge codec) or fallback to type icon
+    };
+    for (auto& e : kExts) if (ext == e) return true;
+    return false;
+}
+
+bool FileService::IsShellThumbnailExtension(const std::wstring& path) {
+    auto dot = path.rfind(L'.');
+    if (dot == std::wstring::npos) return false;
+    std::wstring ext = path.substr(dot);
+    for (auto& c : ext) c = towlower(c);
+    // WebP: GDI+ has no native codec; shell uses the WebP WIC codec
+    static const std::vector<std::wstring> kExts = { L".webp" };
+    for (auto& e : kExts) if (ext == e) return true;
+    return false;
 }
 
 HICON FileService::GetShellIcon(const std::wstring& path) {
