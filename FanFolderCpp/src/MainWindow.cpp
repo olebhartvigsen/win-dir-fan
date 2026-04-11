@@ -22,6 +22,7 @@
 static constexpr UINT WM_MAIN_SHOW_MIN     = WM_USER + 20;
 static constexpr UINT WM_MAIN_PREWARM      = WM_USER + 3;
 static constexpr UINT WM_MAIN_CLOSE_FAN    = WM_USER + 4;
+static constexpr UINT WM_TRAYICON          = WM_USER + 5;   // tray icon messages
 static constexpr int  TOGGLE_COOLDOWN_MS   = 250;
 
 MainWindow* MainWindow::s_instance = nullptr;
@@ -47,6 +48,7 @@ MainWindow::MainWindow(HINSTANCE hInst, const ConfigData& config)
 }
 
 MainWindow::~MainWindow() {
+    RemoveTrayIcon();
     UninstallHooks();
     if (_hookThread.joinable()) {
         if (_hookThreadId)
@@ -86,6 +88,7 @@ bool MainWindow::Create() {
     if (hIcoBig)   SendMessageW(_hwnd, WM_SETICON, ICON_BIG,   (LPARAM)hIcoBig);
 
     StartPrewarm();
+    AddTrayIcon();
     return true;
 }
 
@@ -192,6 +195,165 @@ void MainWindow::StartPrewarm() {
 
         PostMessageW(hwnd, WM_MAIN_PREWARM, 0, (LPARAM)data);
     }).detach();
+}
+
+// ─── Tray icon ──────────────────────────────────────────────────────────────
+
+void MainWindow::AddTrayIcon() {
+    HICON hIco = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
+                                    IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
+
+    _nid             = {};
+    _nid.cbSize      = sizeof(_nid);
+    _nid.hWnd        = _hwnd;
+    _nid.uID         = 1;
+    _nid.uFlags      = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    _nid.uCallbackMessage = WM_TRAYICON;
+    _nid.hIcon       = hIco;
+    wcscpy_s(_nid.szTip, L"Fan Folder");
+
+    Shell_NotifyIconW(NIM_ADD, &_nid);
+
+    // Request modern balloon-capable version
+    _nid.uVersion = NOTIFYICON_VERSION_4;
+    Shell_NotifyIconW(NIM_SETVERSION, &_nid);
+}
+
+void MainWindow::RemoveTrayIcon() {
+    if (_nid.cbSize) {
+        Shell_NotifyIconW(NIM_DELETE, &_nid);
+        if (_nid.hIcon) { DestroyIcon(_nid.hIcon); _nid.hIcon = nullptr; }
+        _nid = {};
+    }
+}
+
+void MainWindow::ShowTrayMenu() {
+    // Menu IDs (mirror FanWindow::ShowSettingsMenu)
+    enum {
+        ID_SORT_DATE_DESC = 1001,
+        ID_SORT_DATE_ASC, ID_SORT_NAME_ASC, ID_SORT_NAME_DESC,
+        ID_MAX_5, ID_MAX_10, ID_MAX_15, ID_MAX_20, ID_MAX_25,
+        ID_ANIM_FAN, ID_ANIM_GLIDE, ID_ANIM_SPRING, ID_ANIM_NONE,
+        ID_INCLUDE_DIRS,
+        ID_CHANGE_FOLDER,
+        ID_OPEN_FOLDER,
+        ID_EXIT,
+    };
+
+    HMENU hSort = CreatePopupMenu();
+    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateModifiedDesc ? MF_CHECKED : 0), ID_SORT_DATE_DESC, L"Date modified \u2193 (newest first)");
+    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateModifiedAsc  ? MF_CHECKED : 0), ID_SORT_DATE_ASC,  L"Date modified \u2191 (oldest first)");
+    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::NameAsc          ? MF_CHECKED : 0), ID_SORT_NAME_ASC,  L"Name A \u2192 Z");
+    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::NameDesc         ? MF_CHECKED : 0), ID_SORT_NAME_DESC, L"Name Z \u2192 A");
+
+    HMENU hMax = CreatePopupMenu();
+    for (int n : {5, 10, 15, 20, 25}) {
+        UINT id = (UINT)(ID_MAX_5 + (n / 5 - 1));
+        AppendMenuW(hMax, MF_STRING | (_config.maxItems == n ? MF_CHECKED : 0), id,
+                    std::to_wstring(n).c_str());
+    }
+
+    HMENU hAnim = CreatePopupMenu();
+    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Fan    ? MF_CHECKED : 0), ID_ANIM_FAN,    L"Fan");
+    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Glide  ? MF_CHECKED : 0), ID_ANIM_GLIDE,  L"Glide");
+    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Spring ? MF_CHECKED : 0), ID_ANIM_SPRING, L"Spring");
+    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::None   ? MF_CHECKED : 0), ID_ANIM_NONE,   L"None");
+
+    // Build folder path label (truncated)
+    std::wstring folderLabel = L"Open: ";
+    if (_config.folderPath.size() > 40)
+        folderLabel += L"\u2026" + _config.folderPath.substr(_config.folderPath.size() - 38);
+    else
+        folderLabel += _config.folderPath;
+
+    HMENU hMenu = CreatePopupMenu();
+    AppendMenuW(hMenu, MF_STRING | MF_GRAYED, 0, folderLabel.c_str());
+    AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hSort, L"Sort by");
+    AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hMax,  L"Max items");
+    AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hAnim, L"Animation");
+    AppendMenuW(hMenu, MF_STRING | (_config.includeDirs ? MF_CHECKED : 0), ID_INCLUDE_DIRS, L"Include folders");
+    AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(hMenu, MF_STRING, ID_CHANGE_FOLDER, L"Change folder\u2026");
+    AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(hMenu, MF_STRING, ID_EXIT, L"Exit Fan Folder");
+
+    // Position menu at cursor; SetForegroundWindow required for proper dismissal
+    POINT pt = {};
+    GetCursorPos(&pt);
+    SetForegroundWindow(_hwnd);
+    int cmd = (int)TrackPopupMenuEx(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN,
+                                    pt.x, pt.y, _hwnd, nullptr);
+    DestroyMenu(hMenu);
+
+    if (!cmd) return;
+
+    bool changed = true;
+    switch (cmd) {
+    case ID_SORT_DATE_DESC: _config.sortMode  = ConfigData::SortMode::DateModifiedDesc; break;
+    case ID_SORT_DATE_ASC:  _config.sortMode  = ConfigData::SortMode::DateModifiedAsc;  break;
+    case ID_SORT_NAME_ASC:  _config.sortMode  = ConfigData::SortMode::NameAsc;          break;
+    case ID_SORT_NAME_DESC: _config.sortMode  = ConfigData::SortMode::NameDesc;         break;
+    case ID_MAX_5:          _config.maxItems  = 5;  break;
+    case ID_MAX_10:         _config.maxItems  = 10; break;
+    case ID_MAX_15:         _config.maxItems  = 15; break;
+    case ID_MAX_20:         _config.maxItems  = 20; break;
+    case ID_MAX_25:         _config.maxItems  = 25; break;
+    case ID_ANIM_FAN:       _config.animStyle = ConfigData::AnimStyle::Fan;    break;
+    case ID_ANIM_GLIDE:     _config.animStyle = ConfigData::AnimStyle::Glide;  break;
+    case ID_ANIM_SPRING:    _config.animStyle = ConfigData::AnimStyle::Spring; break;
+    case ID_ANIM_NONE:      _config.animStyle = ConfigData::AnimStyle::None;   break;
+    case ID_INCLUDE_DIRS:   _config.includeDirs = !_config.includeDirs;        break;
+    case ID_CHANGE_FOLDER: {
+        IFileOpenDialog* pfd = nullptr;
+        if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
+                                       IID_PPV_ARGS(&pfd)))) {
+            DWORD opts = 0;
+            pfd->GetOptions(&opts);
+            pfd->SetOptions(opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+            pfd->SetTitle(L"Select folder to watch");
+            if (!_config.folderPath.empty()) {
+                IShellItem* psi = nullptr;
+                if (SUCCEEDED(SHCreateItemFromParsingName(_config.folderPath.c_str(),
+                                                          nullptr, IID_PPV_ARGS(&psi)))) {
+                    pfd->SetFolder(psi);
+                    psi->Release();
+                }
+            }
+            if (SUCCEEDED(pfd->Show(_hwnd))) {
+                IShellItem* psi = nullptr;
+                if (SUCCEEDED(pfd->GetResult(&psi))) {
+                    PWSTR path = nullptr;
+                    if (SUCCEEDED(psi->GetDisplayName(SIGDN_FILESYSPATH, &path)) && path) {
+                        _config.folderPath = path;
+                        CoTaskMemFree(path);
+                    }
+                    psi->Release();
+                }
+            }
+            pfd->Release();
+        }
+        break;
+    }
+    case ID_EXIT:
+        changed = false;
+        PostMessageW(_hwnd, WM_CLOSE, 0, 0);
+        return;
+    default:
+        changed = false;
+        break;
+    }
+
+    if (changed) {
+        Config::Save(_config);
+        // Invalidate prewarm cache so next open uses new settings
+        std::lock_guard<std::mutex> lk(_prewarmMutex);
+        _prewarm.FreeHandles();
+        _prewarm.ready = false;
+        // Restart prewarm with new config
+        PostMessageW(_hwnd, WM_MAIN_SHOW_MIN, 0, 0); // ensure minimized
+        StartPrewarm();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -400,7 +562,22 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         return 0;
     }
 
-    case WM_MAIN_CLOSE_FAN: // WM_USER+4        self->CloseFan();
+    case WM_MAIN_CLOSE_FAN: // WM_USER+4
+        self->CloseFan();
+        return 0;
+
+    case WM_TRAYICON:
+        // lParam is the mouse/interaction event when using NOTIFYICON_VERSION_4
+        switch (LOWORD(lParam)) {
+        case WM_RBUTTONUP:
+        case WM_CONTEXTMENU:
+            self->ShowTrayMenu();
+            return 0;
+        case WM_LBUTTONUP:
+        case NIN_SELECT:
+            self->ToggleFan();
+            return 0;
+        }
         return 0;
 
     case WM_DESTROY:

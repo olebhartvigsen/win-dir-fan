@@ -19,6 +19,7 @@ private:
     HINSTANCE      _hInst;
     HWND           _hwnd = nullptr;
     ConfigData     _config;
+    NOTIFYICONDATAW _nid = {};     // system tray icon
 
     std::unique_ptr<FanWindow> _fanWindow;
     DWORD  _lastToggleTick = 0;
@@ -58,6 +59,9 @@ private:
     void InstallHooks();
     void UninstallHooks();
     void ProvideIconicThumbnail(int w, int h);
+    void AddTrayIcon();
+    void RemoveTrayIcon();
+    void ShowTrayMenu();
 
     static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
     static MainWindow* FromHWND(HWND hwnd);
