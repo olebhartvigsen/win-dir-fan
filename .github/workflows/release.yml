@@ -4,6 +4,12 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     name: Build FanFolder (Windows x64)
@@ -22,8 +28,6 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.x'
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
       - name: Install WiX toolset
         run: dotnet tool install --global wix --version 4.0.5
@@ -43,8 +47,10 @@ jobs:
         run: dotnet build FanFolder.wixproj -c Release -p:ProductVersion=${{ steps.version.outputs.VERSION }}
 
       - name: Upload assets to release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            FanFolder/build/Release/FanFolder.exe
-            installer/output/FanFolderSetup.msi
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            "FanFolder/build/Release/FanFolder.exe" \
+            "installer/output/FanFolderSetup.msi"
