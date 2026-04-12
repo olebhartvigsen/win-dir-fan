@@ -21,10 +21,13 @@ public:
     static HBITMAP GetShellBitmap(const std::wstring& path, int size);
     static HBITMAP GetShellThumbnail(const std::wstring& path, int size);
     static HBITMAP GetImageThumbnail(const std::wstring& path, int size);
+    static HBITMAP GetSvgThumbnail(const std::wstring& path, int size);
     static HICON   GetShellIcon(const std::wstring& path);
 
     // GDI+ natively handles these formats → actual image thumbnail
     static bool IsGdiImageExtension(const std::wstring& path);
     // Shell can render actual content for these (WebP codec, SVG handler)
     static bool IsShellThumbnailExtension(const std::wstring& path);
+    // SVG — rendered via lunasvg
+    static bool IsSvgExtension(const std::wstring& path);
 };

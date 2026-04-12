@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "FileService.h"
+#include <lunasvg.h>
 #include <regex>
 
 static const GUID IID_IShellItemImageFactory_ = {
@@ -194,10 +195,21 @@ bool FileService::IsGdiImageExtension(const std::wstring& path) {
         ext[i] = (wchar_t)towlower(*p);
     static const wchar_t* const kExts[] = {
         L".jpg", L".jpeg", L".png", L".gif",
-        L".bmp", L".tiff", L".tif", L".svg"
+        L".bmp", L".tiff", L".tif"
+        // .svg is handled by lunasvg via GetSvgThumbnail
     };
     for (auto e : kExts) if (wcscmp(ext, e) == 0) return true;
     return false;
+}
+
+bool FileService::IsSvgExtension(const std::wstring& path) {
+    const wchar_t* dot = wcsrchr(path.c_str(), L'.');
+    if (!dot) return false;
+    wchar_t ext[8] = {};
+    size_t i = 0;
+    for (const wchar_t* p = dot; *p && i < 7; ++p, ++i)
+        ext[i] = (wchar_t)towlower(*p);
+    return wcscmp(ext, L".svg") == 0 || wcscmp(ext, L".svgz") == 0;
 }
 
 bool FileService::IsShellThumbnailExtension(const std::wstring& path) {
@@ -210,6 +222,73 @@ bool FileService::IsShellThumbnailExtension(const std::wstring& path) {
     static const wchar_t* const kExts[] = { L".webp" };
     for (auto e : kExts) if (wcscmp(ext, e) == 0) return true;
     return false;
+}
+
+
+HBITMAP FileService::GetSvgThumbnail(const std::wstring& path, int size) {
+    // Read file with Windows APIs (handles Unicode paths), then pass to lunasvg
+    HANDLE hFile = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile == INVALID_HANDLE_VALUE) return nullptr;
+
+    LARGE_INTEGER fileSize = {};
+    if (!GetFileSizeEx(hFile, &fileSize) || fileSize.QuadPart == 0 || fileSize.QuadPart > 64 * 1024 * 1024) {
+        CloseHandle(hFile);
+        return nullptr;
+    }
+
+    std::string svgData((size_t)fileSize.QuadPart, '\0');
+    DWORD bytesRead = 0;
+    BOOL ok = ReadFile(hFile, svgData.data(), (DWORD)fileSize.QuadPart, &bytesRead, nullptr);
+    CloseHandle(hFile);
+    if (!ok || bytesRead != (DWORD)fileSize.QuadPart) return nullptr;
+
+    auto doc = lunasvg::Document::loadFromData(svgData);
+    if (!doc) return nullptr;
+
+    float svgW = doc->width();
+    float svgH = doc->height();
+    int dstW = size, dstH = size;
+    if (svgW > 0 && svgH > 0) {
+        float scale = std::min((float)size / svgW, (float)size / svgH);
+        dstW = std::max(1, (int)(svgW * scale));
+        dstH = std::max(1, (int)(svgH * scale));
+    }
+
+    auto bitmap = doc->renderToBitmap(dstW, dstH);
+    if (bitmap.isNull()) return nullptr;
+
+    // Create square top-down DIB (premultiplied BGRA, same as lunasvg ARGB32_Premultiplied)
+    BITMAPINFOHEADER bih = {};
+    bih.biSize        = sizeof(bih);
+    bih.biWidth       = size;
+    bih.biHeight      = -size;
+    bih.biPlanes      = 1;
+    bih.biBitCount    = 32;
+    bih.biCompression = BI_RGB;
+
+    void* bits = nullptr;
+    HDC hdc = GetDC(nullptr);
+    HBITMAP hBmp = CreateDIBSection(hdc, (BITMAPINFO*)&bih, DIB_RGB_COLORS, &bits, nullptr, 0);
+    ReleaseDC(nullptr, hdc);
+    if (!hBmp || !bits) return nullptr;
+
+    ZeroMemory(bits, size * size * 4);
+
+    int offX = (size - dstW) / 2;
+    int offY = (size - dstH) / 2;
+
+    // lunasvg ARGB32_Premultiplied in little-endian memory = BGRA bytes → matches Windows DIB
+    const uint8_t* src = bitmap.data();
+    int srcStride = bitmap.stride();
+    uint8_t* dst = (uint8_t*)bits;
+    for (int y = 0; y < dstH; ++y) {
+        const uint8_t* srcRow = src + y * srcStride;
+        uint8_t* dstRow = dst + ((offY + y) * size + offX) * 4;
+        memcpy(dstRow, srcRow, dstW * 4);
+    }
+
+    return hBmp;
 }
 
 HICON FileService::GetShellIcon(const std::wstring& path) {

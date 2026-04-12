@@ -182,7 +182,9 @@ void MainWindow::StartPrewarm() {
         for (int i = 0; i < (int)items.size(); i++) {
             const std::wstring& p = items[i].fullPath;
             HBITMAP bmp = nullptr;
-            if (FileService::IsGdiImageExtension(p))
+            if (FileService::IsSvgExtension(p))
+                bmp = FileService::GetSvgThumbnail(p, iconSize);
+            if (!bmp && FileService::IsGdiImageExtension(p))
                 bmp = FileService::GetImageThumbnail(p, iconSize);
             if (!bmp && FileService::IsShellThumbnailExtension(p))
                 bmp = FileService::GetShellThumbnail(p, iconSize);

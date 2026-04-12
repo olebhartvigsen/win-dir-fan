@@ -985,11 +985,14 @@ void FanWindow::StartIconLoad(int idx) {
     std::thread([hwnd, idx, p, sz]() {
         HBITMAP bmp = nullptr;
 
-        if (FileService::IsGdiImageExtension(p))
+        if (FileService::IsSvgExtension(p))
+            bmp = FileService::GetSvgThumbnail(p, sz);     // lunasvg direct render
+
+        if (!bmp && FileService::IsGdiImageExtension(p))
             bmp = FileService::GetImageThumbnail(p, sz);   // GDI+ direct — actual content
 
         if (!bmp && FileService::IsShellThumbnailExtension(p))
-            bmp = FileService::GetShellThumbnail(p, sz);   // shell thumbnail (webp, svg)
+            bmp = FileService::GetShellThumbnail(p, sz);   // shell thumbnail (webp)
 
         if (!bmp)
             bmp = FileService::GetShellBitmap(p, sz);      // SIIGBF_ICONONLY (pdf, etc.)
