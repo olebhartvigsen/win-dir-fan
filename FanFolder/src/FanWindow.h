@@ -23,7 +23,7 @@ public:
     bool IsDragging() const { return _dragging; }
     void Reposition();
 
-    static const wchar_t* ClassName() { return L"FanFolderCppFan"; }
+    static const wchar_t* ClassName() { return L"FanFolderFan"; }
     static void Register(HINSTANCE hInst);
 
     // Message sent to hwndOwner when settings change (lParam = new ConfigData*)

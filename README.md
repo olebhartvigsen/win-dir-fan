@@ -48,7 +48,7 @@ Build and package in one step (requires Visual Studio Build Tools 2022 and WiX 4
 ### Run directly
 
 ```powershell
-.\FanFolderCpp\build\Release\FanFolderCpp.exe
+.\FanFolder\build\Release\FanFolder.exe
 ```
 
 ---
@@ -59,13 +59,13 @@ Requires Visual Studio 2022 (or Build Tools) with the C++ workload.
 
 ```powershell
 # Configure (first time only)
-cmake -B FanFolderCpp\build -G "Visual Studio 17 2022" -A x64 -S FanFolderCpp
+cmake -B FanFolder\build -G "Visual Studio 17 2022" -A x64 -S FanFolder
 
 # Build
-cmake --build FanFolderCpp\build --config Release
+cmake --build FanFolder\build --config Release
 ```
 
-Output: `FanFolderCpp\build\Release\FanFolderCpp.exe`
+Output: `FanFolder\build\Release\FanFolder.exe`
 
 ---
 

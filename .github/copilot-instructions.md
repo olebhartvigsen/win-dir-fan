@@ -10,7 +10,7 @@
 
 **Fan Folder** is a Win32/C++ desktop app that replicates the macOS Dock "Fan" folder on the Windows taskbar. Clicking a taskbar icon reveals an animated, arc-shaped popup showing the most recently modified items in a configured folder. Items can be opened, right-clicked (full shell context menu), or dragged to other applications.
 
-- **Implementation:** `FanFolderCpp/` — C++20, Win32, GDI+, CMake, MSVC, ~161 KB exe
+- **Implementation:** `FanFolder/` — C++20, Win32, GDI+, CMake, MSVC, ~161 KB exe
 - No unit tests; no linting/formatting tooling configured
 
 ---
@@ -19,16 +19,16 @@
 
 ```powershell
 # Build (requires Visual Studio 2022 with C++ workload)
-cmake --build FanFolderCpp\build --config Release
+cmake --build FanFolder\build --config Release
 
 # First-time cmake configure (if build\ doesn't exist)
-cmake -B FanFolderCpp\build -G "Visual Studio 17 2022" -A x64 -S FanFolderCpp
+cmake -B FanFolder\build -G "Visual Studio 17 2022" -A x64 -S FanFolder
 
 # Run the built exe
-& "C:\projekter\win-dir-fan\FanFolderCpp\build\Release\FanFolderCpp.exe"
+& "C:\projekter\win-dir-fan\FanFolder\build\Release\FanFolder.exe"
 
 # Kill running instance before replacing the exe
-$p = Get-Process | Where-Object { $_.Name -like "*FanFolderCpp*" }
+$p = Get-Process | Where-Object { $_.Name -like "*FanFolder*" }
 if ($p) { Stop-Process -Id $p.Id }
 ```
 
@@ -36,7 +36,7 @@ After building, always restart the running process if it is already running.
 
 ---
 
-## Architecture (`FanFolderCpp/src/`)
+## Architecture (`FanFolder/src/`)
 
 | File | Role |
 |---|---|
