@@ -27,12 +27,12 @@ public:
     ULONG Release() override { ULONG r = --_ref; if (!r) delete this; return r; }
 
     HRESULT DragEnter(IDataObject* pObj, DWORD, POINTL, DWORD* pdwEffect) override {
-        *pdwEffect = HasFiles(pObj) ? DROPEFFECT_COPY : DROPEFFECT_NONE;
+        *pdwEffect = HasFiles(pObj) ? DROPEFFECT_MOVE : DROPEFFECT_NONE;
         _fan->OnDropHover(*pdwEffect != DROPEFFECT_NONE);
         return S_OK;
     }
     HRESULT DragOver(DWORD, POINTL, DWORD* pdwEffect) override {
-        *pdwEffect = _fan->_dropHovering ? DROPEFFECT_COPY : DROPEFFECT_NONE;
+        *pdwEffect = _fan->_dropHovering ? DROPEFFECT_MOVE : DROPEFFECT_NONE;
         return S_OK;
     }
     HRESULT DragLeave() override {
@@ -41,7 +41,7 @@ public:
     }
     HRESULT Drop(IDataObject* pObj, DWORD, POINTL, DWORD* pdwEffect) override {
         _fan->OnDropHover(false);
-        *pdwEffect = DROPEFFECT_COPY;
+        *pdwEffect = DROPEFFECT_MOVE;
         _fan->HandleFileDrop(pObj);
         return S_OK;
     }
@@ -950,7 +950,7 @@ void FanWindow::HandleFileDrop(IDataObject* pDataObj) {
         wchar_t dstBuf[MAX_PATH + 2] = {};  wcscpy_s(dstBuf, dstPath.c_str());
 
         SHFILEOPSTRUCTW op = {};
-        op.wFunc  = FO_COPY;
+        op.wFunc  = FO_MOVE;
         op.pFrom  = srcBuf;
         op.pTo    = dstBuf;
         op.fFlags = FOF_RENAMEONCOLLISION | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
