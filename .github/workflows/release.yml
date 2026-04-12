@@ -13,15 +13,36 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup .NET (for WiX)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.x'
+
+      - name: Install WiX toolset
+        run: dotnet tool install --global wix --version 4.0.5
+
+      - name: Add WiX UI extension
+        working-directory: installer
+        run: wix extension add WixToolset.UI.wixext/4.0.5
+
       - name: Configure CMake
-        run: |
-          cmake -B FanFolder/build -G "Visual Studio 17 2022" -A x64 -S FanFolder
+        run: cmake -B FanFolder/build -G "Visual Studio 17 2022" -A x64 -S FanFolder
 
-      - name: Build Release
-        run: |
-          cmake --build FanFolder/build --config Release
+      - name: Build Release exe
+        run: cmake --build FanFolder/build --config Release
 
-      - name: Upload exe to release
+      - name: Build MSI installer
+        working-directory: installer
+        run: dotnet build FanFolder.wixproj -c Release -p:ProductVersion=${{ steps.version.outputs.VERSION }}
+
+      - name: Upload assets to release
         uses: softprops/action-gh-release@v2
         with:
-          files: FanFolder/build/Release/FanFolder.exe
+          files: |
+            FanFolder/build/Release/FanFolder.exe
+            installer/output/FanFolderSetup.msi

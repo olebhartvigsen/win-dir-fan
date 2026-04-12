@@ -1,42 +1,82 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
 
-  <Package Name="Fan Folder"
-           Version="1.0.0"
-           Manufacturer="Fan Folder"
+  <Package Name="FanFolder"
+           Version="$(var.ProductVersion)"
+           Manufacturer="FanFolder"
            UpgradeCode="A1B2C3D4-E5F6-7890-ABCD-EF1234567890"
            Language="1033"
            Scope="perUser">
 
-    <SummaryInformation Description="Fan Folder — macOS-style fan menu for Windows taskbar" />
+    <SummaryInformation Description="FanFolder — macOS-style fan menu for the Windows taskbar" />
 
-    <MajorUpgrade DowngradeErrorMessage="A newer version of Fan Folder is already installed." />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of FanFolder is already installed." />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
-    <!-- ── Install directory ──────────────────────────────────── -->
+    <!-- ── Directories ───────────────────────────────────────── -->
+
+    <!-- %LOCALAPPDATA%\FanFolder -->
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="INSTALLFOLDER" Name="FanFolder" />
     </StandardDirectory>
 
-    <!-- ── Main application component ───────────────────────── -->
+    <!-- %APPDATA%\Microsoft\Windows\Start Menu\Programs\FanFolder -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="STARTMENUFOLDER" Name="FanFolder" />
+    </StandardDirectory>
+
+    <!-- Desktop -->
+    <StandardDirectory Id="DesktopFolder" />
+
+    <!-- ── Main executable ───────────────────────────────────── -->
     <ComponentGroup Id="AppComponents" Directory="INSTALLFOLDER">
       <Component Id="MainExe" Guid="B1C2D3E4-F5A6-7890-BCDE-F12345678901">
         <File Id="FanFolderExe"
               Source="..\FanFolder\build\Release\FanFolder.exe"
-              Name="FanFolder.exe" />
-        <!-- Per-user installs must use a registry KeyPath, not a file -->
-        <RegistryValue Root="HKCU"
-                       Key="Software\FanFolder"
-                       Name="InstallDir"
-                       Value="[INSTALLFOLDER]"
-                       Type="string"
-                       KeyPath="yes" />
-        <!-- Clean up install folder on uninstall -->
+              Name="FanFolder.exe"
+              KeyPath="yes" />
         <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
       </Component>
     </ComponentGroup>
 
-    <!-- ── Startup registry component (optional feature) ─────── -->
+    <!-- ── Shortcuts ─────────────────────────────────────────── -->
+    <ComponentGroup Id="ShortcutComponents">
+
+      <!-- Start Menu shortcut -->
+      <Component Id="StartMenuShortcut" Directory="STARTMENUFOLDER"
+                 Guid="32923206-A517-4419-9100-57A6B94A6F26">
+        <Shortcut Id="StartMenuShortcutLink"
+                  Name="FanFolder"
+                  Description="macOS-style fan folder for the Windows taskbar"
+                  Target="[INSTALLFOLDER]FanFolder.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveStartMenuFolder" Directory="STARTMENUFOLDER" On="uninstall" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\FanFolder\Shortcuts"
+                       Name="StartMenu"
+                       Type="integer" Value="1"
+                       KeyPath="yes" />
+      </Component>
+
+      <!-- Desktop shortcut -->
+      <Component Id="DesktopShortcut" Directory="DesktopFolder"
+                 Guid="4779D22A-85B8-4033-B2F2-F884E464D4C3">
+        <Shortcut Id="DesktopShortcutLink"
+                  Name="FanFolder"
+                  Description="macOS-style fan folder for the Windows taskbar"
+                  Target="[INSTALLFOLDER]FanFolder.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\FanFolder\Shortcuts"
+                       Name="Desktop"
+                       Type="integer" Value="1"
+                       KeyPath="yes" />
+      </Component>
+
+    </ComponentGroup>
+
+    <!-- ── Auto-start on login (HKCU Run key) ────────────────── -->
     <ComponentGroup Id="StartupComponents" Directory="INSTALLFOLDER">
       <Component Id="StartupRegistry" Guid="C2D3E4F5-A6B7-8901-CDEF-123456789012">
         <RegistryValue Root="HKCU"
@@ -44,27 +84,19 @@
                        Name="FanFolder"
                        Value="&quot;[INSTALLFOLDER]FanFolder.exe&quot;"
                        Type="string"
-                       Action="write"
                        KeyPath="yes" />
       </Component>
     </ComponentGroup>
 
     <!-- ── Features ──────────────────────────────────────────── -->
-    <Feature Id="ProductFeature" Title="Fan Folder" Level="1"
-             Description="Installs Fan Folder application."
-             Display="expand">
+    <Feature Id="ProductFeature" Title="FanFolder" Level="1">
       <ComponentGroupRef Id="AppComponents" />
-
-      <Feature Id="StartupFeature" Title="Start with Windows" Level="1"
-               Description="Automatically launch Fan Folder when Windows starts."
-               Display="expand">
-        <ComponentGroupRef Id="StartupComponents" />
-      </Feature>
+      <ComponentGroupRef Id="ShortcutComponents" />
+      <ComponentGroupRef Id="StartupComponents" />
     </Feature>
 
-    <!-- ── WiX standard UI with feature tree ─────────────────── -->
-    <WixUI Id="WixUI_FeatureTree" xmlns="http://wixtoolset.org/schemas/v4/wxs/ui" />
-
+    <!-- ── Minimal UI (license screen + install) ─────────────── -->
+    <ui:WixUI Id="WixUI_Minimal" />
     <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
 
   </Package>
