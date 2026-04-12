@@ -2,7 +2,7 @@
 #include "FanWindow.h"
 #include "ShellDrag.h"
 
-static constexpr float StartDistance      = 40.f;
+static constexpr float StartDistance      = 20.f;
 static constexpr float ArcSpreadPerItem   = 1.5f;
 static constexpr float MaxArcSpreadDeg    = 22.0f;
 static constexpr int   FormMargin         = 20;
@@ -94,11 +94,13 @@ void FanWindow::Show() {
     _gdiBitmaps.assign(total, nullptr);
     _entryAlpha   = 0.f;
     _animating    = true;
-    _createTick   = GetTickCount();
 
     if (_config.animStyle == ConfigData::AnimStyle::None) {
         std::fill(_entryProgress.begin(), _entryProgress.end(), 1.f);
         _entryAlpha = 1.f;
+    } else if (_config.animStyle == ConfigData::AnimStyle::Fade) {
+        // Items at final position immediately; only alpha animates in
+        std::fill(_entryProgress.begin(), _entryProgress.end(), 1.f);
     }
 
     // Use pre-warmed icons if the icon size matches; otherwise load async
@@ -123,8 +125,20 @@ void FanWindow::Show() {
     _prewarmIcons.clear();
     _prewarmIconSize = 0;
 
+    // Eagerly convert all available HBITMAP/HICON → Gdiplus::Bitmap* now,
+    // so the first DrawToLayeredWindow() frame has zero conversion cost and
+    // the animation timer starts with a clean slate.
+    for (int i = 0; i < (int)_items.size(); i++) {
+        if (_gdiBitmaps[i]) continue;
+        HBITMAP bmp = _bitmaps[i];
+        HICON   ico = _icons[i];
+        if (bmp)      _gdiBitmaps[i] = HBitmapToGdiBitmap(bmp);
+        else if (ico) _gdiBitmaps[i] = Gdiplus::Bitmap::FromHICON(ico);
+    }
+
     DrawToLayeredWindow();
     ShowWindow(_hwnd, SW_SHOWNOACTIVATE);
+    _createTick = GetTickCount();   // start clock after window is visible
     SetTimer(_hwnd, 1, 16, nullptr);
 
     TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, _hwnd, 0 };
@@ -224,7 +238,8 @@ void FanWindow::CalculateLayout() {
 
     for (int i = 0; i < (int)_items.size(); i++) {
         Gdiplus::RectF bounds;
-        tmpG.MeasureString(_items[i].name.c_str(), -1, &font,
+        std::wstring label = ItemLabel(i);
+        tmpG.MeasureString(label.c_str(), -1, &font,
                            Gdiplus::PointF(0,0), &sfMeasure, &bounds);
         _labelWidths[i] = bounds.Width + 20.f;
         maxLabelW = std::max(maxLabelW, _labelWidths[i]);
@@ -442,7 +457,8 @@ void FanWindow::DrawToLayeredWindow() {
             }
             case ConfigData::AnimStyle::Fan:
             case ConfigData::AnimStyle::Glide:
-                return (i < (int)_entryProgress.size()) ? _entryProgress[i] : 0.f;
+            case ConfigData::AnimStyle::Fade:
+                return (i < (int)_entryProgress.size()) ? _entryProgress[i] * _entryAlpha : 0.f;
             case ConfigData::AnimStyle::None:
                 return 1.f;
             }
@@ -699,6 +715,17 @@ void FanWindow::DrawArrowItem(Gdiplus::Graphics& g, float cx, float cy, float sz
     g.DrawLine(&pen, cx + arm * 0.5f, cy,        cx - arm * 0.5f, cy + arm);
 }
 
+// Returns the display name for item idx, respecting the ShowExtensions setting.
+// Directories always show their name as-is.
+std::wstring FanWindow::ItemLabel(int idx) const {
+    if (idx < 0 || idx >= (int)_items.size()) return {};
+    const auto& item = _items[idx];
+    if (_config.showExtensions || item.isDirectory) return item.name;
+    auto dot = item.name.rfind(L'.');
+    if (dot == std::wstring::npos || dot == 0) return item.name;
+    return item.name.substr(0, dot);
+}
+
 void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
     if (itemAlpha <= 0.f) return;
     if (idx >= (int)_iconPos.size()) return;
@@ -724,6 +751,7 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
         cy += 32.f * (1.f - entryP);
         break;
     case ConfigData::AnimStyle::None:
+    case ConfigData::AnimStyle::Fade:
         break;
     }
 
@@ -804,7 +832,7 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
     }
 
     // Label pill
-    std::wstring name = _items[idx].name;
+    std::wstring name = ItemLabel(idx);
     float pillH = drawSz * 0.45f;
     if (pillH < 20.f) pillH = 20.f;
     float pillW    = (idx < (int)_labelWidths.size()) ? _labelWidths[idx] : 100.f;
@@ -893,8 +921,9 @@ void FanWindow::ShowSettingsMenu(POINT screenPt) {
         ID_SORT_NAME_ASC,
         ID_SORT_NAME_DESC,
         ID_MAX_5, ID_MAX_10, ID_MAX_15, ID_MAX_20, ID_MAX_25,
-        ID_ANIM_FAN, ID_ANIM_GLIDE, ID_ANIM_SPRING, ID_ANIM_NONE,
+        ID_ANIM_FAN, ID_ANIM_GLIDE, ID_ANIM_SPRING, ID_ANIM_NONE, ID_ANIM_FADE,
         ID_INCLUDE_DIRS,
+        ID_SHOW_EXTENSIONS,
         ID_CHANGE_FOLDER,
         ID_EXIT,
     };
@@ -916,13 +945,15 @@ void FanWindow::ShowSettingsMenu(POINT screenPt) {
     AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Fan    ? MF_CHECKED : 0), ID_ANIM_FAN,    L"Fan");
     AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Glide  ? MF_CHECKED : 0), ID_ANIM_GLIDE,  L"Glide");
     AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Spring ? MF_CHECKED : 0), ID_ANIM_SPRING, L"Spring");
+    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Fade   ? MF_CHECKED : 0), ID_ANIM_FADE,   L"Fade");
     AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::None   ? MF_CHECKED : 0), ID_ANIM_NONE,   L"None");
 
     HMENU hMenu = CreatePopupMenu();
     AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hSort, L"Sort by");
     AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hMax,  L"Max items");
     AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hAnim, L"Animation");
-    AppendMenuW(hMenu, MF_STRING | (_config.includeDirs ? MF_CHECKED : 0), ID_INCLUDE_DIRS, L"Include folders");
+    AppendMenuW(hMenu, MF_STRING | (_config.includeDirs    ? MF_CHECKED : 0), ID_INCLUDE_DIRS,    L"Include folders");
+    AppendMenuW(hMenu, MF_STRING | (_config.showExtensions ? MF_CHECKED : 0), ID_SHOW_EXTENSIONS, L"Show file extensions");
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(hMenu, MF_STRING, ID_CHANGE_FOLDER, L"Change folder\u2026");
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
@@ -949,8 +980,10 @@ void FanWindow::ShowSettingsMenu(POINT screenPt) {
     case ID_ANIM_FAN:       _config.animStyle = ConfigData::AnimStyle::Fan;    break;
     case ID_ANIM_GLIDE:     _config.animStyle = ConfigData::AnimStyle::Glide;  break;
     case ID_ANIM_SPRING:    _config.animStyle = ConfigData::AnimStyle::Spring; break;
+    case ID_ANIM_FADE:      _config.animStyle = ConfigData::AnimStyle::Fade;   break;
     case ID_ANIM_NONE:      _config.animStyle = ConfigData::AnimStyle::None;   break;
-    case ID_INCLUDE_DIRS:   _config.includeDirs = !_config.includeDirs;        break;
+    case ID_INCLUDE_DIRS:   _config.includeDirs    = !_config.includeDirs;    break;
+    case ID_SHOW_EXTENSIONS:_config.showExtensions = !_config.showExtensions; break;
     case ID_CHANGE_FOLDER: {
         // Modern folder picker via IFileOpenDialog
         IFileOpenDialog* pfd = nullptr;
@@ -1074,6 +1107,8 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 break;
             }
             case ConfigData::AnimStyle::Fan: {
+                float newAlpha = std::min(elapsed / 80.f, 1.f);
+                if (newAlpha != self->_entryAlpha) { self->_entryAlpha = newAlpha; dirty = true; }
                 for (int i = 0; i < total && i < (int)self->_entryProgress.size(); i++) {
                     float stagger = i * 15.f;
                     float t = std::clamp((elapsed - stagger) / 165.f, 0.f, 1.f);
@@ -1084,7 +1119,9 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 break;
             }
             case ConfigData::AnimStyle::Glide: {
-                float t = std::clamp(elapsed / 400.f, 0.f, 1.f);
+                float newAlpha = std::min(elapsed / 60.f, 1.f);
+                if (newAlpha != self->_entryAlpha) { self->_entryAlpha = newAlpha; dirty = true; }
+                float t = std::clamp(elapsed / 250.f, 0.f, 1.f);
                 float u = 1.f - t;
                 float eased = 1.f - u * u * u;
                 for (int i = 0; i < total && i < (int)self->_entryProgress.size(); i++) {
@@ -1094,6 +1131,11 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             }
             case ConfigData::AnimStyle::None:
                 break;
+            case ConfigData::AnimStyle::Fade: {
+                float newAlpha = std::min(elapsed / 150.f, 1.f);
+                if (newAlpha != self->_entryAlpha) { self->_entryAlpha = newAlpha; dirty = true; }
+                break;
+            }
             }
 
             for (int i = 0; i < total && i < (int)self->_hoverScale.size(); i++) {

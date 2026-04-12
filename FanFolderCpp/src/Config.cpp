@@ -67,6 +67,15 @@ ConfigData Config::Load() {
                     cfg.filterRegex = buf;
                 }
             }
+            // ShowExtensions
+            {
+                DWORD val = 0;
+                DWORD size = sizeof(val);
+                DWORD type = REG_DWORD;
+                if (RegQueryValueExW(hKey, L"ShowExtensions", nullptr, &type, (LPBYTE)&val, &size) == ERROR_SUCCESS && type == REG_DWORD) {
+                    cfg.showExtensions = (val != 0);
+                }
+            }
             // AnimationStyle
             {
                 wchar_t buf[64] = {};
@@ -74,9 +83,10 @@ ConfigData Config::Load() {
                 DWORD type = REG_SZ;
                 if (RegQueryValueExW(hKey, L"AnimationStyle", nullptr, &type, (LPBYTE)buf, &size) == ERROR_SUCCESS) {
                     std::wstring s(buf);
-                    if (s == L"Fan")    cfg.animStyle = ConfigData::AnimStyle::Fan;
-                    else if (s == L"Glide") cfg.animStyle = ConfigData::AnimStyle::Glide;
-                    else if (s == L"None")  cfg.animStyle = ConfigData::AnimStyle::None;
+                    if (s == L"Fan")         cfg.animStyle = ConfigData::AnimStyle::Fan;
+                    else if (s == L"Glide")  cfg.animStyle = ConfigData::AnimStyle::Glide;
+                    else if (s == L"None")   cfg.animStyle = ConfigData::AnimStyle::None;
+                    else if (s == L"Fade")   cfg.animStyle = ConfigData::AnimStyle::Fade;
                     // else stays Spring
                 }
             }
@@ -155,6 +165,7 @@ void Config::Save(const ConfigData& cfg) {
     SaveSortMode(cfg.sortMode);
     SaveMaxItems(cfg.maxItems);
     SaveIncludeDirs(cfg.includeDirs);
+    SaveShowExtensions(cfg.showExtensions);
     SaveFilterRegex(cfg.filterRegex);
     SaveAnimStyle(cfg.animStyle);
 }
@@ -218,12 +229,23 @@ void Config::SaveFilterRegex(const std::wstring& pattern) {
     }
 }
 
+void Config::SaveShowExtensions(bool show) {
+    HKEY hKey = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\FanFolder", 0, nullptr,
+                        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
+        DWORD val = show ? 1 : 0;
+        RegSetValueExW(hKey, L"ShowExtensions", 0, REG_DWORD, (const BYTE*)&val, sizeof(val));
+        RegCloseKey(hKey);
+    }
+}
+
 void Config::SaveAnimStyle(ConfigData::AnimStyle style) {
     const wchar_t* s = L"Spring";
     switch (style) {
     case ConfigData::AnimStyle::Fan:   s = L"Fan";   break;
     case ConfigData::AnimStyle::Glide: s = L"Glide"; break;
     case ConfigData::AnimStyle::None:  s = L"None";  break;
+    case ConfigData::AnimStyle::Fade:  s = L"Fade";  break;
     default: break;
     }
     HKEY hKey = nullptr;

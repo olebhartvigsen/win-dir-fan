@@ -87,6 +87,7 @@ private:
     static int FindTaskbarButtonCenter(RECT taskbarRect);
     void DrawToLayeredWindow();
     void DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha);
+    std::wstring ItemLabel(int idx) const;
     void DrawLabelPill(Gdiplus::Graphics& g, float x, float y, float w, float h, float radius,
                        const std::wstring& text, float alpha);
     void DrawArrowItem(Gdiplus::Graphics& g, float cx, float cy, float sz, float alpha);

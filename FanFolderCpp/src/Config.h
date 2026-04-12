@@ -3,12 +3,13 @@
 
 struct ConfigData {
     std::wstring folderPath;
-    int  maxItems    = 15;
-    bool includeDirs = true;
+    int  maxItems       = 15;
+    bool includeDirs    = true;
+    bool showExtensions = false;
     std::wstring filterRegex;
     enum class SortMode { DateModifiedDesc, DateModifiedAsc, NameAsc, NameDesc }
         sortMode = SortMode::DateModifiedDesc;
-    enum class AnimStyle { Fan, Glide, Spring, None }
+    enum class AnimStyle { Fan, Glide, Spring, None, Fade }
         animStyle = AnimStyle::Spring;
 };
 
@@ -22,4 +23,5 @@ public:
     static void SaveIncludeDirs(bool include);
     static void SaveFilterRegex(const std::wstring& pattern);
     static void SaveAnimStyle(ConfigData::AnimStyle style);
+    static void SaveShowExtensions(bool show);
 };
