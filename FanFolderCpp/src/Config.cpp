@@ -25,9 +25,11 @@ ConfigData Config::Load() {
                 DWORD size = sizeof(buf);
                 DWORD type = REG_SZ;
                 if (RegQueryValueExW(hKey, L"SortMode", nullptr, &type, (LPBYTE)buf, &size) == ERROR_SUCCESS) {
-                    if (wcscmp(buf, L"DateModifiedAsc") == 0) cfg.sortMode = ConfigData::SortMode::DateModifiedAsc;
-                    else if (wcscmp(buf, L"NameAsc") == 0)    cfg.sortMode = ConfigData::SortMode::NameAsc;
-                    else if (wcscmp(buf, L"NameDesc") == 0)   cfg.sortMode = ConfigData::SortMode::NameDesc;
+                    if (wcscmp(buf, L"DateModifiedAsc") == 0)  cfg.sortMode = ConfigData::SortMode::DateModifiedAsc;
+                    else if (wcscmp(buf, L"NameAsc") == 0)     cfg.sortMode = ConfigData::SortMode::NameAsc;
+                    else if (wcscmp(buf, L"NameDesc") == 0)    cfg.sortMode = ConfigData::SortMode::NameDesc;
+                    else if (wcscmp(buf, L"DateCreatedDesc") == 0) cfg.sortMode = ConfigData::SortMode::DateCreatedDesc;
+                    else if (wcscmp(buf, L"DateCreatedAsc") == 0)  cfg.sortMode = ConfigData::SortMode::DateCreatedAsc;
                 }
             }
             // MaxItems (try DWORD first, then SZ)
@@ -175,6 +177,8 @@ void Config::Save(const ConfigData& cfg) {
     case ConfigData::SortMode::DateModifiedAsc: sortStr = L"DateModifiedAsc"; break;
     case ConfigData::SortMode::NameAsc:         sortStr = L"NameAsc";         break;
     case ConfigData::SortMode::NameDesc:        sortStr = L"NameDesc";        break;
+    case ConfigData::SortMode::DateCreatedDesc: sortStr = L"DateCreatedDesc"; break;
+    case ConfigData::SortMode::DateCreatedAsc:  sortStr = L"DateCreatedAsc";  break;
     default: break;
     }
     RegSetValueExW(hKey, L"SortMode", 0, REG_SZ,

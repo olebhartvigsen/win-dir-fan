@@ -976,129 +976,6 @@ void FanWindow::ShowContextMenu(int idx, POINT screenPt) {
     PostMessageW(_hwndOwner, WM_USER + 4, 0, 0);
 }
 
-// ─── Settings menu (right-click on background) ─────────────────────────────
-
-void FanWindow::ShowSettingsMenu(POINT screenPt) {
-    // Menu IDs
-    enum {
-        ID_SORT_DATE_DESC = 1001,
-        ID_SORT_DATE_ASC,
-        ID_SORT_NAME_ASC,
-        ID_SORT_NAME_DESC,
-        ID_MAX_5, ID_MAX_10, ID_MAX_15, ID_MAX_20, ID_MAX_25,
-        ID_ANIM_FAN, ID_ANIM_GLIDE, ID_ANIM_SPRING, ID_ANIM_NONE, ID_ANIM_FADE,
-        ID_INCLUDE_DIRS,
-        ID_CHANGE_FOLDER,
-        ID_EXIT,
-    };
-
-    HMENU hSort = CreatePopupMenu();
-    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateModifiedDesc ? MF_CHECKED : 0), ID_SORT_DATE_DESC, L"Date modified \u2193 (newest first)");
-    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateModifiedAsc  ? MF_CHECKED : 0), ID_SORT_DATE_ASC,  L"Date modified \u2191 (oldest first)");
-    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::NameAsc          ? MF_CHECKED : 0), ID_SORT_NAME_ASC,  L"Name A \u2192 Z");
-    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::NameDesc         ? MF_CHECKED : 0), ID_SORT_NAME_DESC, L"Name Z \u2192 A");
-
-    HMENU hMax = CreatePopupMenu();
-    for (int n : {5, 10, 15, 20, 25}) {
-        UINT id = (UINT)(ID_MAX_5 + (n / 5 - 1));
-        AppendMenuW(hMax, MF_STRING | (_config.maxItems == n ? MF_CHECKED : 0), id,
-                    std::to_wstring(n).c_str());
-    }
-
-    HMENU hAnim = CreatePopupMenu();
-    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Fan    ? MF_CHECKED : 0), ID_ANIM_FAN,    L"Fan");
-    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Glide  ? MF_CHECKED : 0), ID_ANIM_GLIDE,  L"Glide");
-    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Spring ? MF_CHECKED : 0), ID_ANIM_SPRING, L"Spring");
-    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Fade   ? MF_CHECKED : 0), ID_ANIM_FADE,   L"Fade");
-    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::None   ? MF_CHECKED : 0), ID_ANIM_NONE,   L"None");
-
-    HMENU hMenu = CreatePopupMenu();
-    AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hSort, L"Sort by");
-    AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hMax,  L"Max items");
-    AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hAnim, L"Animation");
-    AppendMenuW(hMenu, MF_STRING | (_config.includeDirs ? MF_CHECKED : 0), ID_INCLUDE_DIRS, L"Include folders");
-    AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hMenu, MF_STRING, ID_CHANGE_FOLDER, L"Change folder\u2026");
-    AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hMenu, MF_STRING, ID_EXIT, L"Exit Fan Folder");
-
-    SetForegroundWindow(_hwnd);
-    int cmd = (int)TrackPopupMenuEx(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN,
-                                    screenPt.x, screenPt.y, _hwnd, nullptr);
-    DestroyMenu(hMenu); // also destroys submenus
-
-    if (!cmd) return;
-
-    bool changed = true;
-    switch (cmd) {
-    case ID_SORT_DATE_DESC: _config.sortMode  = ConfigData::SortMode::DateModifiedDesc; break;
-    case ID_SORT_DATE_ASC:  _config.sortMode  = ConfigData::SortMode::DateModifiedAsc;  break;
-    case ID_SORT_NAME_ASC:  _config.sortMode  = ConfigData::SortMode::NameAsc;          break;
-    case ID_SORT_NAME_DESC: _config.sortMode  = ConfigData::SortMode::NameDesc;         break;
-    case ID_MAX_5:          _config.maxItems  = 5;  break;
-    case ID_MAX_10:         _config.maxItems  = 10; break;
-    case ID_MAX_15:         _config.maxItems  = 15; break;
-    case ID_MAX_20:         _config.maxItems  = 20; break;
-    case ID_MAX_25:         _config.maxItems  = 25; break;
-    case ID_ANIM_FAN:       _config.animStyle = ConfigData::AnimStyle::Fan;    break;
-    case ID_ANIM_GLIDE:     _config.animStyle = ConfigData::AnimStyle::Glide;  break;
-    case ID_ANIM_SPRING:    _config.animStyle = ConfigData::AnimStyle::Spring; break;
-    case ID_ANIM_FADE:      _config.animStyle = ConfigData::AnimStyle::Fade;   break;
-    case ID_ANIM_NONE:      _config.animStyle = ConfigData::AnimStyle::None;   break;
-    case ID_INCLUDE_DIRS:   _config.includeDirs = !_config.includeDirs; break;
-    case ID_CHANGE_FOLDER: {
-        // Modern folder picker via IFileOpenDialog
-        IFileOpenDialog* pfd = nullptr;
-        HRESULT hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
-                                      IID_PPV_ARGS(&pfd));
-        if (SUCCEEDED(hr)) {
-            DWORD opts = 0;
-            pfd->GetOptions(&opts);
-            pfd->SetOptions(opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
-            pfd->SetTitle(L"Select folder to watch");
-            // Set current folder as default if valid
-            if (!_config.folderPath.empty()) {
-                IShellItem* psi = nullptr;
-                if (SUCCEEDED(SHCreateItemFromParsingName(_config.folderPath.c_str(),
-                                                          nullptr, IID_PPV_ARGS(&psi)))) {
-                    pfd->SetFolder(psi);
-                    psi->Release();
-                }
-            }
-            if (SUCCEEDED(pfd->Show(_hwndOwner))) {
-                IShellItem* psi = nullptr;
-                if (SUCCEEDED(pfd->GetResult(&psi))) {
-                    PWSTR path = nullptr;
-                    if (SUCCEEDED(psi->GetDisplayName(SIGDN_FILESYSPATH, &path)) && path) {
-                        _config.folderPath = path;
-                        CoTaskMemFree(path);
-                    }
-                    psi->Release();
-                }
-            }
-            pfd->Release();
-        }
-        break;
-    }
-    case ID_EXIT:
-        changed = false;
-        PostMessageW(_hwndOwner, WM_CLOSE, 0, 0);
-        return;
-    default:
-        changed = false;
-        break;
-    }
-
-    if (changed) {
-        Config::Save(_config);
-        // Notify MainWindow to reload config and restart prewarm
-        auto* cfg = new ConfigData(_config);
-        PostMessageW(_hwndOwner, WM_SETTINGS_CHANGED, 0, (LPARAM)cfg);
-        // Close fan so it reopens fresh with new settings
-        PostMessageW(_hwndOwner, WM_USER + 4, 0, 0);
-    }
-}
-
 void FanWindow::StartIconLoad(int idx) {
     if (idx < 0 || idx >= (int)_items.size()) return;
     HWND      hwnd = _hwnd;
@@ -1287,8 +1164,6 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         ClientToScreen(hwnd, &pt);
         if (hit >= 0)
             self->ShowContextMenu(hit, pt);
-        else
-            self->ShowSettingsMenu(pt);
         return 0;
     }
 

@@ -119,7 +119,6 @@ private:
     int  HitTest(int x, int y) const;
     void LaunchItem(int idx);
     void ShowContextMenu(int idx, POINT screenPt);
-    void ShowSettingsMenu(POINT screenPt);
     void StartIconLoad(int idx);
     void FreeBackBuffer();
 

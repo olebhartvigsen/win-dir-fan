@@ -2,7 +2,7 @@
 .SYNOPSIS
     Installs Fan Folder to the user's local app directory.
 .DESCRIPTION
-    Copies FanFolderApp.exe and appsettings.json to %LocalAppData%\FanFolder,
+    Copies FanFolderCpp.exe to %LocalAppData%\FanFolder,
     creates Start Menu and optional Desktop shortcuts, and optionally adds
     a startup registry entry.
 #>
@@ -13,7 +13,7 @@ param(
 )
 
 $AppName      = "Fan Folder"
-$ExeName      = "FanFolderApp.exe"
+$ExeName      = "FanFolderCpp.exe"
 $InstallDir   = Join-Path $env:LOCALAPPDATA "FanFolder"
 $StartMenuDir = Join-Path ([Environment]::GetFolderPath("StartMenu")) "Programs"
 $DesktopDir   = [Environment]::GetFolderPath("Desktop")
@@ -33,17 +33,17 @@ if ($PSScriptRoot) {
 if ($Uninstall) {
     Write-Host "Uninstalling $AppName..." -ForegroundColor Yellow
 
-    Stop-Process -Name "FanFolderApp" -ErrorAction SilentlyContinue
-    Start-Sleep -Milliseconds 500
+    $p = Get-Process | Where-Object { $_.Name -like "*FanFolderCpp*" }
+    if ($p) { Stop-Process -Id $p.Id; Start-Sleep -Milliseconds 500 }
 
     if (Test-Path $InstallDir) { Remove-Item $InstallDir -Recurse -Force }
-    
+
     $lnk = Join-Path $StartMenuDir "$AppName.lnk"
     if (Test-Path $lnk) { Remove-Item $lnk -Force }
-    
+
     $deskLnk = Join-Path $DesktopDir "$AppName.lnk"
     if (Test-Path $deskLnk) { Remove-Item $deskLnk -Force }
-    
+
     Remove-ItemProperty -Path $RegPath -Name $RegName -ErrorAction SilentlyContinue
 
     Write-Host "$AppName has been uninstalled." -ForegroundColor Green
@@ -55,51 +55,35 @@ if ($Uninstall) {
 Write-Host "Installing $AppName..." -ForegroundColor Cyan
 
 # Stop running instance
-Stop-Process -Name "FanFolderApp" -ErrorAction SilentlyContinue
-Start-Sleep -Milliseconds 500
+$p = Get-Process | Where-Object { $_.Name -like "*FanFolderCpp*" }
+if ($p) { Stop-Process -Id $p.Id; Start-Sleep -Milliseconds 500 }
 
 # Create install directory
 if (-not (Test-Path $InstallDir)) {
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 }
 
-# Copy files
-$publishDir = Join-Path $SourceDir "..\FanFolderApp\bin\Release\net8.0-windows\win-x64\publish"
-if (-not (Test-Path $publishDir)) {
-    # Fallback: look for files next to this script
-    $publishDir = $SourceDir
+# Locate the exe — prefer Release build next to this script, then repo build output
+$buildExe = Join-Path $SourceDir $ExeName
+if (-not (Test-Path $buildExe)) {
+    $buildExe = Join-Path $SourceDir "..\FanFolderCpp\build\Release\$ExeName"
 }
 
-$exeSrc = Join-Path $publishDir $ExeName
-$cfgSrc = Join-Path $publishDir "appsettings.json"
-
-if (-not (Test-Path $exeSrc)) {
-    Write-Host "ERROR: Cannot find $ExeName in $publishDir" -ForegroundColor Red
-    Write-Host "Run 'dotnet publish -c Release' first." -ForegroundColor Red
+if (-not (Test-Path $buildExe)) {
+    Write-Host "ERROR: Cannot find $ExeName. Build the project first:" -ForegroundColor Red
+    Write-Host "  cmake --build FanFolderCpp\build --config Release" -ForegroundColor Yellow
     if (-not $Silent) { Read-Host "Press Enter to close" }
     exit 1
 }
 
-Copy-Item $exeSrc (Join-Path $InstallDir $ExeName) -Force
+Copy-Item $buildExe (Join-Path $InstallDir $ExeName) -Force
 Write-Host "  Copied $ExeName" -ForegroundColor Gray
-
-$cfgDest = Join-Path $InstallDir "appsettings.json"
-if (-not (Test-Path $cfgDest)) {
-    # Only copy config if not already present (preserve user edits)
-    if (Test-Path $cfgSrc) {
-        Copy-Item $cfgSrc $cfgDest -Force
-        Write-Host "  Copied appsettings.json" -ForegroundColor Gray
-    }
-} else {
-    Write-Host "  Kept existing appsettings.json" -ForegroundColor Gray
-}
 
 # Start Menu shortcut
 try {
     $shell = New-Object -ComObject WScript.Shell
 
     $startLnkPath = Join-Path $StartMenuDir "$AppName.lnk"
-    Write-Host "  Creating Start Menu shortcut at: $startLnkPath" -ForegroundColor Gray
     $startLnk = $shell.CreateShortcut($startLnkPath)
     $startLnk.TargetPath = Join-Path $InstallDir $ExeName
     $startLnk.WorkingDirectory = $InstallDir
@@ -107,9 +91,7 @@ try {
     $startLnk.Save()
     Write-Host "  Created Start Menu shortcut" -ForegroundColor Green
 
-    # Desktop shortcut (always created)
     $deskLnkPath = Join-Path $DesktopDir "$AppName.lnk"
-    Write-Host "  Creating Desktop shortcut at: $deskLnkPath" -ForegroundColor Gray
     $deskLnk = $shell.CreateShortcut($deskLnkPath)
     $deskLnk.TargetPath = Join-Path $InstallDir $ExeName
     $deskLnk.WorkingDirectory = $InstallDir
@@ -141,3 +123,4 @@ if (-not $Silent) {
         Start-Process (Join-Path $InstallDir $ExeName)
     }
 }
+

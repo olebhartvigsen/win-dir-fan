@@ -7,7 +7,7 @@ struct ConfigData {
     bool includeDirs    = true;
     bool showExtensions = false;
     std::wstring filterRegex;
-    enum class SortMode { DateModifiedDesc, DateModifiedAsc, NameAsc, NameDesc }
+    enum class SortMode { DateModifiedDesc, DateModifiedAsc, NameAsc, NameDesc, DateCreatedDesc, DateCreatedAsc }
         sortMode = SortMode::DateModifiedDesc;
     enum class AnimStyle { Fan, Glide, Spring, None, Fade }
         animStyle = AnimStyle::Spring;

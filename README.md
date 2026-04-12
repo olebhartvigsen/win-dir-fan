@@ -1,108 +1,93 @@
 # Fan Folder
 
-A Windows taskbar app that replicates the macOS Dock **fan folder** — click the taskbar icon to reveal an animated arc menu showing the most recently modified files in a configured folder. Items can be opened, dragged, renamed, and managed via the standard Windows shell context menu.
+A Windows taskbar app that replicates the macOS Dock **fan folder** — click the taskbar icon to reveal an animated arc menu showing the most recently modified files in a configured folder. Items can be opened, dragged, and managed via the standard Windows shell context menu.
+
+Native Win32/C++ application. No .NET runtime required. ~161 KB executable.
 
 ---
 
 ## Features
 
 - Animated arc/fan popup anchored to the taskbar
-- Adaptive icon size (shell icons, thumbnails)
-- Configurable folder, sort order, item count, and filters
-- Shell context menu (open, copy, delete, rename, …)
-- Drag-and-drop from the fan to other applications
-- Alt+Tab support — the menu opens when you switch to the app
-- All settings stored in the Windows registry (no config files)
+- Multiple animation styles: Fan, Glide, Spring, Fade, None
+- Adaptive icon size with shell icons and file thumbnails
+- Configurable folder, sort order, item count, and filename filter
+- Sort by date modified, date created, or name
+- Shell context menu (open, copy, delete, rename, …) on right-click
+- Drag-and-drop items out of the menu to other applications
+- Drop files from Explorer onto the fan menu to move them into the watched folder
+- Show or hide file extensions
+- All settings stored in the Windows registry — accessible via the tray icon menu
 
 ---
 
 ## Requirements
 
 - Windows 10 or 11 (x64)
-- .NET 8 runtime (included in the self-contained publish)
+- No runtime dependencies
 
 ---
 
 ## Installation
 
-### Installer (recommended)
+### MSI Installer (recommended)
 
-Run `installer\setup.iss` with [Inno Setup 6](https://jrsoftware.org/isinfo.php):
+Build and package in one step (requires Visual Studio Build Tools 2022 and WiX 4):
 
 ```powershell
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\setup.iss
+.\installer\Build-Installer.ps1
+# Output: installer\output\FanFolderSetup.msi
 ```
 
-Or use the PowerShell installer:
+### Manual install
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File installer\Install.ps1 -AddToStartup
+.\installer\Install.ps1 -AddToStartup
 ```
 
-### Manual
-
-Publish a self-contained executable and run it:
+### Run directly
 
 ```powershell
-dotnet publish -c Release
-# Output: FanFolderApp\bin\Release\net8.0-windows\win-x64\publish\FanFolderApp.exe
+.\FanFolderCpp\build\Release\FanFolderCpp.exe
 ```
 
 ---
 
-## Registry Settings
+## Building from source
 
-All settings live under:
+Requires Visual Studio 2022 (or Build Tools) with the C++ workload.
 
+```powershell
+# Configure (first time only)
+cmake -B FanFolderCpp\build -G "Visual Studio 17 2022" -A x64 -S FanFolderCpp
+
+# Build
+cmake --build FanFolderCpp\build --config Release
 ```
-HKEY_CURRENT_USER\SOFTWARE\FanFolder
-```
 
-You can edit them with **regedit**, the PowerShell snippets below, or any registry editor.
+Output: `FanFolderCpp\build\Release\FanFolderCpp.exe`
 
 ---
+
+## Settings
+
+All settings live under `HKEY_CURRENT_USER\SOFTWARE\FanFolder` and can be changed via the **tray icon right-click menu** or directly in the registry.
 
 ### FolderPath
 
-**Type:** `REG_SZ`  
-**Default:** `%USERPROFILE%\Downloads`
+**Type:** `REG_SZ` | **Default:** `%USERPROFILE%\Downloads`
 
 The folder whose contents are displayed in the fan menu.
 
 ```powershell
-# Set to a custom folder
 Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "FolderPath" -Value "C:\Users\You\Documents"
-
-# Set to Downloads (default)
-Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "FolderPath" -Value "$env:USERPROFILE\Downloads"
-```
-
----
-
-### MaxItems
-
-**Type:** `REG_DWORD`  
-**Default:** `15`  
-**Range:** 1 – 50
-
-Maximum number of items displayed in the fan menu. The menu height scales proportionally.
-
-```powershell
-# Show 10 items
-Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "MaxItems" -Value 10
-
-# Show 25 items
-Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "MaxItems" -Value 25
 ```
 
 ---
 
 ### SortMode
 
-**Type:** `REG_SZ`  
-**Default:** `DateModifiedDesc`
-
-Controls how items are ordered in the menu. The value is case-insensitive.
+**Type:** `REG_SZ` | **Default:** `DateModifiedDesc`
 
 | Value | Description |
 |---|---|
@@ -112,59 +97,60 @@ Controls how items are ordered in the menu. The value is case-insensitive.
 | `DateCreatedAsc` | Oldest creation first |
 | `NameAsc` | File name A → Z |
 | `NameDesc` | File name Z → A |
-| `SizeDesc` | Largest files first |
-| `SizeAsc` | Smallest files first |
 
 ```powershell
-# Most recently modified first (default)
 Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "SortMode" -Value "DateModifiedDesc"
+```
 
-# Alphabetical A → Z
-Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "SortMode" -Value "NameAsc"
+---
 
-# Largest files first
-Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "SortMode" -Value "SizeDesc"
+### MaxItems
+
+**Type:** `REG_DWORD` | **Default:** `15` | **Range:** 5 – 25
+
+Maximum number of items shown. Selectable in steps of 5 via the tray menu.
+
+```powershell
+Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "MaxItems" -Value 10
 ```
 
 ---
 
 ### IncludeDirectories
 
-**Type:** `REG_DWORD`  
-**Default:** `1` (true)
+**Type:** `REG_DWORD` | **Default:** `1`
 
-Whether sub-folders inside the watched folder appear in the menu alongside files.
+Whether sub-folders appear alongside files. `1` = include, `0` = files only.
 
 ```powershell
-# Include directories (default)
-Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "IncludeDirectories" -Value 1
-
-# Files only — hide all sub-folders
 Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "IncludeDirectories" -Value 0
+```
+
+---
+
+### ShowExtensions
+
+**Type:** `REG_DWORD` | **Default:** `0`
+
+Whether file extensions are shown in item labels. `1` = show, `0` = hide.
+
+```powershell
+Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "ShowExtensions" -Value 1
 ```
 
 ---
 
 ### FilterRegex
 
-**Type:** `REG_SZ`  
-**Default:** *(empty — no filter)*
+**Type:** `REG_SZ` | **Default:** *(empty — no filter)*
 
-A .NET regular expression evaluated against the **full path** of each item. Only items whose path matches the pattern are shown. Leave empty (or delete the value) to show everything.
-
-The match is **case-insensitive**.
+A regular expression matched case-insensitively against each item's filename. Only matching items are shown.
 
 ```powershell
-# Show only PDF and Word documents
+# Show only PDFs and Word documents
 Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "FilterRegex" -Value "\.(pdf|docx?)$"
 
-# Show only files in a specific sub-folder
-Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "FilterRegex" -Value "\\Projects\\"
-
-# Exclude temporary files (files starting with ~ or ending in .tmp)
-Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "FilterRegex" -Value "^(?!.*[/\\]~)(?!.*\.tmp$)"
-
-# Remove filter (show everything)
+# Remove filter
 Remove-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "FilterRegex" -ErrorAction SilentlyContinue
 ```
 
@@ -172,56 +158,18 @@ Remove-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "FilterRegex" -ErrorA
 
 ### AnimationStyle
 
-**Type:** `REG_SZ`  
-**Default:** `Fan`  
-**Values:** `Fan`, `Glide`, `Spring`, `None`
-
-Controls the visual animation when the fan menu opens.
+**Type:** `REG_SZ` | **Default:** `Spring`
 
 | Value | Effect |
 |-------|--------|
-| `Fan` | Items radiate one-by-one from the taskbar edge to their arc positions, staggered with an ease-out-quart curve. ~550 ms total. |
-| `Glide` | All items drift upward 30 px while the window fades in together. Smooth ease-out-expo, ~280 ms. |
-| `Spring` | Window fades in quickly, then items spring-scale from 0 with a slight overshoot bounce, staggered. ~600 ms total. |
+| `Fan` | Items fly in one-by-one from the arc hinge, staggered (ease-out-quart). |
+| `Glide` | All items drift upward while fading in together (ease-out-cubic). |
+| `Spring` | Items scale in from zero with a slight overshoot bounce, staggered. |
+| `Fade` | Instant layout, very short fade-in only. |
 | `None` | Instant — no animation. |
 
 ```powershell
-# Fan (default) — items fly in one by one from the arc origin
-Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "AnimationStyle" -Value "Fan"
-
-# Glide — whole menu drifts up while fading in
-Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "AnimationStyle" -Value "Glide"
-
-# Spring — items scale in with a bouncy spring effect
 Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "AnimationStyle" -Value "Spring"
-
-# None — no animation, instant display
-Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "AnimationStyle" -Value "None"
-```
-
----
-
-## Apply changes
-
-Registry settings are read at startup. Restart the app after making changes:
-
-```powershell
-# Restart Fan Folder
-$p = Get-Process | Where-Object { $_.Name -like "*FanFolder*" }
-if ($p) { Stop-Process -Id $p.Id -Force }
-Start-Sleep -Seconds 1
-Start-Process "C:\path\to\FanFolderApp.exe"
-```
-
----
-
-## Building from source
-
-```powershell
-dotnet build                  # Debug
-dotnet build -c Release       # Release
-dotnet run                    # Run locally
-dotnet publish -c Release     # Self-contained single-file exe
 ```
 
 ---
@@ -229,8 +177,9 @@ dotnet publish -c Release     # Self-contained single-file exe
 ## Uninstall
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File installer\Install.ps1 -Uninstall
+.\installer\Install.ps1 -Uninstall
 
 # Remove registry settings
 Remove-Item -Path "HKCU:\SOFTWARE\FanFolder" -Recurse -ErrorAction SilentlyContinue
 ```
+

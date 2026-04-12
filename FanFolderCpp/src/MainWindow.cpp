@@ -239,7 +239,8 @@ void MainWindow::ShowTrayMenu() {
     // Menu IDs (mirror FanWindow::ShowSettingsMenu)
     enum {
         ID_SORT_DATE_DESC = 1001,
-        ID_SORT_DATE_ASC, ID_SORT_NAME_ASC, ID_SORT_NAME_DESC,
+        ID_SORT_DATE_ASC, ID_SORT_CREATED_DESC, ID_SORT_CREATED_ASC,
+        ID_SORT_NAME_ASC, ID_SORT_NAME_DESC,
         ID_MAX_5, ID_MAX_10, ID_MAX_15, ID_MAX_20, ID_MAX_25,
         ID_ANIM_FAN, ID_ANIM_GLIDE, ID_ANIM_SPRING, ID_ANIM_NONE, ID_ANIM_FADE,
         ID_INCLUDE_DIRS,
@@ -250,10 +251,12 @@ void MainWindow::ShowTrayMenu() {
     };
 
     HMENU hSort = CreatePopupMenu();
-    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateModifiedDesc ? MF_CHECKED : 0), ID_SORT_DATE_DESC, L"Date modified \u2193 (newest first)");
-    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateModifiedAsc  ? MF_CHECKED : 0), ID_SORT_DATE_ASC,  L"Date modified \u2191 (oldest first)");
-    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::NameAsc          ? MF_CHECKED : 0), ID_SORT_NAME_ASC,  L"Name A \u2192 Z");
-    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::NameDesc         ? MF_CHECKED : 0), ID_SORT_NAME_DESC, L"Name Z \u2192 A");
+    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateModifiedDesc ? MF_CHECKED : 0), ID_SORT_DATE_DESC,    L"Date modified \u2193 (newest first)");
+    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateModifiedAsc  ? MF_CHECKED : 0), ID_SORT_DATE_ASC,     L"Date modified \u2191 (oldest first)");
+    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateCreatedDesc  ? MF_CHECKED : 0), ID_SORT_CREATED_DESC, L"Date created \u2193 (newest first)");
+    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateCreatedAsc   ? MF_CHECKED : 0), ID_SORT_CREATED_ASC,  L"Date created \u2191 (oldest first)");
+    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::NameAsc          ? MF_CHECKED : 0), ID_SORT_NAME_ASC,     L"Name A \u2192 Z");
+    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::NameDesc         ? MF_CHECKED : 0), ID_SORT_NAME_DESC,    L"Name Z \u2192 A");
 
     HMENU hMax = CreatePopupMenu();
     for (int n : {5, 10, 15, 20, 25}) {
@@ -301,10 +304,12 @@ void MainWindow::ShowTrayMenu() {
 
     bool changed = true;
     switch (cmd) {
-    case ID_SORT_DATE_DESC: _config.sortMode  = ConfigData::SortMode::DateModifiedDesc; break;
-    case ID_SORT_DATE_ASC:  _config.sortMode  = ConfigData::SortMode::DateModifiedAsc;  break;
-    case ID_SORT_NAME_ASC:  _config.sortMode  = ConfigData::SortMode::NameAsc;          break;
-    case ID_SORT_NAME_DESC: _config.sortMode  = ConfigData::SortMode::NameDesc;         break;
+    case ID_SORT_DATE_DESC:    _config.sortMode  = ConfigData::SortMode::DateModifiedDesc; break;
+    case ID_SORT_DATE_ASC:     _config.sortMode  = ConfigData::SortMode::DateModifiedAsc;  break;
+    case ID_SORT_CREATED_DESC: _config.sortMode  = ConfigData::SortMode::DateCreatedDesc;  break;
+    case ID_SORT_CREATED_ASC:  _config.sortMode  = ConfigData::SortMode::DateCreatedAsc;   break;
+    case ID_SORT_NAME_ASC:     _config.sortMode  = ConfigData::SortMode::NameAsc;          break;
+    case ID_SORT_NAME_DESC:    _config.sortMode  = ConfigData::SortMode::NameDesc;         break;
     case ID_MAX_5:          _config.maxItems  = 5;  break;
     case ID_MAX_10:         _config.maxItems  = 10; break;
     case ID_MAX_15:         _config.maxItems  = 15; break;

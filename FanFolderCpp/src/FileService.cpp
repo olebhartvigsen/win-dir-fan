@@ -40,6 +40,7 @@ std::vector<FileItem> FileService::ScanFolder(const std::wstring& folderPath, in
         item.fullPath += fd.cFileName;
         item.isDirectory = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
         item.lastWriteTime = fd.ftLastWriteTime;
+        item.creationTime  = fd.ftCreationTime;
         items.push_back(std::move(item));
     } while (FindNextFileW(hFind, &fd));
 
@@ -87,6 +88,20 @@ std::vector<FileItem> FileService::ScanFolder(const std::wstring& folderPath, in
     case ConfigData::SortMode::NameDesc:
         std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
             return _wcsicmp(a.name.c_str(), b.name.c_str()) > 0;
+        });
+        break;
+    case ConfigData::SortMode::DateCreatedDesc:
+        std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
+            if (a.creationTime.dwHighDateTime != b.creationTime.dwHighDateTime)
+                return a.creationTime.dwHighDateTime > b.creationTime.dwHighDateTime;
+            return a.creationTime.dwLowDateTime > b.creationTime.dwLowDateTime;
+        });
+        break;
+    case ConfigData::SortMode::DateCreatedAsc:
+        std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
+            if (a.creationTime.dwHighDateTime != b.creationTime.dwHighDateTime)
+                return a.creationTime.dwHighDateTime < b.creationTime.dwHighDateTime;
+            return a.creationTime.dwLowDateTime < b.creationTime.dwLowDateTime;
         });
         break;
     }

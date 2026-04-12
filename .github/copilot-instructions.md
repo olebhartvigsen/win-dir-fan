@@ -1,10 +1,8 @@
 # Fan Folder – Copilot Instructions
 
-## ⚠️ Primary Version: C++ (`FanFolderCpp/`)
+## ⚠️ Git Policy — NEVER commit, push, or merge without explicit user instruction
 
-**Always build, run, and improve the C++ version** (`FanFolderCpp/`) unless the user explicitly says otherwise.
-
-The **C# version** (`FanFolderApp/`) is a feature-reference prototype only — it is **not actively developed**. Its sole purpose is to document the complete feature set that must be working in the C++ version. When in doubt about intended behavior, consult the C# source as the specification.
+**Never** run `git commit`, `git push`, `git merge`, or any equivalent (e.g. `git rebase`, `git tag`) unless the user explicitly asks (e.g. "commit", "push", "merge to master"). The user always initiates these actions.
 
 ---
 
@@ -12,14 +10,12 @@ The **C# version** (`FanFolderApp/`) is a feature-reference prototype only — i
 
 **Fan Folder** is a Win32/C++ desktop app that replicates the macOS Dock "Fan" folder on the Windows taskbar. Clicking a taskbar icon reveals an animated, arc-shaped popup showing the most recently modified items in a configured folder. Items can be opened, right-clicked (full shell context menu), or dragged to other applications.
 
-- **Primary implementation:** `FanFolderCpp/` — C++20, Win32, GDI+, CMake, MSVC, ~161 KB exe
-- **Reference prototype:** `FanFolderApp/` — C# / .NET 8 / WinForms (do not modify or run unless asked)
+- **Implementation:** `FanFolderCpp/` — C++20, Win32, GDI+, CMake, MSVC, ~161 KB exe
 - No unit tests; no linting/formatting tooling configured
-- Spec document: `prompt/opret.md`
 
 ---
 
-## Build Commands (C++ — primary)
+## Build Commands
 
 ```powershell
 # Build (requires Visual Studio 2022 with C++ workload)
@@ -40,25 +36,16 @@ After building, always restart the running process if it is already running.
 
 ---
 
-## Build Commands (C# — reference only, do not use unless asked)
-
-```powershell
-dotnet build -c Release
-dotnet publish -c Release
-```
-
----
-
-## C++ Architecture (`FanFolderCpp/src/`)
+## Architecture (`FanFolderCpp/src/`)
 
 | File | Role |
 |---|---|
-| `main.cpp` | WinMain: GDI+ init, COM init, Config load, message loop |
-| `Config.h/.cpp` | Read all settings from `HKCU\SOFTWARE\FanFolder` registry; fall back to `appsettings.json` → Downloads → Desktop |
-| `MainWindow.h/.cpp` | Hidden taskbar window; SC_RESTORE → ToggleFan; WH_MOUSE_LL + WH_KEYBOARD_LL hooks on dedicated thread; prewarm; DWM iconic thumbnail |
-| `FanWindow.h/.cpp` | Layered popup (WS_EX_LAYERED \| WS_EX_NOACTIVATE); arc layout; GDI+ rendering; Fan/Glide/Spring/None animations; hover scale + shadow; async icon loading; OLE drag-drop; shell context menu |
+| `main.cpp` | WinMain: GDI+ init, OLE init, Config load, message loop |
+| `Config.h/.cpp` | Read/write all settings from `HKCU\SOFTWARE\FanFolder` registry |
+| `MainWindow.h/.cpp` | Hidden taskbar window; SC_RESTORE → ToggleFan; WH_MOUSE_LL + WH_KEYBOARD_LL hooks on dedicated thread; prewarm; DWM iconic thumbnail; tray icon settings menu |
+| `FanWindow.h/.cpp` | Layered popup (WS_EX_LAYERED \| WS_EX_NOACTIVATE); arc layout; GDI+ rendering; Fan/Glide/Spring/Fade/None animations; hover scale + shadow; async icon loading; OLE drag-drop source + target; shell context menu |
 | `FileService.h/.cpp` | Folder scan with sort/filter; IShellItemImageFactory bitmap; SHIL icon fallback chain |
-| `ShellDrag.h/.cpp` | OLE IDataObject + IDropSource for shell drag-and-drop |
+| `ShellDrag.h/.cpp` | OLE IDataObject + IDropSource for shell drag-and-drop with ghost image |
 
 ### Key flows
 
@@ -72,6 +59,7 @@ dotnet publish -c Release
 - `Fan` — items fly from arc hinge to rest position with stagger (EaseOutQuart)
 - `Glide` — all items drift up 32px and fade in (EaseOutCubic, 800ms)
 - `Spring` — window fades in (120ms), items scale 0→1 with stagger + overshoot
+- `Fade` — instant layout, short fade-in only
 - `None` — instant
 
 **Icon extraction fallback chain:**
@@ -84,25 +72,24 @@ dotnet publish -c Release
 | Value | Type | Default | Description |
 |-------|------|---------|-------------|
 | `FolderPath` | REG_SZ | Downloads | Folder to display |
-| `SortMode` | REG_SZ | `DateModifiedDesc` | `DateModifiedDesc`, `DateModifiedAsc`, `NameAsc`, `NameDesc` |
-| `MaxItems` | REG_DWORD | `15` | 1–50 |
+| `SortMode` | REG_SZ | `DateModifiedDesc` | `DateModifiedDesc`, `DateModifiedAsc`, `DateCreatedDesc`, `DateCreatedAsc`, `NameAsc`, `NameDesc` |
+| `MaxItems` | REG_DWORD | `15` | 5–25 (steps of 5) |
 | `IncludeDirectories` | REG_DWORD | `1` | `1` = include dirs |
+| `ShowExtensions` | REG_DWORD | `0` | `1` = show file extensions in labels |
 | `FilterRegex` | REG_SZ | *(empty)* | Optional filename filter regex |
-| `AnimationStyle` | REG_SZ | `Spring` | `Fan`, `Glide`, `Spring`, `None` |
-
-The C# and C++ versions share the same registry keys — configs are portable between them.
+| `AnimationStyle` | REG_SZ | `Spring` | `Fan`, `Glide`, `Spring`, `Fade`, `None` |
 
 ---
 
-## C++ Key Conventions
+## Key Conventions
 
 **Naming:**
 - Private fields: `_camelCase`
 - Constants: `constexpr` with `camelCase` or `PascalCase`
-- Section separators: `// ---------------------------------------------------------------------------`
+- Section separators: `// ───────────────────────────────────────────────────────────────────────────`
 
 **Memory / COM:**
-- All COM objects released with `->Release()` in `finally`-equivalent (RAII or manual try/finally pattern)
+- All COM objects released with `->Release()` in RAII or manual cleanup
 - GDI objects (HBITMAP, HICON, HFONT) deleted with `DeleteObject` / `DestroyIcon` in destructors
 - Background icon loading via `std::thread::detach`; results posted back via `PostMessageW`
 
@@ -114,15 +101,3 @@ The C# and C++ versions share the same registry keys — configs are portable be
 
 **Animation constants** (in `FanWindow.cpp`): `HoverScaleMax = 1.4f`, `AnimSpeed_In = 0.30f`, `AnimSpeed_Out = 0.38f`, `EntryFadeDurationMs = 120f`, `ItemStageDurationMs = 28f`, `ItemAnimDurationMs = 420f`
 
----
-
-## C# Reference Version (`FanFolderApp/`) — Feature Specification
-
-The C# version defines the **complete feature set** for the C++ version. When a feature is missing or behaves differently in C++, the C# implementation is the authoritative specification. Key files:
-
-| File | What it specifies |
-|---|---|
-| `Program.cs` | Registry keys, all config values and defaults |
-| `FanForm.cs` | Arc layout math, animation easing functions, label rendering, hover shadow, arrow icon drawing |
-| `MainHiddenForm.cs` | Taskbar button behavior, prewarm lifecycle, hook setup |
-| `FileService.cs` | Icon extraction logic, archive detection, image thumbnail handling |

@@ -6,7 +6,8 @@ struct FileItem {
     std::wstring name;
     std::wstring fullPath;
     bool isDirectory = false;
-    FILETIME lastWriteTime = {};
+    FILETIME lastWriteTime  = {};
+    FILETIME creationTime   = {};
 };
 
 class FileService {
