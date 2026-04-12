@@ -22,8 +22,8 @@
     <ComponentGroup Id="AppComponents" Directory="INSTALLFOLDER">
       <Component Id="MainExe" Guid="B1C2D3E4-F5A6-7890-BCDE-F12345678901">
         <File Id="FanFolderExe"
-              Source="..\FanFolderCpp\build\Release\FanFolderCpp.exe"
-              Name="FanFolderCpp.exe" />
+              Source="..\FanFolder\build\Release\FanFolder.exe"
+              Name="FanFolder.exe" />
         <!-- Per-user installs must use a registry KeyPath, not a file -->
         <RegistryValue Root="HKCU"
                        Key="Software\FanFolder"
@@ -42,7 +42,7 @@
         <RegistryValue Root="HKCU"
                        Key="Software\Microsoft\Windows\CurrentVersion\Run"
                        Name="FanFolder"
-                       Value="&quot;[INSTALLFOLDER]FanFolderCpp.exe&quot;"
+                       Value="&quot;[INSTALLFOLDER]FanFolder.exe&quot;"
                        Type="string"
                        Action="write"
                        KeyPath="yes" />

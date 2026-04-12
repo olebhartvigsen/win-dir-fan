@@ -2,7 +2,7 @@
 .SYNOPSIS
     Installs Fan Folder to the user's local app directory.
 .DESCRIPTION
-    Copies FanFolderCpp.exe to %LocalAppData%\FanFolder,
+    Copies FanFolder.exe to %LocalAppData%\FanFolder,
     creates Start Menu and optional Desktop shortcuts, and optionally adds
     a startup registry entry.
 #>
@@ -13,7 +13,7 @@ param(
 )
 
 $AppName      = "Fan Folder"
-$ExeName      = "FanFolderCpp.exe"
+$ExeName      = "FanFolder.exe"
 $InstallDir   = Join-Path $env:LOCALAPPDATA "FanFolder"
 $StartMenuDir = Join-Path ([Environment]::GetFolderPath("StartMenu")) "Programs"
 $DesktopDir   = [Environment]::GetFolderPath("Desktop")
@@ -33,7 +33,7 @@ if ($PSScriptRoot) {
 if ($Uninstall) {
     Write-Host "Uninstalling $AppName..." -ForegroundColor Yellow
 
-    $p = Get-Process | Where-Object { $_.Name -like "*FanFolderCpp*" }
+    $p = Get-Process | Where-Object { $_.Name -like "*FanFolder*" }
     if ($p) { Stop-Process -Id $p.Id; Start-Sleep -Milliseconds 500 }
 
     if (Test-Path $InstallDir) { Remove-Item $InstallDir -Recurse -Force }
@@ -55,7 +55,7 @@ if ($Uninstall) {
 Write-Host "Installing $AppName..." -ForegroundColor Cyan
 
 # Stop running instance
-$p = Get-Process | Where-Object { $_.Name -like "*FanFolderCpp*" }
+$p = Get-Process | Where-Object { $_.Name -like "*FanFolder*" }
 if ($p) { Stop-Process -Id $p.Id; Start-Sleep -Milliseconds 500 }
 
 # Create install directory
@@ -66,12 +66,12 @@ if (-not (Test-Path $InstallDir)) {
 # Locate the exe — prefer Release build next to this script, then repo build output
 $buildExe = Join-Path $SourceDir $ExeName
 if (-not (Test-Path $buildExe)) {
-    $buildExe = Join-Path $SourceDir "..\FanFolderCpp\build\Release\$ExeName"
+    $buildExe = Join-Path $SourceDir "..\FanFolder\build\Release\$ExeName"
 }
 
 if (-not (Test-Path $buildExe)) {
     Write-Host "ERROR: Cannot find $ExeName. Build the project first:" -ForegroundColor Red
-    Write-Host "  cmake --build FanFolderCpp\build --config Release" -ForegroundColor Yellow
+    Write-Host "  cmake --build FanFolder\build --config Release" -ForegroundColor Yellow
     if (-not $Silent) { Read-Host "Press Enter to close" }
     exit 1
 }
