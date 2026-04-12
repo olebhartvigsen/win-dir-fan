@@ -1,0 +1,27 @@
+name: Release Build
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    name: Build FanFolder (Windows x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: |
+          cmake -B FanFolder/build -G "Visual Studio 17 2022" -A x64 -S FanFolder
+
+      - name: Build Release
+        run: |
+          cmake --build FanFolder/build --config Release
+
+      - name: Upload exe to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: FanFolder/build/Release/FanFolder.exe
