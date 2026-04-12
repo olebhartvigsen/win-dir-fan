@@ -23,7 +23,7 @@
 
     <!-- %APPDATA%\Microsoft\Windows\Start Menu\Programs\FanFolder -->
     <StandardDirectory Id="ProgramMenuFolder">
-      <Directory Id="STARTMENUFOLDER" Name="FanFolder" />
+      <Directory Id="StartMenuFanFolder" Name="FanFolder" />
     </StandardDirectory>
 
     <!-- Desktop -->
@@ -34,8 +34,14 @@
       <Component Id="MainExe" Guid="B1C2D3E4-F5A6-7890-BCDE-F12345678901">
         <File Id="FanFolderExe"
               Source="..\FanFolder\build\Release\FanFolder.exe"
-              Name="FanFolder.exe"
-              KeyPath="yes" />
+              Name="FanFolder.exe" />
+        <!-- Per-user install requires HKCU registry KeyPath, not a file (ICE38) -->
+        <RegistryValue Root="HKCU"
+                       Key="Software\FanFolder"
+                       Name="InstallDir"
+                       Value="[INSTALLFOLDER]"
+                       Type="string"
+                       KeyPath="yes" />
         <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
       </Component>
     </ComponentGroup>
@@ -44,14 +50,14 @@
     <ComponentGroup Id="ShortcutComponents">
 
       <!-- Start Menu shortcut -->
-      <Component Id="StartMenuShortcut" Directory="STARTMENUFOLDER"
+      <Component Id="StartMenuShortcut" Directory="StartMenuFanFolder"
                  Guid="32923206-A517-4419-9100-57A6B94A6F26">
         <Shortcut Id="StartMenuShortcutLink"
                   Name="FanFolder"
                   Description="macOS-style fan folder for the Windows taskbar"
                   Target="[INSTALLFOLDER]FanFolder.exe"
                   WorkingDirectory="INSTALLFOLDER" />
-        <RemoveFolder Id="RemoveStartMenuFolder" Directory="STARTMENUFOLDER" On="uninstall" />
+        <RemoveFolder Id="RemoveStartMenuFolder" Directory="StartMenuFanFolder" On="uninstall" />
         <RegistryValue Root="HKCU"
                        Key="Software\FanFolder\Shortcuts"
                        Name="StartMenu"

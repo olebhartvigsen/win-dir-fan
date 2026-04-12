@@ -7,6 +7,8 @@
     <!-- Override with: dotnet build -p:ProductVersion=1.2.3 -->
     <ProductVersion Condition="'$(ProductVersion)' == ''">1.0.0</ProductVersion>
     <DefineConstants>ProductVersion=$(ProductVersion)</DefineConstants>
+    <!-- ICE91 warns about per-user dirs not varying on ALLUSERS — expected for perUser packages -->
+    <SuppressIces>ICE91</SuppressIces>
   </PropertyGroup>
 
   <ItemGroup>
