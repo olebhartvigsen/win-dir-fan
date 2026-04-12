@@ -25,10 +25,9 @@ ConfigData Config::Load() {
                 DWORD size = sizeof(buf);
                 DWORD type = REG_SZ;
                 if (RegQueryValueExW(hKey, L"SortMode", nullptr, &type, (LPBYTE)buf, &size) == ERROR_SUCCESS) {
-                    std::wstring s(buf);
-                    if (s == L"DateModifiedAsc") cfg.sortMode = ConfigData::SortMode::DateModifiedAsc;
-                    else if (s == L"NameAsc")    cfg.sortMode = ConfigData::SortMode::NameAsc;
-                    else if (s == L"NameDesc")   cfg.sortMode = ConfigData::SortMode::NameDesc;
+                    if (wcscmp(buf, L"DateModifiedAsc") == 0) cfg.sortMode = ConfigData::SortMode::DateModifiedAsc;
+                    else if (wcscmp(buf, L"NameAsc") == 0)    cfg.sortMode = ConfigData::SortMode::NameAsc;
+                    else if (wcscmp(buf, L"NameDesc") == 0)   cfg.sortMode = ConfigData::SortMode::NameDesc;
                 }
             }
             // MaxItems (try DWORD first, then SZ)
@@ -82,11 +81,10 @@ ConfigData Config::Load() {
                 DWORD size = sizeof(buf);
                 DWORD type = REG_SZ;
                 if (RegQueryValueExW(hKey, L"AnimationStyle", nullptr, &type, (LPBYTE)buf, &size) == ERROR_SUCCESS) {
-                    std::wstring s(buf);
-                    if (s == L"Fan")         cfg.animStyle = ConfigData::AnimStyle::Fan;
-                    else if (s == L"Glide")  cfg.animStyle = ConfigData::AnimStyle::Glide;
-                    else if (s == L"None")   cfg.animStyle = ConfigData::AnimStyle::None;
-                    else if (s == L"Fade")   cfg.animStyle = ConfigData::AnimStyle::Fade;
+                    if (wcscmp(buf, L"Fan") == 0)         cfg.animStyle = ConfigData::AnimStyle::Fan;
+                    else if (wcscmp(buf, L"Glide") == 0)  cfg.animStyle = ConfigData::AnimStyle::Glide;
+                    else if (wcscmp(buf, L"None") == 0)   cfg.animStyle = ConfigData::AnimStyle::None;
+                    else if (wcscmp(buf, L"Fade") == 0)   cfg.animStyle = ConfigData::AnimStyle::Fade;
                     // else stays Spring
                 }
             }
@@ -161,98 +159,55 @@ ConfigData Config::Load() {
 }
 
 void Config::Save(const ConfigData& cfg) {
-    SaveFolderPath(cfg.folderPath);
-    SaveSortMode(cfg.sortMode);
-    SaveMaxItems(cfg.maxItems);
-    SaveIncludeDirs(cfg.includeDirs);
-    SaveShowExtensions(cfg.showExtensions);
-    SaveFilterRegex(cfg.filterRegex);
-    SaveAnimStyle(cfg.animStyle);
-}
-
-void Config::SaveFolderPath(const std::wstring& path) {
     HKEY hKey = nullptr;
     if (RegCreateKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\FanFolder", 0, nullptr,
-                        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
-        RegSetValueExW(hKey, L"FolderPath", 0, REG_SZ,
-                       (const BYTE*)path.c_str(),
-                       (DWORD)((path.size() + 1) * sizeof(wchar_t)));
-        RegCloseKey(hKey);
-    }
-}
+                        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) != ERROR_SUCCESS)
+        return;
 
-void Config::SaveSortMode(ConfigData::SortMode mode) {
-    const wchar_t* s = L"DateModifiedDesc";
-    switch (mode) {
-    case ConfigData::SortMode::DateModifiedAsc: s = L"DateModifiedAsc"; break;
-    case ConfigData::SortMode::NameAsc:         s = L"NameAsc";         break;
-    case ConfigData::SortMode::NameDesc:        s = L"NameDesc";        break;
+    // FolderPath
+    RegSetValueExW(hKey, L"FolderPath", 0, REG_SZ,
+                   (const BYTE*)cfg.folderPath.c_str(),
+                   (DWORD)((cfg.folderPath.size() + 1) * sizeof(wchar_t)));
+
+    // SortMode
+    const wchar_t* sortStr = L"DateModifiedDesc";
+    switch (cfg.sortMode) {
+    case ConfigData::SortMode::DateModifiedAsc: sortStr = L"DateModifiedAsc"; break;
+    case ConfigData::SortMode::NameAsc:         sortStr = L"NameAsc";         break;
+    case ConfigData::SortMode::NameDesc:        sortStr = L"NameDesc";        break;
     default: break;
     }
-    HKEY hKey = nullptr;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\FanFolder", 0, nullptr,
-                        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
-        RegSetValueExW(hKey, L"SortMode", 0, REG_SZ,
-                       (const BYTE*)s, (DWORD)((wcslen(s) + 1) * sizeof(wchar_t)));
-        RegCloseKey(hKey);
-    }
-}
+    RegSetValueExW(hKey, L"SortMode", 0, REG_SZ,
+                   (const BYTE*)sortStr, (DWORD)((wcslen(sortStr) + 1) * sizeof(wchar_t)));
 
-void Config::SaveMaxItems(int count) {
-    HKEY hKey = nullptr;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\FanFolder", 0, nullptr,
-                        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
-        DWORD val = (DWORD)count;
-        RegSetValueExW(hKey, L"MaxItems", 0, REG_DWORD, (const BYTE*)&val, sizeof(val));
-        RegCloseKey(hKey);
-    }
-}
+    // MaxItems
+    DWORD maxItems = (DWORD)cfg.maxItems;
+    RegSetValueExW(hKey, L"MaxItems", 0, REG_DWORD, (const BYTE*)&maxItems, sizeof(maxItems));
 
-void Config::SaveIncludeDirs(bool include) {
-    HKEY hKey = nullptr;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\FanFolder", 0, nullptr,
-                        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
-        DWORD val = include ? 1 : 0;
-        RegSetValueExW(hKey, L"IncludeDirectories", 0, REG_DWORD, (const BYTE*)&val, sizeof(val));
-        RegCloseKey(hKey);
-    }
-}
+    // IncludeDirectories
+    DWORD includeDirs = cfg.includeDirs ? 1 : 0;
+    RegSetValueExW(hKey, L"IncludeDirectories", 0, REG_DWORD, (const BYTE*)&includeDirs, sizeof(includeDirs));
 
-void Config::SaveFilterRegex(const std::wstring& pattern) {
-    HKEY hKey = nullptr;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\FanFolder", 0, nullptr,
-                        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
-        RegSetValueExW(hKey, L"FilterRegex", 0, REG_SZ,
-                       (const BYTE*)pattern.c_str(),
-                       (DWORD)((pattern.size() + 1) * sizeof(wchar_t)));
-        RegCloseKey(hKey);
-    }
-}
+    // ShowExtensions
+    DWORD showExt = cfg.showExtensions ? 1 : 0;
+    RegSetValueExW(hKey, L"ShowExtensions", 0, REG_DWORD, (const BYTE*)&showExt, sizeof(showExt));
 
-void Config::SaveShowExtensions(bool show) {
-    HKEY hKey = nullptr;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\FanFolder", 0, nullptr,
-                        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
-        DWORD val = show ? 1 : 0;
-        RegSetValueExW(hKey, L"ShowExtensions", 0, REG_DWORD, (const BYTE*)&val, sizeof(val));
-        RegCloseKey(hKey);
-    }
-}
+    // FilterRegex
+    RegSetValueExW(hKey, L"FilterRegex", 0, REG_SZ,
+                   (const BYTE*)cfg.filterRegex.c_str(),
+                   (DWORD)((cfg.filterRegex.size() + 1) * sizeof(wchar_t)));
 
-void Config::SaveAnimStyle(ConfigData::AnimStyle style) {
-    const wchar_t* s = L"Spring";
-    switch (style) {
-    case ConfigData::AnimStyle::Fan:   s = L"Fan";   break;
-    case ConfigData::AnimStyle::Glide: s = L"Glide"; break;
-    case ConfigData::AnimStyle::None:  s = L"None";  break;
-    case ConfigData::AnimStyle::Fade:  s = L"Fade";  break;
+    // AnimationStyle
+    const wchar_t* animStr = L"Spring";
+    switch (cfg.animStyle) {
+    case ConfigData::AnimStyle::Fan:   animStr = L"Fan";   break;
+    case ConfigData::AnimStyle::Glide: animStr = L"Glide"; break;
+    case ConfigData::AnimStyle::None:  animStr = L"None";  break;
+    case ConfigData::AnimStyle::Fade:  animStr = L"Fade";  break;
     default: break;
     }
-    HKEY hKey = nullptr;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\FanFolder", 0, nullptr,
-                        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
-        RegSetValueExW(hKey, L"AnimationStyle", 0, REG_SZ,
-                       (const BYTE*)s, (DWORD)((wcslen(s) + 1) * sizeof(wchar_t)));
-        RegCloseKey(hKey);
-    }
+    RegSetValueExW(hKey, L"AnimationStyle", 0, REG_SZ,
+                   (const BYTE*)animStr, (DWORD)((wcslen(animStr) + 1) * sizeof(wchar_t)));
+
+    RegCloseKey(hKey);
 }

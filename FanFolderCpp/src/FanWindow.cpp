@@ -88,6 +88,10 @@ FanWindow::FanWindow(HINSTANCE hInst, HWND hwndOwner,
 {}
 
 FanWindow::~FanWindow() {
+    delete _labelFont;   _labelFont   = nullptr;
+    delete _labelSF;     _labelSF     = nullptr;
+    delete _measureSF;   _measureSF   = nullptr;
+    delete _drawIA;      _drawIA      = nullptr;
     FreeBackBuffer();
     if (_hwnd) {
         RevokeDragDrop(_hwnd);
@@ -103,6 +107,7 @@ FanWindow::~FanWindow() {
 }
 
 bool FanWindow::Create() {
+    RebuildLabelCache();
     CalculateLayout();
     // Do NOT set hwndOwner: when the main window re-minimizes itself inside
     // WM_ACTIVATE, Win32 hides all owned popups — which would immediately
@@ -146,6 +151,7 @@ void FanWindow::Show() {
     _gdiBitmaps.assign(total, nullptr);
     _entryAlpha   = 0.f;
     _animating    = true;
+    if (!_drawIA) _drawIA = new Gdiplus::ImageAttributes();
 
     if (_config.animStyle == ConfigData::AnimStyle::None) {
         std::fill(_entryProgress.begin(), _entryProgress.end(), 1.f);
@@ -255,6 +261,32 @@ int FanWindow::FindTaskbarButtonCenter(RECT taskbarRect) {
 }
 
 // ---------------------------------------------------------------------------
+void FanWindow::RebuildFontCache() {
+    delete _labelFont;   _labelFont   = nullptr;
+    delete _labelSF;     _labelSF     = nullptr;
+    delete _measureSF;   _measureSF   = nullptr;
+
+    float sz = _iconSize * 0.22f;
+    _cachedFontSize = sz;
+    _labelFont  = new Gdiplus::Font(L"Segoe UI", sz, Gdiplus::FontStyleBold, Gdiplus::UnitPoint);
+
+    _labelSF = new Gdiplus::StringFormat();
+    _labelSF->SetAlignment(Gdiplus::StringAlignmentFar);
+    _labelSF->SetLineAlignment(Gdiplus::StringAlignmentCenter);
+    _labelSF->SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
+    _labelSF->SetTrimming(Gdiplus::StringTrimmingNone);
+
+    _measureSF = new Gdiplus::StringFormat();
+    _measureSF->SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
+}
+
+void FanWindow::RebuildLabelCache() {
+    _labelCache.resize(_items.size());
+    for (int i = 0; i < (int)_items.size(); i++)
+        _labelCache[i] = ItemLabel(i);
+}
+
+// ---------------------------------------------------------------------------
 void FanWindow::CalculateLayout() {
     POINT cursor = {};
     GetCursorPos(&cursor);
@@ -279,10 +311,8 @@ void FanWindow::CalculateLayout() {
     // Measure label widths with GDI+
     Gdiplus::Bitmap tmpBmp(1, 1, PixelFormat32bppARGB);
     Gdiplus::Graphics tmpG(&tmpBmp);
-    float fontSize = _iconSize * 0.22f;
-    Gdiplus::Font font(L"Segoe UI", fontSize, Gdiplus::FontStyleBold, Gdiplus::UnitPoint);
-    Gdiplus::StringFormat sfMeasure;
-    sfMeasure.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
+    if (_iconSize * 0.22f != _cachedFontSize || !_labelFont)
+        RebuildFontCache();
 
     int total = (int)_items.size() + 1;
     _labelWidths.resize(total);
@@ -290,16 +320,16 @@ void FanWindow::CalculateLayout() {
 
     for (int i = 0; i < (int)_items.size(); i++) {
         Gdiplus::RectF bounds;
-        std::wstring label = ItemLabel(i);
-        tmpG.MeasureString(label.c_str(), -1, &font,
-                           Gdiplus::PointF(0,0), &sfMeasure, &bounds);
+        const std::wstring& label = (i < (int)_labelCache.size()) ? _labelCache[i] : ItemLabel(i);
+        tmpG.MeasureString(label.c_str(), -1, _labelFont,
+                           Gdiplus::PointF(0,0), _measureSF, &bounds);
         _labelWidths[i] = bounds.Width + 20.f;
         maxLabelW = std::max(maxLabelW, _labelWidths[i]);
     }
     {
         Gdiplus::RectF bounds;
-        tmpG.MeasureString(L"Open in Explorer", -1, &font,
-                           Gdiplus::PointF(0,0), &sfMeasure, &bounds);
+        tmpG.MeasureString(L"Open in Explorer", -1, _labelFont,
+                           Gdiplus::PointF(0,0), _measureSF, &bounds);
         _labelWidths[total - 1] = bounds.Width + 20.f;
         maxLabelW = std::max(maxLabelW, _labelWidths[total - 1]);
     }
@@ -442,16 +472,15 @@ void FanWindow::CalculateLayout() {
 void FanWindow::PremultiplyBitmap(Gdiplus::BitmapData& data) {
     auto* p = static_cast<BYTE*>(data.Scan0);
     for (UINT y = 0; y < data.Height; y++) {
-        BYTE* row = p + y * data.Stride;
-        for (UINT x = 0; x < data.Width; x++) {
-            BYTE* px = row + x * 4;
-            BYTE  a  = px[3];
+        BYTE* px = p + y * data.Stride;
+        for (UINT x = 0; x < data.Width; x++, px += 4) {
+            BYTE a = px[3];
             if (a == 0) {
                 px[0] = px[1] = px[2] = 0;
             } else if (a < 255) {
-                px[0] = (BYTE)((px[0] * a) / 255);
-                px[1] = (BYTE)((px[1] * a) / 255);
-                px[2] = (BYTE)((px[2] * a) / 255);
+                px[0] = (BYTE)((px[0] * a) >> 8);
+                px[1] = (BYTE)((px[1] * a) >> 8);
+                px[2] = (BYTE)((px[2] * a) >> 8);
             }
         }
     }
@@ -539,8 +568,14 @@ void FanWindow::DrawToLayeredWindow() {
         PremultiplyBitmap(bd);
         auto* src = static_cast<BYTE*>(bd.Scan0);
         auto* dst = static_cast<BYTE*>(_pBackBits);
-        for (int y = 0; y < _winHeight; y++)
-            memcpy(dst + y * _winWidth * 4, src + y * bd.Stride, _winWidth * 4);
+        if ((int)bd.Stride == _winWidth * 4) {
+            memcpy(dst, src, (size_t)_winHeight * _winWidth * 4);
+        } else {
+            for (int y = 0; y < _winHeight; y++)
+                memcpy(dst + (size_t)y * _winWidth * 4,
+                       src + (size_t)y * bd.Stride,
+                       (size_t)_winWidth * 4);
+        }
         _backBmp->UnlockBits(&bd);
     }
 
@@ -551,92 +586,6 @@ void FanWindow::DrawToLayeredWindow() {
     BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
     UpdateLayeredWindow(_hwnd, hdcScreen, &ptDst, &szWin, _hdcBack, &ptSrc, 0, &blend, ULW_ALPHA);
     ReleaseDC(nullptr, hdcScreen);
-}
-
-// ---------------------------------------------------------------------------
-void FanWindow::DrawShellBitmapIA(Gdiplus::Graphics& g, HBITMAP hBmp,
-                                   float x, float y, float size,
-                                   Gdiplus::ImageAttributes* ia) {
-    BITMAP bm = {};
-    GetObject(hBmp, sizeof(bm), &bm);
-    if (bm.bmWidth <= 0) return;
-
-    int w = bm.bmWidth;
-    int h = std::abs(bm.bmHeight);
-
-    std::vector<BYTE> bits((size_t)w * h * 4);
-
-    // GetDIBits(BI_RGB) zeroes the alpha byte — transparent PARGB bitmaps
-    // (e.g., SVG shell thumbnails) become invisible / all-black.
-    // Fix: for DIB sections read the raw bits directly so alpha is preserved.
-    DIBSECTION ds = {};
-    bool isDib = (GetObject(hBmp, sizeof(ds), &ds) == sizeof(ds))
-                 && ds.dsBm.bmBits != nullptr
-                 && ds.dsBmih.biBitCount == 32;
-
-    if (isDib) {
-        // dsBmih.biHeight < 0  → top-down DIB  (first memory row = image top)
-        // dsBmih.biHeight > 0  → bottom-up DIB (first memory row = image bottom)
-        bool topDown = (ds.dsBmih.biHeight < 0);
-        int  stride  = ds.dsBm.bmWidthBytes;
-        BYTE* src    = static_cast<BYTE*>(ds.dsBm.bmBits);
-        for (int row = 0; row < h; row++) {
-            int srcRow = topDown ? row : (h - 1 - row);
-            memcpy(bits.data() + (size_t)row * w * 4,
-                   src + (size_t)srcRow * stride,
-                   (size_t)w * 4);
-        }
-        // Guard: if the DIB was somehow allocated without alpha (all zeros),
-        // fall back to fully opaque so content is still visible.
-        bool hasAlpha = false;
-        for (int i = 0; i < w * h && !hasAlpha; i++)
-            if (bits[(size_t)i * 4 + 3] != 0) hasAlpha = true;
-        if (!hasAlpha)
-            for (int i = 0; i < w * h; i++)
-                bits[(size_t)i * 4 + 3] = 255;
-    } else {
-        // DDB or non-32-bit bitmap: GetDIBits is fine; alpha is absent → force opaque.
-        HDC     hdc  = CreateCompatibleDC(nullptr);
-        HBITMAP hOld = (HBITMAP)SelectObject(hdc, hBmp);
-
-        BITMAPINFO bi = {};
-        bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
-        bi.bmiHeader.biWidth       = w;
-        bi.bmiHeader.biHeight      = -h;
-        bi.bmiHeader.biPlanes      = 1;
-        bi.bmiHeader.biBitCount    = 32;
-        bi.bmiHeader.biCompression = BI_RGB;
-
-        GetDIBits(hdc, hBmp, 0, h, bits.data(), &bi, DIB_RGB_COLORS);
-        SelectObject(hdc, hOld);
-        DeleteDC(hdc);
-
-        for (int i = 0; i < w * h; i++)
-            bits[(size_t)i * 4 + 3] = 255;
-    }
-
-    Gdiplus::Bitmap bmpG(w, h, w * 4, PixelFormat32bppPARGB, bits.data());
-
-    // Letterbox: fit bitmap into icon square preserving aspect ratio
-    float scale = std::min(size / (float)w, size / (float)h);
-    float dstW  = w * scale;
-    float dstH  = h * scale;
-    float dstX  = x + (size - dstW) * 0.5f;
-    float dstY  = y + (size - dstH) * 0.5f;
-    Gdiplus::RectF dest(dstX, dstY, dstW, dstH);
-
-    if (ia) {
-        g.DrawImage(&bmpG, dest, 0, 0,
-                    (Gdiplus::REAL)w, (Gdiplus::REAL)h,
-                    Gdiplus::UnitPixel, ia);
-    } else {
-        g.DrawImage(&bmpG, dest);
-    }
-}
-
-void FanWindow::DrawShellBitmap(Gdiplus::Graphics& g, HBITMAP hBmp,
-                                   float x, float y, float size) {
-    DrawShellBitmapIA(g, hBmp, x, y, size, nullptr);
 }
 
 // ─── HBitmapToGdiBitmap ─────────────────────────────────────────────────────
@@ -737,17 +686,11 @@ void FanWindow::DrawLabelPill(Gdiplus::Graphics& g,
     Gdiplus::SolidBrush fillBrush(Gdiplus::Color((BYTE)(190.f * alpha), 20, 20, 20));
     g.FillPath(&fillBrush, &path);
 
-    float fontSize = _iconSize * 0.22f;
-    Gdiplus::Font font(L"Segoe UI", fontSize, Gdiplus::FontStyleBold, Gdiplus::UnitPoint);
+    if (!_labelFont) RebuildFontCache();
     Gdiplus::SolidBrush textBrush(Gdiplus::Color((BYTE)(255.f * alpha), 255, 255, 255));
-    Gdiplus::StringFormat sf;
-    sf.SetAlignment(Gdiplus::StringAlignmentFar);
-    sf.SetLineAlignment(Gdiplus::StringAlignmentCenter);
-    sf.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
-    sf.SetTrimming(Gdiplus::StringTrimmingNone);
 
     Gdiplus::RectF textRect(pillLeft + 8.f, pillTop, pillW - 16.f, pillH);
-    g.DrawString(text.c_str(), -1, &font, textRect, &sf, &textBrush);
+    g.DrawString(text.c_str(), -1, _labelFont, textRect, _labelSF, &textBrush);
 }
 
 void FanWindow::DrawArrowItem(Gdiplus::Graphics& g, float cx, float cy, float sz, float alpha) {
@@ -863,13 +806,12 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
                 0,0,0, shadowAlphaF, 0,
                 0,0,0,0,1
             };
-            Gdiplus::ImageAttributes ia;
-            ia.SetColorMatrix(&shadowCm, Gdiplus::ColorMatrixFlagsDefault,
-                              Gdiplus::ColorAdjustTypeBitmap);
+            _drawIA->SetColorMatrix(&shadowCm, Gdiplus::ColorMatrixFlagsDefault,
+                                    Gdiplus::ColorAdjustTypeBitmap);
             float offsets[] = {-pass.offset, 0.f, pass.offset};
             for (float ox : offsets) for (float oy : offsets) {
                 if (ox == 0.f && oy == 0.f) continue;
-                DrawCachedBitmapIA(g, gdiBmp, iconX + ox, iconY + oy, drawSz, &ia);
+                DrawCachedBitmapIA(g, gdiBmp, iconX + ox, iconY + oy, drawSz, _drawIA);
             }
         }
     }
@@ -879,10 +821,9 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
             1,0,0,0,0, 0,1,0,0,0, 0,0,1,0,0,
             0,0,0,itemAlpha,0, 0,0,0,0,1
         };
-        Gdiplus::ImageAttributes ia;
-        ia.SetColorMatrix(&cm, Gdiplus::ColorMatrixFlagsDefault,
-                          Gdiplus::ColorAdjustTypeBitmap);
-        DrawCachedBitmapIA(g, gdiBmp, iconX, iconY, drawSz, &ia);
+        _drawIA->SetColorMatrix(&cm, Gdiplus::ColorMatrixFlagsDefault,
+                                Gdiplus::ColorAdjustTypeBitmap);
+        DrawCachedBitmapIA(g, gdiBmp, iconX, iconY, drawSz, _drawIA);
     } else {
         // Placeholder while icon loads
         Gdiplus::SolidBrush ph(Gdiplus::Color((BYTE)(80.f * itemAlpha), 150, 150, 150));
@@ -890,7 +831,8 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
     }
 
     // Label pill
-    std::wstring name = ItemLabel(idx);
+    const std::wstring& name = (idx < (int)_labelCache.size())
+        ? _labelCache[idx] : _items[idx].name;
     float pillH = drawSz * 0.45f;
     if (pillH < 20.f) pillH = 20.f;
     float pillW    = (idx < (int)_labelWidths.size()) ? _labelWidths[idx] : 100.f;
@@ -979,6 +921,7 @@ void FanWindow::HandleFileDrop(IDataObject* pDataObj) {
         }
         _iconSize = _prewarmIconSize > 0 ? _prewarmIconSize : 64;
 
+        RebuildLabelCache();
         CalculateLayout();
         for (int i = 0; i < (int)_items.size(); i++)
             StartIconLoad(i);

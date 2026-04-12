@@ -17,11 +17,4 @@ class Config {
 public:
     static ConfigData Load();
     static void Save(const ConfigData& cfg);         // save all fields at once
-    static void SaveFolderPath(const std::wstring& path);
-    static void SaveSortMode(ConfigData::SortMode mode);
-    static void SaveMaxItems(int count);
-    static void SaveIncludeDirs(bool include);
-    static void SaveFilterRegex(const std::wstring& pattern);
-    static void SaveAnimStyle(ConfigData::AnimStyle style);
-    static void SaveShowExtensions(bool show);
 };

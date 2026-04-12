@@ -116,7 +116,7 @@ void MainWindow::OpenFan() {
     }
 
     std::vector<FileItem> items = prewarm.ready
-        ? prewarm.items
+        ? std::move(prewarm.items)
         : FileService::ScanFolder(_config.folderPath, _config.maxItems,
                                   _config.includeDirs, _config.filterRegex, _config.sortMode);
 
@@ -155,7 +155,7 @@ void MainWindow::StartPrewarm() {
     ConfigData cfg   = _config;
     HWND       hwnd  = _hwnd;
     int        myGen = ++_prewarmGen;  // invalidates any still-running prewarm thread
-    std::thread([this, cfg, hwnd, myGen]() {
+    std::thread([this, cfg = std::move(cfg), hwnd, myGen]() {
         // Calculate icon size using the same formula as FanWindow::CalculateLayout
         int iconSize = 64;
         HWND hTray = FindWindowW(L"Shell_TrayWnd", nullptr);

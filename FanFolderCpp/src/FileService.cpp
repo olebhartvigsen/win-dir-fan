@@ -16,11 +16,15 @@ std::vector<FileItem> FileService::ScanFolder(const std::wstring& folderPath, in
     std::vector<FileItem> items;
     if (folderPath.empty()) return items;
 
+    // Pre-build path prefix once; reserve to avoid reallocations
+    std::wstring prefix = folderPath;
+    if (!prefix.empty() && prefix.back() != L'\\')
+        prefix += L'\\';
+
+    items.reserve(64);
+
     WIN32_FIND_DATAW fd = {};
-    std::wstring pattern = folderPath;
-    if (!pattern.empty() && pattern.back() != L'\\')
-        pattern += L'\\';
-    pattern += L'*';
+    std::wstring pattern = prefix + L'*';
 
     HANDLE hFind = FindFirstFileW(pattern.c_str(), &fd);
     if (hFind == INVALID_HANDLE_VALUE) return items;
@@ -32,9 +36,7 @@ std::vector<FileItem> FileService::ScanFolder(const std::wstring& folderPath, in
 
         FileItem item;
         item.name = fd.cFileName;
-        item.fullPath = folderPath;
-        if (!item.fullPath.empty() && item.fullPath.back() != L'\\')
-            item.fullPath += L'\\';
+        item.fullPath = prefix;
         item.fullPath += fd.cFileName;
         item.isDirectory = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
         item.lastWriteTime = fd.ftLastWriteTime;
@@ -169,71 +171,47 @@ HBITMAP FileService::GetImageThumbnail(const std::wstring& path, int size) {
 }
 
 bool FileService::IsGdiImageExtension(const std::wstring& path) {
-    auto dot = path.rfind(L'.');
-    if (dot == std::wstring::npos) return false;
-    std::wstring ext = path.substr(dot);
-    for (auto& c : ext) c = towlower(c);
-    static const std::vector<std::wstring> kExts = {
+    const wchar_t* dot = wcsrchr(path.c_str(), L'.');
+    if (!dot) return false;
+    wchar_t ext[16] = {};
+    size_t i = 0;
+    for (const wchar_t* p = dot; *p && i < 15; ++p, ++i)
+        ext[i] = (wchar_t)towlower(*p);
+    static const wchar_t* const kExts[] = {
         L".jpg", L".jpeg", L".png", L".gif",
-        L".bmp", L".tiff", L".tif", L".svg"   // SVG via WIC (Edge codec) or fallback to type icon
+        L".bmp", L".tiff", L".tif", L".svg"
     };
-    for (auto& e : kExts) if (ext == e) return true;
+    for (auto e : kExts) if (wcscmp(ext, e) == 0) return true;
     return false;
 }
 
 bool FileService::IsShellThumbnailExtension(const std::wstring& path) {
-    auto dot = path.rfind(L'.');
-    if (dot == std::wstring::npos) return false;
-    std::wstring ext = path.substr(dot);
-    for (auto& c : ext) c = towlower(c);
-    // WebP: GDI+ has no native codec; shell uses the WebP WIC codec
-    static const std::vector<std::wstring> kExts = { L".webp" };
-    for (auto& e : kExts) if (ext == e) return true;
+    const wchar_t* dot = wcsrchr(path.c_str(), L'.');
+    if (!dot) return false;
+    wchar_t ext[16] = {};
+    size_t i = 0;
+    for (const wchar_t* p = dot; *p && i < 15; ++p, ++i)
+        ext[i] = (wchar_t)towlower(*p);
+    static const wchar_t* const kExts[] = { L".webp" };
+    for (auto e : kExts) if (wcscmp(ext, e) == 0) return true;
     return false;
 }
 
 HICON FileService::GetShellIcon(const std::wstring& path) {
-    // Try SHIL_JUMBO first (256px), then SHIL_EXTRALARGE (48px), then SHIL_LARGE (32px)
     SHFILEINFOW sfi = {};
     DWORD_PTR res = SHGetFileInfoW(path.c_str(), 0, &sfi, sizeof(sfi),
                                    SHGFI_SYSICONINDEX | SHGFI_ICON | SHGFI_LARGEICON);
     if (!res) return nullptr;
 
-    // Try jumbo
-    {
+    static const int kSizes[] = { SHIL_JUMBO, SHIL_EXTRALARGE, SHIL_LARGE };
+    for (int sz : kSizes) {
         IImageList* pList = nullptr;
-        if (SUCCEEDED(SHGetImageList(SHIL_JUMBO, IID_IImageList_, (void**)&pList)) && pList) {
+        if (SUCCEEDED(SHGetImageList(sz, IID_IImageList_, (void**)&pList)) && pList) {
             HICON hIcon = nullptr;
             pList->GetIcon(sfi.iIcon, ILD_TRANSPARENT, &hIcon);
             pList->Release();
             if (hIcon) return hIcon;
         }
     }
-
-    // Try extralarge
-    {
-        IImageList* pList = nullptr;
-        if (SUCCEEDED(SHGetImageList(SHIL_EXTRALARGE, IID_IImageList_, (void**)&pList)) && pList) {
-            HICON hIcon = nullptr;
-            pList->GetIcon(sfi.iIcon, ILD_TRANSPARENT, &hIcon);
-            pList->Release();
-            if (hIcon) return hIcon;
-        }
-    }
-
-    // Try large
-    {
-        IImageList* pList = nullptr;
-        if (SUCCEEDED(SHGetImageList(SHIL_LARGE, IID_IImageList_, (void**)&pList)) && pList) {
-            HICON hIcon = nullptr;
-            pList->GetIcon(sfi.iIcon, ILD_TRANSPARENT, &hIcon);
-            pList->Release();
-            if (hIcon) return hIcon;
-        }
-    }
-
-    // Fallback: icon from sfi
-    if (sfi.hIcon) return sfi.hIcon;
-
-    return nullptr;
+    return sfi.hIcon;
 }

@@ -53,8 +53,9 @@ private:
     std::vector<bool>             _iconLoaded;
     std::vector<Gdiplus::Bitmap*> _gdiBitmaps;  // lazily filled; nullptr = not yet converted
     std::mutex                    _iconMutex;
+    Gdiplus::ImageAttributes*     _drawIA = nullptr;  // reused per draw call
 
-    // Cached backbuffer — recreated only when window size changes
+    // Cached backbuffer— recreated only when window size changes
     HBITMAP          _hBackDIB  = nullptr;
     void*            _pBackBits = nullptr;
     HDC              _hdcBack   = nullptr;
@@ -79,6 +80,14 @@ private:
     int _arcOriginX = 0;
     int _arcOriginY = 0;
 
+    // Cached GDI+ font/format objects — rebuilt only when _iconSize changes
+    float                  _cachedFontSize = 0.f;
+    Gdiplus::Font*         _labelFont      = nullptr;
+    Gdiplus::StringFormat* _labelSF        = nullptr;  // for drawing: Far+Center+NoWrap
+    Gdiplus::StringFormat* _measureSF      = nullptr;  // for measuring: NoWrap only
+
+    std::vector<std::wstring> _labelCache;  // cached ItemLabel() results
+
     // Drag (outbound)
     POINT _dragStart = {};
     int   _dragIdx   = -1;
@@ -93,6 +102,8 @@ private:
     // Cached taskbar button center from last real click — reused for Alt+Tab
     static int s_lastTaskbarAnchorX;
 
+    void RebuildFontCache();
+    void RebuildLabelCache();
     void CalculateLayout();
     static int FindTaskbarButtonCenter(RECT taskbarRect);
     void DrawToLayeredWindow();
@@ -101,9 +112,6 @@ private:
     void DrawLabelPill(Gdiplus::Graphics& g, float x, float y, float w, float h, float radius,
                        const std::wstring& text, float alpha);
     void DrawArrowItem(Gdiplus::Graphics& g, float cx, float cy, float sz, float alpha);
-    void DrawShellBitmap(Gdiplus::Graphics& g, HBITMAP hBmp, float x, float y, float size);
-    void DrawShellBitmapIA(Gdiplus::Graphics& g, HBITMAP hBmp, float x, float y, float size,
-                           Gdiplus::ImageAttributes* ia);
     static void DrawCachedBitmapIA(Gdiplus::Graphics& g, Gdiplus::Bitmap* bmp,
                                    float x, float y, float size, Gdiplus::ImageAttributes* ia);
     static Gdiplus::Bitmap* HBitmapToGdiBitmap(HBITMAP hBmp);
