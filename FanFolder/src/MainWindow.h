@@ -12,7 +12,7 @@ public:
     bool Create();
     HWND Handle() const { return _hwnd; }
 
-    static const wchar_t* ClassName() { return L"FanFolderCppMain"; }
+    static const wchar_t* ClassName() { return L"FanFolderMain"; }
     static void Register(HINSTANCE hInst);
 
 private:

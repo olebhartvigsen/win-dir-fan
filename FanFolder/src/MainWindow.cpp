@@ -3,6 +3,7 @@
 #include "FanWindow.h"
 #include "FileService.h"
 #include "Config.h"
+#include "Localization.h"
 #include "../resources/resource.h"
 
 // DWM constants not always present
@@ -250,13 +251,15 @@ void MainWindow::ShowTrayMenu() {
         ID_EXIT,
     };
 
+    const Strings& s = GetStrings();
+
     HMENU hSort = CreatePopupMenu();
-    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateModifiedDesc ? MF_CHECKED : 0), ID_SORT_DATE_DESC,    L"Date modified \u2193 (newest first)");
-    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateModifiedAsc  ? MF_CHECKED : 0), ID_SORT_DATE_ASC,     L"Date modified \u2191 (oldest first)");
-    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateCreatedDesc  ? MF_CHECKED : 0), ID_SORT_CREATED_DESC, L"Date created \u2193 (newest first)");
-    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateCreatedAsc   ? MF_CHECKED : 0), ID_SORT_CREATED_ASC,  L"Date created \u2191 (oldest first)");
-    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::NameAsc          ? MF_CHECKED : 0), ID_SORT_NAME_ASC,     L"Name A \u2192 Z");
-    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::NameDesc         ? MF_CHECKED : 0), ID_SORT_NAME_DESC,    L"Name Z \u2192 A");
+    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateModifiedDesc ? MF_CHECKED : 0), ID_SORT_DATE_DESC,    s.sortDateModDesc);
+    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateModifiedAsc  ? MF_CHECKED : 0), ID_SORT_DATE_ASC,     s.sortDateModAsc);
+    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateCreatedDesc  ? MF_CHECKED : 0), ID_SORT_CREATED_DESC, s.sortDateCreatedDesc);
+    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateCreatedAsc   ? MF_CHECKED : 0), ID_SORT_CREATED_ASC,  s.sortDateCreatedAsc);
+    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::NameAsc          ? MF_CHECKED : 0), ID_SORT_NAME_ASC,     s.sortNameAsc);
+    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::NameDesc         ? MF_CHECKED : 0), ID_SORT_NAME_DESC,    s.sortNameDesc);
 
     HMENU hMax = CreatePopupMenu();
     for (int n : {5, 10, 15, 20, 25}) {
@@ -266,14 +269,14 @@ void MainWindow::ShowTrayMenu() {
     }
 
     HMENU hAnim = CreatePopupMenu();
-    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Fan    ? MF_CHECKED : 0), ID_ANIM_FAN,    L"Fan");
-    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Glide  ? MF_CHECKED : 0), ID_ANIM_GLIDE,  L"Glide");
-    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Spring ? MF_CHECKED : 0), ID_ANIM_SPRING, L"Spring");
-    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Fade   ? MF_CHECKED : 0), ID_ANIM_FADE,   L"Fade");
-    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::None   ? MF_CHECKED : 0), ID_ANIM_NONE,   L"None");
+    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Fan    ? MF_CHECKED : 0), ID_ANIM_FAN,    s.animFan);
+    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Glide  ? MF_CHECKED : 0), ID_ANIM_GLIDE,  s.animGlide);
+    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Spring ? MF_CHECKED : 0), ID_ANIM_SPRING, s.animSpring);
+    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Fade   ? MF_CHECKED : 0), ID_ANIM_FADE,   s.animFade);
+    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::None   ? MF_CHECKED : 0), ID_ANIM_NONE,   s.animNone);
 
     // Build folder path label (truncated)
-    std::wstring folderLabel = L"Open: ";
+    std::wstring folderLabel = s.openPrefix;
     if (_config.folderPath.size() > 40)
         folderLabel += L"\u2026" + _config.folderPath.substr(_config.folderPath.size() - 38);
     else
@@ -282,15 +285,15 @@ void MainWindow::ShowTrayMenu() {
     HMENU hMenu = CreatePopupMenu();
     AppendMenuW(hMenu, MF_STRING | MF_GRAYED, 0, folderLabel.c_str());
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hSort, L"Sort by");
-    AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hMax,  L"Max items");
-    AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hAnim, L"Animation");
-    AppendMenuW(hMenu, MF_STRING | (_config.includeDirs    ? MF_CHECKED : 0), ID_INCLUDE_DIRS,    L"Include folders");
-    AppendMenuW(hMenu, MF_STRING | (_config.showExtensions ? MF_CHECKED : 0), ID_SHOW_EXTENSIONS, L"Show file extensions");
+    AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hSort, s.sortBy);
+    AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hMax,  s.maxItems);
+    AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hAnim, s.animation);
+    AppendMenuW(hMenu, MF_STRING | (_config.includeDirs    ? MF_CHECKED : 0), ID_INCLUDE_DIRS,    s.includeFolders);
+    AppendMenuW(hMenu, MF_STRING | (_config.showExtensions ? MF_CHECKED : 0), ID_SHOW_EXTENSIONS, s.showExtensions);
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hMenu, MF_STRING, ID_CHANGE_FOLDER, L"Change folder\u2026");
+    AppendMenuW(hMenu, MF_STRING, ID_CHANGE_FOLDER, s.changeFolder);
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hMenu, MF_STRING, ID_EXIT, L"Exit Fan Folder");
+    AppendMenuW(hMenu, MF_STRING, ID_EXIT, s.exitApp);
 
     // Position menu at cursor; SetForegroundWindow required for proper dismissal
     POINT pt = {};
@@ -329,7 +332,7 @@ void MainWindow::ShowTrayMenu() {
             DWORD opts = 0;
             pfd->GetOptions(&opts);
             pfd->SetOptions(opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
-            pfd->SetTitle(L"Select folder to watch");
+            pfd->SetTitle(GetStrings().selectFolderDlg);
             if (!_config.folderPath.empty()) {
                 IShellItem* psi = nullptr;
                 if (SUCCEEDED(SHCreateItemFromParsingName(_config.folderPath.c_str(),
