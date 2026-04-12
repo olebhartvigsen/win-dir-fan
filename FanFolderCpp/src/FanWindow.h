@@ -3,7 +3,10 @@
 #include "FileService.h"
 #include "Config.h"
 
+class FanDropTarget;   // forward declaration for friend access
+
 class FanWindow {
+    friend class FanDropTarget;
 public:
     FanWindow(HINSTANCE hInst, HWND hwndOwner, const ConfigData& config,
               std::vector<FileItem> items = {});
@@ -17,6 +20,7 @@ public:
                             int                    iconSize);
     HWND Handle() const { return _hwnd; }
     bool IsVisible() const;
+    bool IsDragging() const { return _dragging; }
     void Reposition();
 
     static const wchar_t* ClassName() { return L"FanFolderCppFan"; }
@@ -75,10 +79,16 @@ private:
     int _arcOriginX = 0;
     int _arcOriginY = 0;
 
-    // Drag
+    // Drag (outbound)
     POINT _dragStart = {};
     int   _dragIdx   = -1;
     bool  _dragging  = false;
+
+    // Drop target (inbound)
+    bool         _dropHovering = false;
+    IDropTarget* _dropTarget   = nullptr;
+    void OnDropHover(bool hovering);
+    void HandleFileDrop(IDataObject* pDataObj);
 
     // Cached taskbar button center from last real click — reused for Alt+Tab
     static int s_lastTaskbarAnchorX;

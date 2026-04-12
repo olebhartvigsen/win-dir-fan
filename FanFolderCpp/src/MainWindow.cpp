@@ -241,8 +241,9 @@ void MainWindow::ShowTrayMenu() {
         ID_SORT_DATE_DESC = 1001,
         ID_SORT_DATE_ASC, ID_SORT_NAME_ASC, ID_SORT_NAME_DESC,
         ID_MAX_5, ID_MAX_10, ID_MAX_15, ID_MAX_20, ID_MAX_25,
-        ID_ANIM_FAN, ID_ANIM_GLIDE, ID_ANIM_SPRING, ID_ANIM_NONE,
+        ID_ANIM_FAN, ID_ANIM_GLIDE, ID_ANIM_SPRING, ID_ANIM_NONE, ID_ANIM_FADE,
         ID_INCLUDE_DIRS,
+        ID_SHOW_EXTENSIONS,
         ID_CHANGE_FOLDER,
         ID_OPEN_FOLDER,
         ID_EXIT,
@@ -265,6 +266,7 @@ void MainWindow::ShowTrayMenu() {
     AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Fan    ? MF_CHECKED : 0), ID_ANIM_FAN,    L"Fan");
     AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Glide  ? MF_CHECKED : 0), ID_ANIM_GLIDE,  L"Glide");
     AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Spring ? MF_CHECKED : 0), ID_ANIM_SPRING, L"Spring");
+    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Fade   ? MF_CHECKED : 0), ID_ANIM_FADE,   L"Fade");
     AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::None   ? MF_CHECKED : 0), ID_ANIM_NONE,   L"None");
 
     // Build folder path label (truncated)
@@ -280,7 +282,8 @@ void MainWindow::ShowTrayMenu() {
     AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hSort, L"Sort by");
     AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hMax,  L"Max items");
     AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hAnim, L"Animation");
-    AppendMenuW(hMenu, MF_STRING | (_config.includeDirs ? MF_CHECKED : 0), ID_INCLUDE_DIRS, L"Include folders");
+    AppendMenuW(hMenu, MF_STRING | (_config.includeDirs    ? MF_CHECKED : 0), ID_INCLUDE_DIRS,    L"Include folders");
+    AppendMenuW(hMenu, MF_STRING | (_config.showExtensions ? MF_CHECKED : 0), ID_SHOW_EXTENSIONS, L"Show file extensions");
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(hMenu, MF_STRING, ID_CHANGE_FOLDER, L"Change folder\u2026");
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
@@ -310,8 +313,10 @@ void MainWindow::ShowTrayMenu() {
     case ID_ANIM_FAN:       _config.animStyle = ConfigData::AnimStyle::Fan;    break;
     case ID_ANIM_GLIDE:     _config.animStyle = ConfigData::AnimStyle::Glide;  break;
     case ID_ANIM_SPRING:    _config.animStyle = ConfigData::AnimStyle::Spring; break;
+    case ID_ANIM_FADE:      _config.animStyle = ConfigData::AnimStyle::Fade;   break;
     case ID_ANIM_NONE:      _config.animStyle = ConfigData::AnimStyle::None;   break;
-    case ID_INCLUDE_DIRS:   _config.includeDirs = !_config.includeDirs;        break;
+    case ID_INCLUDE_DIRS:   _config.includeDirs    = !_config.includeDirs;    break;
+    case ID_SHOW_EXTENSIONS:_config.showExtensions = !_config.showExtensions; break;
     case ID_CHANGE_FOLDER: {
         IFileOpenDialog* pfd = nullptr;
         if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
@@ -449,8 +454,12 @@ void CALLBACK MainWindow::WinEventProc(HWINEVENTHOOK, DWORD event, HWND hwnd,
     // Close the fan if the newly foregrounded window belongs to a different process
     DWORD fgPid = 0;
     GetWindowThreadProcessId(hwnd, &fgPid);
-    if (fgPid != GetCurrentProcessId())
+    if (fgPid != GetCurrentProcessId()) {
+        // Don't interrupt an active shell drag — the drop target will foreground naturally
+        if (s_instance->_fanWindow && s_instance->_fanWindow->IsDragging())
+            return;
         PostMessageW(s_instance->_hwnd, WM_MAIN_CLOSE_FAN, 0, 0);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -539,6 +548,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
     case WM_ACTIVATEAPP:
         if (wParam == 0 && self->_fanOpen) {
+            // Don't close while a drag is in progress — OLE drag activates the drop target
+            if (self->_fanWindow && self->_fanWindow->IsDragging())
+                return 0;
             DWORD now = GetTickCount();
             if (now - self->_fanOpenTick > 500)
                 self->CloseFan();

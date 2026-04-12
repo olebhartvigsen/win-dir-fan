@@ -9,7 +9,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     ULONG_PTR gdiplusToken;
     Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusInput, nullptr);
 
-    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    // OleInitialize initializes COM *and* the OLE drag-drop/clipboard subsystem.
+    // CoInitializeEx alone is not sufficient — DoDragDrop requires OleInitialize.
+    OleInitialize(nullptr);
 
     INITCOMMONCONTROLSEX icc = { sizeof(icc), ICC_WIN95_CLASSES };
     InitCommonControlsEx(&icc);
@@ -28,7 +30,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         DispatchMessage(&msg);
     }
 
-    CoUninitialize();
+    OleUninitialize();
     Gdiplus::GdiplusShutdown(gdiplusToken);
     return 0;
 }

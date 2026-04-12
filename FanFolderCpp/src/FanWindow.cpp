@@ -1,6 +1,51 @@
 #include "pch.h"
 #include "FanWindow.h"
+#include "FileService.h"
 #include "ShellDrag.h"
+
+// ---------------------------------------------------------------------------
+// IDropTarget implementation — receives files dragged from Explorer onto the fan
+// ---------------------------------------------------------------------------
+class FanDropTarget : public IDropTarget {
+    ULONG      _ref = 1;
+    FanWindow* _fan;
+
+    static bool HasFiles(IDataObject* pObj) {
+        FORMATETC fmt = { CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+        return SUCCEEDED(pObj->QueryGetData(&fmt));
+    }
+public:
+    explicit FanDropTarget(FanWindow* fan) : _fan(fan) {}
+
+    HRESULT QueryInterface(REFIID riid, void** ppv) override {
+        if (riid == IID_IUnknown || riid == IID_IDropTarget) {
+            *ppv = this; AddRef(); return S_OK;
+        }
+        *ppv = nullptr; return E_NOINTERFACE;
+    }
+    ULONG AddRef()  override { return ++_ref; }
+    ULONG Release() override { ULONG r = --_ref; if (!r) delete this; return r; }
+
+    HRESULT DragEnter(IDataObject* pObj, DWORD, POINTL, DWORD* pdwEffect) override {
+        *pdwEffect = HasFiles(pObj) ? DROPEFFECT_COPY : DROPEFFECT_NONE;
+        _fan->OnDropHover(*pdwEffect != DROPEFFECT_NONE);
+        return S_OK;
+    }
+    HRESULT DragOver(DWORD, POINTL, DWORD* pdwEffect) override {
+        *pdwEffect = _fan->_dropHovering ? DROPEFFECT_COPY : DROPEFFECT_NONE;
+        return S_OK;
+    }
+    HRESULT DragLeave() override {
+        _fan->OnDropHover(false);
+        return S_OK;
+    }
+    HRESULT Drop(IDataObject* pObj, DWORD, POINTL, DWORD* pdwEffect) override {
+        _fan->OnDropHover(false);
+        *pdwEffect = DROPEFFECT_COPY;
+        _fan->HandleFileDrop(pObj);
+        return S_OK;
+    }
+};
 
 static constexpr float StartDistance      = 20.f;
 static constexpr float ArcSpreadPerItem   = 1.5f;
@@ -45,10 +90,12 @@ FanWindow::FanWindow(HINSTANCE hInst, HWND hwndOwner,
 FanWindow::~FanWindow() {
     FreeBackBuffer();
     if (_hwnd) {
+        RevokeDragDrop(_hwnd);
         KillTimer(_hwnd, 1);
         DestroyWindow(_hwnd);
         _hwnd = nullptr;
     }
+    if (_dropTarget) { _dropTarget->Release(); _dropTarget = nullptr; }
     std::lock_guard<std::mutex> lk(_iconMutex);
     for (auto h : _bitmaps)    if (h) DeleteObject(h);
     for (auto h : _icons)      if (h) DestroyIcon(h);
@@ -66,6 +113,11 @@ bool FanWindow::Create() {
         ClassName(), L"", WS_POPUP,
         _winX, _winY, _winWidth, _winHeight,
         nullptr, nullptr, _hInst, this);
+
+    if (_hwnd) {
+        _dropTarget = new FanDropTarget(this);
+        RegisterDragDrop(_hwnd, _dropTarget);
+    }
     return _hwnd != nullptr;
 }
 
@@ -471,6 +523,12 @@ void FanWindow::DrawToLayeredWindow() {
         }
         if (_hoverIdx >= 0 && _hoverIdx < total)
             DrawItem(g, _hoverIdx, getItemAlpha(_hoverIdx));
+
+        // Drop-hover: blue tinted overlay signals the fan accepts incoming files
+        if (_dropHovering) {
+            Gdiplus::SolidBrush overlay(Gdiplus::Color(55, 80, 160, 255));
+            g.FillRectangle(&overlay, 0, 0, _winWidth, _winHeight);
+        }
     }
 
     Gdiplus::Rect rect(0, 0, _winWidth, _winHeight);
@@ -864,6 +922,70 @@ void FanWindow::LaunchItem(int idx) {
     Close();
 }
 
+// ---------------------------------------------------------------------------
+void FanWindow::OnDropHover(bool hovering) {
+    if (_dropHovering == hovering) return;
+    _dropHovering = hovering;
+    DrawToLayeredWindow();
+}
+
+void FanWindow::HandleFileDrop(IDataObject* pDataObj) {
+    FORMATETC fmt = { CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+    STGMEDIUM stg = {};
+    if (FAILED(pDataObj->GetData(&fmt, &stg))) return;
+
+    HDROP hDrop = static_cast<HDROP>(stg.hGlobal);
+    UINT  count = DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0);
+
+    bool anyCopied = false;
+    for (UINT i = 0; i < count; i++) {
+        wchar_t srcPath[MAX_PATH + 2] = {};
+        if (!DragQueryFileW(hDrop, i, srcPath, MAX_PATH)) continue;
+
+        const wchar_t* name = PathFindFileNameW(srcPath);
+        std::wstring dstPath = _config.folderPath + L"\\" + name;
+
+        // Double-null terminated strings required by SHFILEOPSTRUCTW
+        wchar_t srcBuf[MAX_PATH + 2] = {};  wcscpy_s(srcBuf, srcPath);
+        wchar_t dstBuf[MAX_PATH + 2] = {};  wcscpy_s(dstBuf, dstPath.c_str());
+
+        SHFILEOPSTRUCTW op = {};
+        op.wFunc  = FO_COPY;
+        op.pFrom  = srcBuf;
+        op.pTo    = dstBuf;
+        op.fFlags = FOF_RENAMEONCOLLISION | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
+        if (SHFileOperationW(&op) == 0 && !op.fAnyOperationsAborted)
+            anyCopied = true;
+    }
+    ReleaseStgMedium(&stg);
+
+    if (anyCopied) {
+        // Reload items and icons so the fan reflects the new file immediately
+        _items = FileService::ScanFolder(_config.folderPath, _config.maxItems,
+                                         _config.includeDirs, _config.filterRegex,
+                                         _config.sortMode);
+        int total = (int)_items.size() + 1;
+
+        // Reset icon arrays to the new size; start async loads for all items
+        {
+            std::lock_guard<std::mutex> lk(_iconMutex);
+            for (auto h : _bitmaps)    if (h) DeleteObject(h);
+            for (auto h : _icons)      if (h) DestroyIcon(h);
+            for (auto p : _gdiBitmaps) delete p;
+            _bitmaps.assign(total, nullptr);
+            _icons.assign(total, nullptr);
+            _iconLoaded.assign(total, false);
+            _gdiBitmaps.assign(total, nullptr);
+        }
+        _iconSize = _prewarmIconSize > 0 ? _prewarmIconSize : 64;
+
+        CalculateLayout();
+        for (int i = 0; i < (int)_items.size(); i++)
+            StartIconLoad(i);
+        DrawToLayeredWindow();
+    }
+}
+
 void FanWindow::ShowContextMenu(int idx, POINT screenPt) {
     const std::wstring& path = (idx >= 0 && idx < (int)_items.size())
         ? _items[idx].fullPath : _config.folderPath;
@@ -923,7 +1045,6 @@ void FanWindow::ShowSettingsMenu(POINT screenPt) {
         ID_MAX_5, ID_MAX_10, ID_MAX_15, ID_MAX_20, ID_MAX_25,
         ID_ANIM_FAN, ID_ANIM_GLIDE, ID_ANIM_SPRING, ID_ANIM_NONE, ID_ANIM_FADE,
         ID_INCLUDE_DIRS,
-        ID_SHOW_EXTENSIONS,
         ID_CHANGE_FOLDER,
         ID_EXIT,
     };
@@ -952,8 +1073,7 @@ void FanWindow::ShowSettingsMenu(POINT screenPt) {
     AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hSort, L"Sort by");
     AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hMax,  L"Max items");
     AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hAnim, L"Animation");
-    AppendMenuW(hMenu, MF_STRING | (_config.includeDirs    ? MF_CHECKED : 0), ID_INCLUDE_DIRS,    L"Include folders");
-    AppendMenuW(hMenu, MF_STRING | (_config.showExtensions ? MF_CHECKED : 0), ID_SHOW_EXTENSIONS, L"Show file extensions");
+    AppendMenuW(hMenu, MF_STRING | (_config.includeDirs ? MF_CHECKED : 0), ID_INCLUDE_DIRS, L"Include folders");
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(hMenu, MF_STRING, ID_CHANGE_FOLDER, L"Change folder\u2026");
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
@@ -982,8 +1102,7 @@ void FanWindow::ShowSettingsMenu(POINT screenPt) {
     case ID_ANIM_SPRING:    _config.animStyle = ConfigData::AnimStyle::Spring; break;
     case ID_ANIM_FADE:      _config.animStyle = ConfigData::AnimStyle::Fade;   break;
     case ID_ANIM_NONE:      _config.animStyle = ConfigData::AnimStyle::None;   break;
-    case ID_INCLUDE_DIRS:   _config.includeDirs    = !_config.includeDirs;    break;
-    case ID_SHOW_EXTENSIONS:_config.showExtensions = !_config.showExtensions; break;
+    case ID_INCLUDE_DIRS:   _config.includeDirs = !_config.includeDirs; break;
     case ID_CHANGE_FOLDER: {
         // Modern folder picker via IFileOpenDialog
         IFileOpenDialog* pfd = nullptr;
@@ -1149,23 +1268,38 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             }
 
             if (dirty) self->DrawToLayeredWindow();
+
+            // ── Drag detection (timer-based polling) ───────────────────────
+            // WS_EX_NOACTIVATE windows can never be foreground, so SetCapture
+            // does not route mouse-moves outside the window. Poll instead.
+            if (self->_dragIdx >= 0 && !self->_dragging) {
+                if (GetAsyncKeyState(VK_LBUTTON) & 0x8000) {
+                    POINT pt;
+                    GetCursorPos(&pt);
+                    int dx = pt.x - self->_dragStart.x;
+                    int dy = pt.y - self->_dragStart.y;
+                    if (dx * dx + dy * dy > 25) {
+                        self->_dragging = true;
+                        int idx = self->_dragIdx;
+                        self->_dragIdx = -1;
+                        if (idx < (int)self->_items.size()) {
+                            HBITMAP bmp = (idx < (int)self->_bitmaps.size()) ? self->_bitmaps[idx] : nullptr;
+                            DoShellDrag(hwnd, self->_items[idx].fullPath, bmp, self->_iconSize);
+                        }
+                        self->_dragging = false;
+                        PostMessageW(self->_hwndOwner, WM_USER + 4, 0, 0);
+                    }
+                } else {
+                    // Button released without reaching drag threshold — cancel
+                    self->_dragIdx = -1;
+                }
+            }
         }
         return 0;
 
     case WM_MOUSEMOVE: {
         int x = GET_X_LPARAM(lParam);
         int y = GET_Y_LPARAM(lParam);
-
-        if ((wParam & MK_LBUTTON) && self->_dragIdx >= 0 && !self->_dragging) {
-            int dx = x - self->_dragStart.x, dy = y - self->_dragStart.y;
-            if (dx * dx + dy * dy > 25) {
-                self->_dragging = true;
-                if (self->_dragIdx < (int)self->_items.size())
-                    DoShellDrag(hwnd, self->_items[self->_dragIdx].fullPath);
-                self->_dragIdx  = -1;
-                self->_dragging = false;
-            }
-        }
 
         int hit = self->HitTest(x, y);
         if (hit != self->_hoverIdx) {
@@ -1185,9 +1319,9 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     case WM_LBUTTONDOWN: {
         int hit = self->HitTest(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
         if (hit >= 0) {
-            self->_dragIdx   = hit;
-            self->_dragStart = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-            self->_dragging  = false;
+            self->_dragIdx  = hit;
+            self->_dragging = false;
+            GetCursorPos(&self->_dragStart);  // screen coords — matches GetCursorPos in timer
         }
         return 0;
     }
@@ -1196,10 +1330,8 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
         if (!self->_dragging) {
             int hit = self->HitTest(x, y);
-            if (hit >= 0 && hit == self->_dragIdx) {
+            if (hit >= 0 && hit == self->_dragIdx)
                 self->LaunchItem(hit);
-                return 0;
-            }
         }
         self->_dragIdx  = -1;
         self->_dragging = false;
