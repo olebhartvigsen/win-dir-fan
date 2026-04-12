@@ -986,7 +986,7 @@ void FanWindow::StartIconLoad(int idx) {
         HBITMAP bmp = nullptr;
 
         if (FileService::IsSvgExtension(p))
-            bmp = FileService::GetSvgThumbnail(p, sz);     // lunasvg direct render
+            bmp = FileService::GetSvgThumbnail(p, sz);     // lunasvg — reliable for all SVGs
 
         if (!bmp && FileService::IsGdiImageExtension(p))
             bmp = FileService::GetImageThumbnail(p, sz);   // GDI+ direct — actual content

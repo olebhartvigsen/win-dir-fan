@@ -26,8 +26,8 @@ public:
 
     // GDI+ natively handles these formats → actual image thumbnail
     static bool IsGdiImageExtension(const std::wstring& path);
-    // Shell can render actual content for these (WebP codec, SVG handler)
+    // Shell renders actual content for these (WebP via OS codec)
     static bool IsShellThumbnailExtension(const std::wstring& path);
-    // SVG — rendered via lunasvg
+    // SVG/SVGZ — rendered via lunasvg (more reliable than Windows shell handler)
     static bool IsSvgExtension(const std::wstring& path);
 };

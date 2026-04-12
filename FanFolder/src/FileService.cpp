@@ -202,16 +202,6 @@ bool FileService::IsGdiImageExtension(const std::wstring& path) {
     return false;
 }
 
-bool FileService::IsSvgExtension(const std::wstring& path) {
-    const wchar_t* dot = wcsrchr(path.c_str(), L'.');
-    if (!dot) return false;
-    wchar_t ext[8] = {};
-    size_t i = 0;
-    for (const wchar_t* p = dot; *p && i < 7; ++p, ++i)
-        ext[i] = (wchar_t)towlower(*p);
-    return wcscmp(ext, L".svg") == 0 || wcscmp(ext, L".svgz") == 0;
-}
-
 bool FileService::IsShellThumbnailExtension(const std::wstring& path) {
     const wchar_t* dot = wcsrchr(path.c_str(), L'.');
     if (!dot) return false;
@@ -224,6 +214,15 @@ bool FileService::IsShellThumbnailExtension(const std::wstring& path) {
     return false;
 }
 
+bool FileService::IsSvgExtension(const std::wstring& path) {
+    const wchar_t* dot = wcsrchr(path.c_str(), L'.');
+    if (!dot) return false;
+    wchar_t ext[8] = {};
+    size_t i = 0;
+    for (const wchar_t* p = dot; *p && i < 7; ++p, ++i)
+        ext[i] = (wchar_t)towlower(*p);
+    return wcscmp(ext, L".svg") == 0 || wcscmp(ext, L".svgz") == 0;
+}
 
 HBITMAP FileService::GetSvgThumbnail(const std::wstring& path, int size) {
     // Read file with Windows APIs (handles Unicode paths), then pass to lunasvg
@@ -258,7 +257,6 @@ HBITMAP FileService::GetSvgThumbnail(const std::wstring& path, int size) {
     auto bitmap = doc->renderToBitmap(dstW, dstH);
     if (bitmap.isNull()) return nullptr;
 
-    // Create square top-down DIB (premultiplied BGRA, same as lunasvg ARGB32_Premultiplied)
     BITMAPINFOHEADER bih = {};
     bih.biSize        = sizeof(bih);
     bih.biWidth       = size;
