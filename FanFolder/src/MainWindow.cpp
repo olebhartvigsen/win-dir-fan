@@ -272,7 +272,6 @@ void MainWindow::ShowTrayMenu() {
         ID_INCLUDE_DIRS,
         ID_SHOW_EXTENSIONS,
         ID_FOLDER_DOWNLOADS,
-        ID_FOLDER_RECENT,
         ID_FOLDER_DESKTOP,
         ID_FOLDER_DOCUMENTS,
         ID_FOLDER_RECENTDOCS,
@@ -314,7 +313,6 @@ void MainWindow::ShowTrayMenu() {
         return !a.empty() && !b.empty() && _wcsicmp(a.c_str(), b.c_str()) == 0;
     };
     std::wstring dlPath  = getKnownPath(FOLDERID_Downloads);
-    std::wstring rcPath  = getKnownPath(FOLDERID_Recent);
     std::wstring dtPath  = getKnownPath(FOLDERID_Desktop);
     std::wstring docPath = getKnownPath(FOLDERID_Documents);
 
@@ -322,7 +320,6 @@ void MainWindow::ShowTrayMenu() {
     AppendMenuW(hFolder, MF_STRING | (pathEq(_config.folderPath, dtPath)  ? MF_CHECKED : 0), ID_FOLDER_DESKTOP,    s.folderDesktop);
     AppendMenuW(hFolder, MF_STRING | (pathEq(_config.folderPath, docPath) ? MF_CHECKED : 0), ID_FOLDER_DOCUMENTS,  s.folderDocuments);
     AppendMenuW(hFolder, MF_STRING | (pathEq(_config.folderPath, dlPath)  ? MF_CHECKED : 0), ID_FOLDER_DOWNLOADS,  s.folderDownloads);
-    AppendMenuW(hFolder, MF_STRING | (pathEq(_config.folderPath, rcPath)  ? MF_CHECKED : 0), ID_FOLDER_RECENT,     s.folderRecent);
     AppendMenuW(hFolder, MF_STRING | (_config.folderPath == L"::RecentDocs::"   ? MF_CHECKED : 0), ID_FOLDER_RECENTDOCS,  s.folderRecentDocs);
     AppendMenuW(hFolder, MF_STRING | (_config.folderPath == L"::GraphRecent::" ? MF_CHECKED : 0), ID_FOLDER_GRAPHRECENT, s.folderGraphRecent);
     AppendMenuW(hFolder, MF_SEPARATOR, 0, nullptr);
@@ -385,13 +382,6 @@ void MainWindow::ShowTrayMenu() {
     case ID_FOLDER_DOWNLOADS: {
         PWSTR p = nullptr;
         if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Downloads, 0, nullptr, &p))) {
-            _config.folderPath = p; CoTaskMemFree(p);
-        }
-        break;
-    }
-    case ID_FOLDER_RECENT: {
-        PWSTR p = nullptr;
-        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Recent, 0, nullptr, &p))) {
             _config.folderPath = p; CoTaskMemFree(p);
         }
         break;
