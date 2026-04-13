@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ole Bülow Hartvigsen. All rights reserved.
 #pragma once
 #include "pch.h"
 #include "FileService.h"
@@ -75,6 +76,7 @@ private:
     std::vector<float> _entryProgress;
     bool  _entryDone  = false;
     int   _hoverIdx   = -1;
+    bool  _hasExplorerButton = true;  // false for ::GraphRecent:: mode
     bool  _animating  = true;
     DWORD _createTick = 0;
     int _arcOriginX = 0;

@@ -1,4 +1,5 @@
-﻿#include "pch.h"
+﻿// Copyright (c) 2026 Ole Bülow Hartvigsen. All rights reserved.
+#include "pch.h"
 #include "MainWindow.h"
 #include "FanWindow.h"
 #include "FileService.h"
@@ -112,14 +113,17 @@ void MainWindow::OpenFan() {
     PrewarmData prewarm;
     {
         std::lock_guard<std::mutex> lk(_prewarmMutex);
-        if (_prewarm.ready)
+        if (_prewarm.ready) {
             prewarm = std::move(_prewarm);
+            _prewarm.ready = false;  // reset: std::move leaves bool unchanged in moved-from object
+        }
     }
 
     std::vector<FileItem> items = prewarm.ready
         ? std::move(prewarm.items)
         : FileService::ScanFolder(_config.folderPath, _config.maxItems,
-                                  _config.includeDirs, _config.filterRegex, _config.sortMode);
+                                  _config.includeDirs, _config.filterRegex, _config.sortMode,
+                                  false, _hwnd);
 
     _fanWindow = std::make_unique<FanWindow>(_hInst, _hwnd, _config, std::move(items));
 
@@ -157,6 +161,8 @@ void MainWindow::StartPrewarm() {
     HWND       hwnd  = _hwnd;
     int        myGen = ++_prewarmGen;  // invalidates any still-running prewarm thread
     std::thread([this, cfg = std::move(cfg), hwnd, myGen]() {
+        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+
         // Calculate icon size using the same formula as FanWindow::CalculateLayout
         int iconSize = 64;
         HWND hTray = FindWindowW(L"Shell_TrayWnd", nullptr);
@@ -180,18 +186,33 @@ void MainWindow::StartPrewarm() {
         data->icons.resize(items.size(), nullptr);
 
         for (int i = 0; i < (int)items.size(); i++) {
-            const std::wstring& p = items[i].fullPath;
+            const std::wstring& p  = items[i].fullPath;
+            const std::wstring& tp = items[i].targetPath.empty() ? p : items[i].targetPath;
+
+            // Online items (SharePoint/OneDrive): p is a URL — use extension-based icon only
+            const bool isOnline = (p.size() > 8 &&
+                                   (_wcsnicmp(p.c_str(), L"https://", 8) == 0 ||
+                                    _wcsnicmp(p.c_str(), L"http://",  7) == 0));
+
             HBITMAP bmp = nullptr;
-            if (FileService::IsSvgExtension(p))
-                bmp = FileService::GetSvgThumbnail(p, iconSize);
-            if (!bmp && FileService::IsGdiImageExtension(p))
-                bmp = FileService::GetImageThumbnail(p, iconSize);
-            if (!bmp && FileService::IsShellThumbnailExtension(p))
-                bmp = FileService::GetShellThumbnail(p, iconSize);
-            if (!bmp)
-                bmp = FileService::GetShellBitmap(p, iconSize);
+            if (!isOnline) {
+                if (FileService::IsSvgExtension(tp))
+                    bmp = FileService::GetSvgThumbnail(tp, iconSize);
+                if (!bmp && FileService::IsGdiImageExtension(tp))
+                    bmp = FileService::GetImageThumbnail(tp, iconSize);
+                if (!bmp && FileService::IsShellThumbnailExtension(tp))
+                    bmp = FileService::GetShellThumbnail(tp, iconSize);
+                if (!bmp)
+                    bmp = FileService::GetShellBitmap(p, iconSize);
+            }
+
             if (bmp) {
                 data->bitmaps[i] = bmp;
+            } else if (isOnline) {
+                // Use filename (e.g. "document.docx") for file-type icon — not the URL
+                const std::wstring& iconSrc = (!tp.empty() && tp.find(L"://") == std::wstring::npos)
+                                            ? tp : p;
+                data->bitmaps[i] = FileService::GetShellBitmapByExtension(iconSrc, iconSize);
             } else {
                 data->icons[i] = FileService::GetShellIcon(p);
             }
@@ -201,10 +222,12 @@ void MainWindow::StartPrewarm() {
         if (myGen != _prewarmGen.load()) {
             data->FreeHandles();
             delete data;
+            CoUninitialize();
             return;
         }
         data->gen = myGen;
         PostMessageW(hwnd, WM_MAIN_PREWARM, 0, (LPARAM)data);
+        CoUninitialize();
     }).detach();
 }
 
@@ -248,7 +271,14 @@ void MainWindow::ShowTrayMenu() {
         ID_ANIM_FAN, ID_ANIM_GLIDE, ID_ANIM_SPRING, ID_ANIM_NONE, ID_ANIM_FADE,
         ID_INCLUDE_DIRS,
         ID_SHOW_EXTENSIONS,
-        ID_CHANGE_FOLDER,
+        ID_FOLDER_DOWNLOADS,
+        ID_FOLDER_RECENT,
+        ID_FOLDER_DESKTOP,
+        ID_FOLDER_DOCUMENTS,
+        ID_FOLDER_RECENTDOCS,
+        ID_FOLDER_RECENTFILES,
+        ID_FOLDER_GRAPHRECENT,
+        ID_FOLDER_BROWSE,
         ID_OPEN_FOLDER,
         ID_EXIT,
     };
@@ -270,30 +300,55 @@ void MainWindow::ShowTrayMenu() {
                     std::to_wstring(n).c_str());
     }
 
-    HMENU hAnim = CreatePopupMenu();
-    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Fan    ? MF_CHECKED : 0), ID_ANIM_FAN,    s.animFan);
-    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Glide  ? MF_CHECKED : 0), ID_ANIM_GLIDE,  s.animGlide);
-    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Spring ? MF_CHECKED : 0), ID_ANIM_SPRING, s.animSpring);
-    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Fade   ? MF_CHECKED : 0), ID_ANIM_FADE,   s.animFade);
-    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::None   ? MF_CHECKED : 0), ID_ANIM_NONE,   s.animNone);
+    // Resolve well-known folder paths for folder submenu
+    auto getKnownPath = [](const KNOWNFOLDERID& id) -> std::wstring {
+        PWSTR p = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(id, 0, nullptr, &p))) {
+            std::wstring r(p);
+            CoTaskMemFree(p);
+            return r;
+        }
+        return {};
+    };
+    auto pathEq = [](const std::wstring& a, const std::wstring& b) -> bool {
+        return !a.empty() && !b.empty() && _wcsicmp(a.c_str(), b.c_str()) == 0;
+    };
+    std::wstring dlPath  = getKnownPath(FOLDERID_Downloads);
+    std::wstring rcPath  = getKnownPath(FOLDERID_Recent);
+    std::wstring dtPath  = getKnownPath(FOLDERID_Desktop);
+    std::wstring docPath = getKnownPath(FOLDERID_Documents);
+
+    HMENU hFolder = CreatePopupMenu();
+    AppendMenuW(hFolder, MF_STRING | (pathEq(_config.folderPath, dtPath)  ? MF_CHECKED : 0), ID_FOLDER_DESKTOP,    s.folderDesktop);
+    AppendMenuW(hFolder, MF_STRING | (pathEq(_config.folderPath, docPath) ? MF_CHECKED : 0), ID_FOLDER_DOCUMENTS,  s.folderDocuments);
+    AppendMenuW(hFolder, MF_STRING | (pathEq(_config.folderPath, dlPath)  ? MF_CHECKED : 0), ID_FOLDER_DOWNLOADS,  s.folderDownloads);
+    AppendMenuW(hFolder, MF_STRING | (pathEq(_config.folderPath, rcPath)  ? MF_CHECKED : 0), ID_FOLDER_RECENT,     s.folderRecent);
+    AppendMenuW(hFolder, MF_STRING | (_config.folderPath == L"::RecentDocs::"   ? MF_CHECKED : 0), ID_FOLDER_RECENTDOCS,  s.folderRecentDocs);
+    AppendMenuW(hFolder, MF_STRING | (_config.folderPath == L"::GraphRecent::" ? MF_CHECKED : 0), ID_FOLDER_GRAPHRECENT, s.folderGraphRecent);
+    AppendMenuW(hFolder, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(hFolder, MF_STRING, ID_FOLDER_BROWSE, s.folderBrowse);
 
     // Build folder path label (truncated)
     std::wstring folderLabel = s.openPrefix;
-    if (_config.folderPath.size() > 40)
+    if (_config.folderPath == L"::RecentDocs::") {
+        folderLabel += s.folderRecentDocs;
+    } else if (_config.folderPath == L"::GraphRecent::") {
+        folderLabel += s.folderGraphRecent;
+    } else if (_config.folderPath.size() > 40) {
         folderLabel += L"\u2026" + _config.folderPath.substr(_config.folderPath.size() - 38);
-    else
+    } else {
         folderLabel += _config.folderPath;
+    }
 
     HMENU hMenu = CreatePopupMenu();
     AppendMenuW(hMenu, MF_STRING | MF_GRAYED, 0, folderLabel.c_str());
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hSort, s.sortBy);
-    AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hMax,  s.maxItems);
-    AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hAnim, s.animation);
+    AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hSort,   s.sortBy);
+    AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hMax,    s.maxItems);
     AppendMenuW(hMenu, MF_STRING | (_config.includeDirs    ? MF_CHECKED : 0), ID_INCLUDE_DIRS,    s.includeFolders);
     AppendMenuW(hMenu, MF_STRING | (_config.showExtensions ? MF_CHECKED : 0), ID_SHOW_EXTENSIONS, s.showExtensions);
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hMenu, MF_STRING, ID_CHANGE_FOLDER, s.changeFolder);
+    AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hFolder, s.folderSubmenu);
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(hMenu, MF_STRING, ID_EXIT, s.exitApp);
 
@@ -327,7 +382,41 @@ void MainWindow::ShowTrayMenu() {
     case ID_ANIM_NONE:      _config.animStyle = ConfigData::AnimStyle::None;   break;
     case ID_INCLUDE_DIRS:   _config.includeDirs    = !_config.includeDirs;    break;
     case ID_SHOW_EXTENSIONS:_config.showExtensions = !_config.showExtensions; break;
-    case ID_CHANGE_FOLDER: {
+    case ID_FOLDER_DOWNLOADS: {
+        PWSTR p = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Downloads, 0, nullptr, &p))) {
+            _config.folderPath = p; CoTaskMemFree(p);
+        }
+        break;
+    }
+    case ID_FOLDER_RECENT: {
+        PWSTR p = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Recent, 0, nullptr, &p))) {
+            _config.folderPath = p; CoTaskMemFree(p);
+        }
+        break;
+    }
+    case ID_FOLDER_DESKTOP: {
+        PWSTR p = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &p))) {
+            _config.folderPath = p; CoTaskMemFree(p);
+        }
+        break;
+    }
+    case ID_FOLDER_DOCUMENTS: {
+        PWSTR p = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &p))) {
+            _config.folderPath = p; CoTaskMemFree(p);
+        }
+        break;
+    }
+    case ID_FOLDER_RECENTDOCS:
+        _config.folderPath = L"::RecentDocs::";
+        break;
+    case ID_FOLDER_GRAPHRECENT:
+        _config.folderPath = L"::GraphRecent::";
+        break;
+    case ID_FOLDER_BROWSE: {
         IFileOpenDialog* pfd = nullptr;
         if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
                                        IID_PPV_ARGS(&pfd)))) {
@@ -369,11 +458,8 @@ void MainWindow::ShowTrayMenu() {
 
     if (changed) {
         Config::Save(_config);
-        // Invalidate prewarm cache so next open uses new settings
-        std::lock_guard<std::mutex> lk(_prewarmMutex);
-        _prewarm.FreeHandles();
-        _prewarm.ready = false;
-        // Restart prewarm with new config
+        // Keep old prewarm alive — it will be replaced when the new one completes.
+        // This ensures the fan still shows something if opened before the new prewarm finishes.
         PostMessageW(_hwnd, WM_MAIN_SHOW_MIN, 0, 0); // ensure minimized
         StartPrewarm();
     }
@@ -594,12 +680,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             self->_config = *cfg;
             delete cfg;
         }
-        // Invalidate stale prewarm — it was built with old settings (wrong sort order etc.)
-        // CloseFan (posted next by FanWindow) will call StartPrewarm with new config.
-        {
-            std::lock_guard<std::mutex> lk(self->_prewarmMutex);
-            self->_prewarm.FreeHandles();
-        }
+        // Keep old prewarm alive — CloseFan → StartPrewarm will replace it with fresh data.
         return 0;
     }
 

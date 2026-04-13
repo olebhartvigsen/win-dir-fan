@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ole Bülow Hartvigsen. All rights reserved.
 #include "pch.h"
 #include "ShellDrag.h"
 

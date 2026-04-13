@@ -1,4 +1,5 @@
-﻿#pragma once
+﻿// Copyright (c) 2026 Ole Bülow Hartvigsen. All rights reserved.
+#pragma once
 #include "pch.h"
 #include "Config.h"
 #include "FanWindow.h"

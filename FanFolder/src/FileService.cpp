@@ -1,5 +1,7 @@
+// Copyright (c) 2026 Ole Bülow Hartvigsen. All rights reserved.
 #include "pch.h"
 #include "FileService.h"
+#include "GraphService.h"
 #include <lunasvg.h>
 #include <regex>
 #include <shlobj.h>
@@ -41,6 +43,58 @@ static std::wstring ResolveLnk(const std::wstring& lnkPath, bool& outIsDir) {
     }
     psl->Release();
     return result;
+}
+
+// Returns true if the extension is an Office document, image, or PDF —
+// the only types shown in "Recent documents (all apps)" mode.
+static bool IsOffice365Extension(const wchar_t* path) {
+    const wchar_t* dot = PathFindExtensionW(path);
+    if (!dot || !*dot) return false;
+    static const wchar_t* const kOffice[] = {
+        // Word
+        L".doc",  L".docx", L".docm", L".dotx", L".dotm",
+        // Excel
+        L".xls",  L".xlsx", L".xlsm", L".xlsb", L".xltx",
+        // PowerPoint
+        L".ppt",  L".pptx", L".pptm", L".potx", L".ppsx",
+        // OneNote
+        L".one",  L".onetoc2",
+        // Other Office
+        L".odt",  L".ods",  L".odp",
+        L".rtf",  L".pub",
+        L".vsd",  L".vsdx",
+        L".accdb",L".mdb",
+        nullptr
+    };
+    for (int k = 0; kOffice[k]; ++k)
+        if (_wcsicmp(dot, kOffice[k]) == 0) return true;
+    return false;
+}
+
+static bool IsAllowedRecentDocExtension(const wchar_t* path) {
+    const wchar_t* dot = PathFindExtensionW(path);
+    if (!dot || !*dot) return false;
+    static const wchar_t* const kAllowed[] = {
+        // Office
+        L".doc",  L".docx", L".docm",
+        L".xls",  L".xlsx", L".xlsm", L".xlsb",
+        L".ppt",  L".pptx", L".pptm",
+        L".odt",  L".ods",  L".odp",
+        L".rtf",  L".one",  L".onetoc2", L".pub",
+        L".vsd",  L".vsdx",
+        L".accdb",L".mdb",
+        // PDF
+        L".pdf",
+        // Images
+        L".jpg",  L".jpeg", L".png",  L".gif",
+        L".bmp",  L".tiff", L".tif",  L".webp",
+        L".heic", L".heif", L".svg",
+        L".raw",  L".cr2",  L".nef",  L".arw",
+        nullptr
+    };
+    for (int k = 0; kAllowed[k]; ++k)
+        if (_wcsicmp(dot, kAllowed[k]) == 0) return true;
+    return false;
 }
 
 // Returns true for executable/application file extensions that should be
@@ -106,8 +160,8 @@ static std::wstring FilenameFromUrl(const wchar_t* url) {
 // documents stored as Office-app targets with URL arguments, are added to 'out'.
 // Duplicate paths (case-insensitive) are skipped via the 'seen' set.
 // fileMtime is used as the timestamp for online documents (no local mtime).
-// useRankTimestamp: when true, fileMtime is a rank-based synthetic timestamp from the
-// DestList and should be used directly, overriding the LNK header timestamps.
+// useRankTimestamp: when true, fileMtime is the autodest file's mtime and should be
+// used as the sort key for online items with no useful LNK timestamps (last resort).
 static void ParseCustomDestFile(
     const std::vector<uint8_t>& data,
     const FILETIME& fileMtime,
@@ -123,30 +177,18 @@ static void ParseCustomDestFile(
     for (size_t i = 0; i + 8 <= sz; i++) {
         if (memcmp(&data[i], kLnkSig, 8) != 0) continue;
 
-        // Read the LNK header timestamps directly from the binary.
-        // MS-SHLLINK spec:
-        //   AccessTime (offset 0x24 = 36): when the target was last accessed/opened
-        //   WriteTime  (offset 0x2C = 44): when the target was last modified
-        // Use AccessTime (offset 36, when the file was last opened) as the primary timestamp.
-        // If AccessTime is zero (common for online-only docs), fall back to:
-        //   1. fileMtime — which is either a DestList rank-based synthetic timestamp (when
-        //      useRankTimestamp=true) or the autodest file's own mtime.
-        // This ensures items with real open-times beat the rank-based approximation.
-        FILETIME lnkAccessTime = fileMtime; // fallback
-        if (i + 36 + 8 <= sz) {
-            FILETIME at = {};
-            memcpy(&at, &data[i + 36], sizeof(FILETIME));
-            if (at.dwLowDateTime != 0 || at.dwHighDateTime != 0) {
-                // Valid AccessTime: use it (reflects actual last-opened time)
-                lnkAccessTime = at;
-            } else if (!useRankTimestamp) {
-                // No AccessTime and no rank timestamp: try WriteTime as fallback
-                if (i + 44 + 8 <= sz)
-                    memcpy(&lnkAccessTime, &data[i + 44], sizeof(FILETIME));
-                if (lnkAccessTime.dwLowDateTime == 0 && lnkAccessTime.dwHighDateTime == 0)
-                    lnkAccessTime = fileMtime;
-            }
-            // else: AccessTime=0 + useRankTimestamp → keep fileMtime (rank-based)
+        // Sort key strategy:
+        //  - Rank-0 item (most recently opened per app): use fileMtime (= autodest file
+        //    modification time), which is the best local signal that "this was just used."
+        //  - All other items: use LNK WriteTime (document last-saved date), which filters
+        //    out files that were only viewed or modified by other collaborators online.
+        //  Fallback chain for non-rank-0: WriteTime → fileMtime.
+        FILETIME lnkSortTime = fileMtime;
+        if (!useRankTimestamp && i + 44 + 8 <= sz) {
+            FILETIME wt = {};
+            memcpy(&wt, &data[i + 44], sizeof(FILETIME));
+            if (wt.dwLowDateTime != 0 || wt.dwHighDateTime != 0)
+                lnkSortTime = wt;
         }
 
         IStream* pStream = SHCreateMemStream(
@@ -200,7 +242,9 @@ static void ParseCustomDestFile(
                         }
                     }
 
-                    if (!docPath.empty() && !IsApplicationExtension(docPath.c_str())) {
+                    if (!docPath.empty()
+                        && !IsApplicationExtension(docPath.c_str())
+                        && IsAllowedRecentDocExtension(docPath.c_str())) {
                         // Case-insensitive dedup
                         std::wstring key = docPath;
                         CharLowerW(key.data());
@@ -210,13 +254,12 @@ static void ParseCustomDestFile(
                             FILETIME createTime = fileMtime;
 
                             if (isOnline) {
-                                // Online document — accept without local existence check.
-                                // For online files, LNK AccessTime = server document modification
-                                // date, NOT when the user last opened the file. Use the rank-based
-                                // synthetic timestamp from DestList instead (when available).
+                                // Online document — use WriteTime (document modification date)
+                                // so only files the user (or collaborators) actually saved show
+                                // as recently modified. Viewed-only files retain their old date.
                                 include    = true;
-                                writeTime  = useRankTimestamp ? fileMtime : lnkAccessTime;
-                                createTime = writeTime;
+                                writeTime  = lnkSortTime;
+                                createTime = lnkSortTime;
                             } else {
                                 DWORD attr = GetFileAttributesW(docPath.c_str());
                                 if (attr != INVALID_FILE_ATTRIBUTES
@@ -336,7 +379,8 @@ static void ParseAutoDestFile(
     const std::wstring& filePath,
     const FILETIME& fileMtime,
     std::vector<FileItem>& out,
-    std::unordered_set<std::wstring>& seen)
+    std::unordered_set<std::wstring>& seen,
+    bool useDestListTime = false)
 {
     // --- Read entire file into memory -------------------------------------------
     HANDLE hf = CreateFileW(filePath.c_str(), GENERIC_READ,
@@ -578,27 +622,41 @@ static void ParseAutoDestFile(
         for (wchar_t c : name) if (!iswxdigit(c)) { isHex = false; break; }
         if (!isHex) continue;
 
+        // Rank 0 = most recently opened item in this app.
+        // Give it fileMtime as sort key so it always appears near the top,
+        // regardless of when the document was last saved.
         DWORD eid = (DWORD)wcstoul(name.c_str(), nullptr, 16);
-        FILETIME streamTime = fileMtime;
+        bool isTopRank = false;
         auto it = entryMap.find(eid);
-        if (it != entryMap.end()) streamTime = it->second.time;
+        if (it != entryMap.end() && it->second.rank == 0)
+            isTopRank = true;
+
+        // When useDestListTime: use the DestList per-entry access time as the sort key
+        // (represents the exact moment the user last opened this file via this app).
+        // Otherwise: rank-0 items use fileMtime, others use LNK WriteTime (existing behaviour).
+        FILETIME sortTime = fileMtime;
+        bool forceRankTime = isTopRank;
+        if (useDestListTime && it != entryMap.end()) {
+            sortTime = it->second.time;
+            forceRankTime = true; // pass sortTime directly; skip LNK WriteTime
+        }
 
         size_t sz = deSize(de);
         if (sz < 8 || sz > 100 * 1024) continue;
 
         auto lnkData = readStream(deSect(de), sz);
-        if (lnkData.size() >= 8) {
-            bool hasRank = (entryMap.find(eid) != entryMap.end());
-            ParseCustomDestFile(lnkData, streamTime, out, seen, hasRank);
-        }
+        if (lnkData.size() >= 8)
+            ParseCustomDestFile(lnkData, sortTime, out, seen, forceRankTime);
     }
 }
 
 // Scans all .automaticDestinations-ms files and populates out/seen.
+// useDestListTime=true: use per-entry DestList access times as sort keys (for Seneste M365 mode).
 static void ScanAutomaticDestinations(
     int maxItems,
     std::vector<FileItem>& out,
-    std::unordered_set<std::wstring>& seen)
+    std::unordered_set<std::wstring>& seen,
+    bool useDestListTime = false)
 {
     wchar_t appData[MAX_PATH] = {};
     if (!SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr,
@@ -629,7 +687,7 @@ static void ScanAutomaticDestinations(
 
     for (const auto& af : adFiles) {
         size_t prevSize = out.size();
-        ParseAutoDestFile(af.path, af.mtime, out, seen);
+        ParseAutoDestFile(af.path, af.mtime, out, seen, useDestListTime);
         // Cap this app's contribution so one busy app can't fill all slots
         if (out.size() - prevSize > (size_t)maxItems) {
             std::sort(out.begin() + prevSize, out.end(),
@@ -643,7 +701,7 @@ static void ScanAutomaticDestinations(
 
 // Retrieves recently accessed documents by scanning the Windows Recent folder
 // with full .lnk resolution, always filtering out directories.
-static std::vector<FileItem> ScanRecentDocs(int maxItems, ConfigData::SortMode sortMode) {
+static std::vector<FileItem> ScanRecentDocs(int maxItems, ConfigData::SortMode sortMode, bool includeDirs = true) {
     std::vector<FileItem> items;
     items.reserve(maxItems * 4);
     std::unordered_set<std::wstring> seen;
@@ -683,18 +741,156 @@ static std::vector<FileItem> ScanRecentDocs(int maxItems, ConfigData::SortMode s
         break;
     }
 
+    if (!includeDirs)
+        items.erase(std::remove_if(items.begin(), items.end(),
+            [](const FileItem& f) { return f.isDirectory; }), items.end());
+
     if ((int)items.size() > maxItems) items.resize(maxItems);
 
     return items;
 }
 
-std::vector<FileItem> FileService::ScanFolder(const std::wstring& folderPath, int maxItems, bool includeDirs, const std::wstring& filterRegex, ConfigData::SortMode sortMode, bool resolveLnk) {
+// Mirrors Windows Explorer's "Seneste" (Home > Recent) view exactly:
+// reads .lnk files from %APPDATA%\Microsoft\Windows\Recent\, sorts by
+// .lnk LastWriteTime (= when the file was last opened), resolves targets.
+// No extension filter — matches Explorer's list 1:1.
+static std::vector<FileItem> ScanRecentFiles(int maxItems, ConfigData::SortMode sortMode) {
+    wchar_t recentDir[MAX_PATH] = {};
+    if (SHGetFolderPathW(nullptr, CSIDL_RECENT, nullptr, SHGFP_TYPE_CURRENT, recentDir) != S_OK)
+        return {};
+
+    struct LnkEntry { std::wstring path; FILETIME mtime; };
+    std::vector<LnkEntry> lnks;
+
+    WIN32_FIND_DATAW fd = {};
+    HANDLE hFind = FindFirstFileW((std::wstring(recentDir) + L"\\*.lnk").c_str(), &fd);
+    if (hFind != INVALID_HANDLE_VALUE) {
+        do {
+            if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+                lnks.push_back({ std::wstring(recentDir) + L"\\" + fd.cFileName,
+                                  fd.ftLastWriteTime });
+        } while (FindNextFileW(hFind, &fd));
+        FindClose(hFind);
+    }
+
+    // Sort by .lnk mtime desc — this is exactly Explorer's order
+    std::sort(lnks.begin(), lnks.end(), [](const LnkEntry& a, const LnkEntry& b) {
+        return CompareFileTime(&a.mtime, &b.mtime) > 0;
+    });
+
+    std::vector<FileItem> out;
+    out.reserve(maxItems);
+    std::unordered_set<std::wstring> seen;
+
+    for (const auto& lf : lnks) {
+        if ((int)out.size() >= maxItems) break;
+
+        IShellLinkW* pLink = nullptr;
+        if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
+                                    IID_IShellLinkW, (void**)&pLink))) continue;
+
+        IPersistFile* pPF = nullptr;
+        if (SUCCEEDED(pLink->QueryInterface(IID_IPersistFile, (void**)&pPF))) {
+            if (SUCCEEDED(pPF->Load(lf.path.c_str(), STGM_READ))) {
+                wchar_t rawPath[MAX_PATH] = {};
+                pLink->GetPath(rawPath, MAX_PATH, nullptr, SLGP_RAWPATH);
+
+                std::wstring docPath;
+                if (rawPath[0]) {
+                    wchar_t expanded[MAX_PATH] = {};
+                    ExpandEnvironmentStringsW(rawPath, expanded, MAX_PATH);
+                    docPath = expanded;
+                }
+
+                // Online files (SharePoint/OneDrive) may store the URL in the description
+                if (docPath.empty()) {
+                    wchar_t desc[INFOTIPSIZE] = {};
+                    pLink->GetDescription(desc, INFOTIPSIZE);
+                    if (desc[0] && (wcsstr(desc, L"https://") || wcsstr(desc, L"http://")))
+                        docPath = desc;
+                }
+
+                if (!docPath.empty() && !IsApplicationExtension(docPath.c_str())) {
+                    std::wstring key = docPath;
+                    CharLowerW(key.data());
+                    if (seen.insert(key).second) {
+                        bool isOnline = docPath.size() > 7 &&
+                            (_wcsnicmp(docPath.c_str(), L"https://", 8) == 0 ||
+                             _wcsnicmp(docPath.c_str(), L"http://",  7) == 0);
+                        DWORD attr = isOnline ? 0 : GetFileAttributesW(docPath.c_str());
+                        if (isOnline || (attr != INVALID_FILE_ATTRIBUTES
+                                         && !(attr & FILE_ATTRIBUTE_DIRECTORY)))
+                        {
+                            FileItem item;
+                            item.fullPath      = docPath;
+                            item.isDirectory   = false;
+                            item.lastWriteTime = lf.mtime;  // last-opened time
+                            item.creationTime  = lf.mtime;
+
+                            const wchar_t* namePtr = PathFindFileNameW(docPath.c_str());
+                            item.name = (namePtr && *namePtr)
+                                ? namePtr
+                                : FilenameFromUrl(docPath.c_str());
+
+                            out.push_back(std::move(item));
+                        }
+                    }
+                }
+            }
+            pPF->Release();
+        }
+        pLink->Release();
+    }
+
+    // Apply sort (default DateModifiedDesc preserves Explorer's lnk-mtime order)
+    auto cmpFt = [](const FILETIME& a, const FILETIME& b) {
+        return CompareFileTime(&a, &b) > 0;
+    };
+    switch (sortMode) {
+    case ConfigData::SortMode::DateModifiedAsc:
+        std::sort(out.begin(), out.end(), [](const FileItem& a, const FileItem& b) {
+            return CompareFileTime(&a.lastWriteTime, &b.lastWriteTime) < 0; }); break;
+    case ConfigData::SortMode::NameAsc:
+        std::sort(out.begin(), out.end(), [](const FileItem& a, const FileItem& b) {
+            return _wcsicmp(a.name.c_str(), b.name.c_str()) < 0; }); break;
+    case ConfigData::SortMode::NameDesc:
+        std::sort(out.begin(), out.end(), [](const FileItem& a, const FileItem& b) {
+            return _wcsicmp(a.name.c_str(), b.name.c_str()) > 0; }); break;
+    default:
+        std::sort(out.begin(), out.end(), [&](const FileItem& a, const FileItem& b) {
+            return cmpFt(a.lastWriteTime, b.lastWriteTime); }); break;
+    }
+
+    return out;
+}
+
+std::vector<FileItem> FileService::ScanFolder(const std::wstring& folderPath, int maxItems, bool includeDirs, const std::wstring& filterRegex, ConfigData::SortMode sortMode, bool resolveLnk, HWND hwndForAuth) {
     std::vector<FileItem> items;
     if (folderPath.empty()) return items;
 
-    // Special mode: scan the Windows Recent folder with full .lnk resolution, files only
+    // Special modes: virtual folder sentinels
     if (folderPath == L"::RecentDocs::")
-        return ScanRecentDocs(maxItems, sortMode);
+        return ScanRecentDocs(maxItems, sortMode, includeDirs);
+    if (folderPath == L"::RecentFiles::")
+        return ScanRecentFiles(maxItems, sortMode);
+    if (folderPath == L"::GraphRecent::") {
+        // Reads only automaticDestinations-ms, uses per-entry DestList access times as sort key
+        std::vector<FileItem> out;
+        out.reserve(maxItems * 4);
+        std::unordered_set<std::wstring> seen;
+        ScanAutomaticDestinations(maxItems, out, seen, /*useDestListTime=*/true);
+
+        // Keep only Office/OneNote files — no images, PDFs, etc.
+        out.erase(std::remove_if(out.begin(), out.end(), [](const FileItem& f) {
+            return !IsOffice365Extension(f.fullPath.c_str());
+        }), out.end());
+
+        std::sort(out.begin(), out.end(), [](const FileItem& a, const FileItem& b) {
+            return CompareFileTime(&a.lastWriteTime, &b.lastWriteTime) > 0;
+        });
+        if ((int)out.size() > maxItems) out.resize(maxItems);
+        return out;
+    }
 
     // Pre-build path prefix once; reserve to avoid reallocations
     std::wstring prefix = folderPath;

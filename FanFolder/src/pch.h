@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ole Bülow Hartvigsen. All rights reserved.
 #pragma once
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -27,6 +28,7 @@
 #include <array>
 #include <optional>
 #include <fstream>
+#include <unordered_set>
 
 #define NTDDI_VERSION NTDDI_WIN10
 #define _WIN32_WINNT  _WIN32_WINNT_WIN10
