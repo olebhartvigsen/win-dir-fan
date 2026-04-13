@@ -1,3 +1,34 @@
 #include "resource.h"
 IDI_APP      ICON        "app.ico"
 IDR_MANIFEST RT_MANIFEST "app.manifest"
+
+// Version resource — provides the "Fan Folder" name shown in the taskbar jump list
+#include <winver.h>
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     1,0,0,0
+PRODUCTVERSION  1,0,0,0
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"   // English (US), Unicode
+        BEGIN
+            VALUE "FileDescription",  "Fan Folder"
+            VALUE "ProductName",      "Fan Folder"
+            VALUE "CompanyName",      ""
+            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "ProductVersion",   "1.0.0.0"
+            VALUE "InternalName",     "FanFolder"
+            VALUE "OriginalFilename", "FanFolder.exe"
+            VALUE "LegalCopyright",   "Copyright (c) 2026 Ole B\u00fclow Hartvigsen. All rights reserved."
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 0x04B0
+    END
+END

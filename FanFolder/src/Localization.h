@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ole Bülow Hartvigsen. All rights reserved.
 #pragma once
 #include "pch.h"
 
@@ -31,6 +32,18 @@ struct Strings {
 
     // IFileDialog title for folder picker
     const wchar_t* selectFolderDlg;
+
+    // Folder submenu
+    const wchar_t* folderSubmenu;   // e.g. "Folder"
+    const wchar_t* folderDownloads;
+    const wchar_t* folderRecent;
+    const wchar_t* folderDesktop;
+    const wchar_t* folderDocuments;
+    const wchar_t* folderRecentDocs;   // "Recent files"
+    const wchar_t* folderRecentFiles;  // "Seneste" — mirrors Windows Explorer Home > Recent
+    const wchar_t* folderGraphRecent;  // "Seneste Office 365 documents"
+    const wchar_t* folderBrowse;       // "Browse…"
+    const wchar_t* openInExplorer;     // "Open in Explorer" label on fan arrow button
 };
 
 // Returns a reference to the Strings for the current Windows UI language,

@@ -1,7 +1,9 @@
+// Copyright (c) 2026 Ole Bülow Hartvigsen. All rights reserved.
 #include "pch.h"
 #include "FanWindow.h"
 #include "FileService.h"
 #include "ShellDrag.h"
+#include "Localization.h"
 
 // ---------------------------------------------------------------------------
 // IDropTarget implementation — receives files dragged from Explorer onto the fan
@@ -140,7 +142,8 @@ void FanWindow::AcceptPrewarmIcons(std::vector<HBITMAP>&& bitmaps,
 void FanWindow::Show() {
     if (!_hwnd) return;
 
-    int total = (int)_items.size() + 1;
+    _hasExplorerButton = (_config.folderPath != L"::GraphRecent::" && _config.folderPath != L"::RecentDocs::");
+    int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
     _itemProgress.assign(total, 0.f);
     _hoverScale.assign(total, 1.f);
     _entryProgress.assign(total, 0.f);
@@ -165,8 +168,8 @@ void FanWindow::Show() {
     bool usePrewarm = (_prewarmIconSize == _iconSize) &&
                       ((int)_prewarmBitmaps.size() == (int)_items.size());
 
-    // Arrow item doesn't need async load
-    _iconLoaded[total - 1] = true;
+    // Arrow item doesn't need async load (only present when explorer button is shown)
+    if (_hasExplorerButton) _iconLoaded[total - 1] = true;
     for (int i = 0; i < (int)_items.size(); i++) {
         if (usePrewarm) {
             _bitmaps[i]    = _prewarmBitmaps[i];  _prewarmBitmaps[i] = nullptr;
@@ -314,7 +317,7 @@ void FanWindow::CalculateLayout() {
     if (_iconSize * 0.22f != _cachedFontSize || !_labelFont)
         RebuildFontCache();
 
-    int total = (int)_items.size() + 1;
+    int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
     _labelWidths.resize(total);
     float maxLabelW = 0.f;
 
@@ -326,9 +329,9 @@ void FanWindow::CalculateLayout() {
         _labelWidths[i] = bounds.Width + 20.f;
         maxLabelW = std::max(maxLabelW, _labelWidths[i]);
     }
-    {
+    if (_hasExplorerButton) {
         Gdiplus::RectF bounds;
-        tmpG.MeasureString(L"Open in Explorer", -1, _labelFont,
+        tmpG.MeasureString(GetStrings().openInExplorer, -1, _labelFont,
                            Gdiplus::PointF(0,0), _measureSF, &bounds);
         _labelWidths[total - 1] = bounds.Width + 20.f;
         maxLabelW = std::max(maxLabelW, _labelWidths[total - 1]);
@@ -529,7 +532,7 @@ void FanWindow::DrawToLayeredWindow() {
         g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
         g.Clear(Gdiplus::Color(0, 0, 0, 0));
 
-        int total = (int)_items.size() + 1;
+        int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
         auto getItemAlpha = [&](int i) -> float {
             switch (_config.animStyle) {
             case ConfigData::AnimStyle::Spring: {
@@ -721,10 +724,34 @@ void FanWindow::DrawArrowItem(Gdiplus::Graphics& g, float cx, float cy, float sz
 std::wstring FanWindow::ItemLabel(int idx) const {
     if (idx < 0 || idx >= (int)_items.size()) return {};
     const auto& item = _items[idx];
-    if (_config.showExtensions || item.isDirectory) return item.name;
-    auto dot = item.name.rfind(L'.');
-    if (dot == std::wstring::npos || dot == 0) return item.name;
-    return item.name.substr(0, dot);
+    if (item.isDirectory) return item.name;
+
+    // For .lnk shortcuts strip the .lnk suffix first so the real filename is shown
+    std::wstring displayName = item.name;
+    if (!item.targetPath.empty()) {
+        auto dot = displayName.rfind(L'.');
+        if (dot != std::wstring::npos) {
+            std::wstring ext = displayName.substr(dot);
+            for (auto& c : ext) c = (wchar_t)towlower(c);
+            if (ext == L".lnk") displayName = displayName.substr(0, dot);
+        }
+    }
+
+    if (_config.showExtensions) {
+        if (displayName.size() > 42)
+            displayName = displayName.substr(0, 40) + L"\u2026";
+        return displayName;
+    }
+    auto dot = displayName.rfind(L'.');
+    if (dot == std::wstring::npos || dot == 0) {
+        if (displayName.size() > 42)
+            displayName = displayName.substr(0, 40) + L"\u2026";
+        return displayName;
+    }
+    displayName = displayName.substr(0, dot);
+    if (displayName.size() > 42)
+        displayName = displayName.substr(0, 40) + L"\u2026";
+    return displayName;
 }
 
 void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
@@ -756,8 +783,8 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
         break;
     }
 
-    int total    = (int)_items.size() + 1;
-    bool isArrow = (idx == total - 1);
+    int total    = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
+    bool isArrow = (_hasExplorerButton && idx == total - 1);
     if (isArrow) {
         DrawArrowItem(g, cx, cy, drawSz, itemAlpha);
         float pillH = drawSz * 0.45f;
@@ -766,7 +793,7 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
         float pillLeft = cx - drawSz / 2.f - LabelGap - pillW;
         float pillTop  = cy - pillH / 2.f;
         DrawLabelPill(g, pillLeft, pillTop, pillW, pillH, pillH / 2.f,
-                      L"Open in Explorer", itemAlpha);
+                      GetStrings().openInExplorer, itemAlpha);
         return;
     }
 
@@ -852,14 +879,61 @@ int FanWindow::HitTest(int x, int y) const {
 }
 
 void FanWindow::LaunchItem(int idx) {
-    int total = (int)_items.size() + 1;
-    if (idx == total - 1) {
-        if (!_config.folderPath.empty())
-            ShellExecuteW(nullptr, L"open", L"explorer.exe",
-                          _config.folderPath.c_str(), nullptr, SW_SHOWNORMAL);
+    int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
+    if (_hasExplorerButton && idx == total - 1) {
+        // "Open in Explorer" — for RecentDocs sentinel, open the Recent folder
+        const std::wstring& fp = _config.folderPath;
+        if (!fp.empty()) {
+            if (fp == L"::RecentDocs::" || fp == L"::RecentFiles::" || fp == L"::GraphRecent::") {
+                wchar_t recentPath[MAX_PATH] = {};
+                if (SHGetFolderPathW(nullptr, CSIDL_RECENT, nullptr, SHGFP_TYPE_CURRENT, recentPath) == S_OK)
+                    ShellExecuteW(nullptr, L"open", L"explorer.exe", recentPath, nullptr, SW_SHOWNORMAL);
+            } else {
+                ShellExecuteW(nullptr, L"open", L"explorer.exe", fp.c_str(), nullptr, SW_SHOWNORMAL);
+            }
+        }
     } else if (idx >= 0 && idx < (int)_items.size()) {
-        ShellExecuteW(nullptr, L"open", _items[idx].fullPath.c_str(),
-                      nullptr, nullptr, SW_SHOWNORMAL);
+        const std::wstring& path = _items[idx].fullPath;
+
+        // For online Office documents (SharePoint/OneDrive), use the Office
+        // URI protocol handlers so the file opens in the desktop app, not the browser.
+        bool launched = false;
+        if (path.size() > 8 &&
+            (_wcsnicmp(path.c_str(), L"https://", 8) == 0 ||
+             _wcsnicmp(path.c_str(), L"http://",  7) == 0))
+        {
+            // Determine protocol from file extension stored in targetPath / name
+            const std::wstring& extSource = _items[idx].targetPath.empty()
+                                          ? _items[idx].name
+                                          : _items[idx].targetPath;
+            const wchar_t* dot = PathFindExtensionW(extSource.c_str());
+            const wchar_t* proto = nullptr;
+            if (dot && *dot) {
+                if      (_wcsicmp(dot, L".docx") == 0 || _wcsicmp(dot, L".doc")  == 0 ||
+                         _wcsicmp(dot, L".docm") == 0 || _wcsicmp(dot, L".dotx") == 0 ||
+                         _wcsicmp(dot, L".dotm") == 0 || _wcsicmp(dot, L".odt")  == 0)
+                    proto = L"ms-word";
+                else if (_wcsicmp(dot, L".xlsx") == 0 || _wcsicmp(dot, L".xls")  == 0 ||
+                         _wcsicmp(dot, L".xlsm") == 0 || _wcsicmp(dot, L".xlsb") == 0 ||
+                         _wcsicmp(dot, L".xltx") == 0 || _wcsicmp(dot, L".ods")  == 0)
+                    proto = L"ms-excel";
+                else if (_wcsicmp(dot, L".pptx") == 0 || _wcsicmp(dot, L".ppt")  == 0 ||
+                         _wcsicmp(dot, L".pptm") == 0 || _wcsicmp(dot, L".potx") == 0 ||
+                         _wcsicmp(dot, L".ppsx") == 0 || _wcsicmp(dot, L".odp")  == 0)
+                    proto = L"ms-powerpoint";
+            }
+            if (proto) {
+                // ms-word:ofe|u|https://... opens the document for editing in the desktop app
+                std::wstring uri = std::wstring(proto) + L":ofe|u|" + path;
+                HINSTANCE hr = ShellExecuteW(nullptr, L"open", uri.c_str(),
+                                             nullptr, nullptr, SW_SHOWNORMAL);
+                launched = (reinterpret_cast<INT_PTR>(hr) > 32);
+            }
+        }
+
+        if (!launched)
+            ShellExecuteW(nullptr, L"open", path.c_str(),
+                          nullptr, nullptr, SW_SHOWNORMAL);
     }
     Close();
 }
@@ -872,6 +946,9 @@ void FanWindow::OnDropHover(bool hovering) {
 }
 
 void FanWindow::HandleFileDrop(IDataObject* pDataObj) {
+    // Drop is not supported in virtual folder modes
+    if (_config.folderPath == L"::RecentDocs::" || _config.folderPath == L"::RecentFiles::" || _config.folderPath == L"::GraphRecent::") return;
+
     FORMATETC fmt = { CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
     STGMEDIUM stg = {};
     if (FAILED(pDataObj->GetData(&fmt, &stg))) return;
@@ -906,7 +983,8 @@ void FanWindow::HandleFileDrop(IDataObject* pDataObj) {
         _items = FileService::ScanFolder(_config.folderPath, _config.maxItems,
                                          _config.includeDirs, _config.filterRegex,
                                          _config.sortMode);
-        int total = (int)_items.size() + 1;
+        _hasExplorerButton = (_config.folderPath != L"::GraphRecent::" && _config.folderPath != L"::RecentDocs::");
+        int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
 
         // Reset icon arrays to the new size; start async loads for all items
         {
@@ -980,31 +1058,100 @@ void FanWindow::StartIconLoad(int idx) {
     if (idx < 0 || idx >= (int)_items.size()) return;
     HWND      hwnd = _hwnd;
     std::wstring p  = _items[idx].fullPath;
+    std::wstring tp = _items[idx].targetPath; // may be empty if fast-scan was used
     int       sz   = _iconSize;
 
-    std::thread([hwnd, idx, p, sz]() {
+    std::thread([hwnd, idx, p, tp, sz]() mutable {
+        // Resolve .lnk target lazily if prewarm fast-scan skipped it
+        if (tp.empty()) {
+            auto dot = p.rfind(L'.');
+            if (dot != std::wstring::npos) {
+                std::wstring ext = p.substr(dot);
+                for (auto& c : ext) c = (wchar_t)towlower(c);
+                if (ext == L".lnk") {
+                    bool isDir = false;
+                    std::wstring resolved = [&]() -> std::wstring {
+                        IShellLinkW* psl = nullptr;
+                        if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
+                                                    IID_IShellLinkW, (void**)&psl))) return {};
+                        std::wstring r;
+                        IPersistFile* ppf = nullptr;
+                        if (SUCCEEDED(psl->QueryInterface(IID_IPersistFile, (void**)&ppf))) {
+                            if (SUCCEEDED(ppf->Load(p.c_str(), STGM_READ))) {
+                                wchar_t target[MAX_PATH] = {};
+                                if (SUCCEEDED(psl->GetPath(target, MAX_PATH, nullptr, SLGP_RAWPATH)) && target[0]) {
+                                    DWORD attr = GetFileAttributesW(target);
+                                    if (attr != INVALID_FILE_ATTRIBUTES) {
+                                        r = target;
+                                        isDir = (attr & FILE_ATTRIBUTE_DIRECTORY) != 0;
+                                    }
+                                }
+                            }
+                            ppf->Release();
+                        }
+                        psl->Release();
+                        return r;
+                    }();
+                    if (!resolved.empty() && !isDir)
+                        tp = resolved;
+                }
+            }
+        }
+
+        // Use resolved target for content thumbnails, fall back to .lnk path for shell icon
+        const std::wstring& contentPath = tp.empty() ? p : tp;
         HBITMAP bmp = nullptr;
 
-        if (FileService::IsSvgExtension(p))
-            bmp = FileService::GetSvgThumbnail(p, sz);     // lunasvg — reliable for all SVGs
+        // Detect online items (SharePoint / OneDrive) — p is a URL, tp is the filename
+        const bool isOnline = (p.size() > 8 &&
+                               (_wcsnicmp(p.c_str(), L"https://", 8) == 0 ||
+                                _wcsnicmp(p.c_str(), L"http://",  7) == 0));
 
-        if (!bmp && FileService::IsGdiImageExtension(p))
-            bmp = FileService::GetImageThumbnail(p, sz);   // GDI+ direct — actual content
+        if (!isOnline) {
+            if (FileService::IsSvgExtension(contentPath))
+                bmp = FileService::GetSvgThumbnail(contentPath, sz);
 
-        if (!bmp && FileService::IsShellThumbnailExtension(p))
-            bmp = FileService::GetShellThumbnail(p, sz);   // shell thumbnail (webp)
+            if (!bmp && FileService::IsGdiImageExtension(contentPath))
+                bmp = FileService::GetImageThumbnail(contentPath, sz);
 
-        if (!bmp)
-            bmp = FileService::GetShellBitmap(p, sz);      // SIIGBF_ICONONLY (pdf, etc.)
+            if (!bmp && FileService::IsShellThumbnailExtension(contentPath))
+                bmp = FileService::GetShellThumbnail(contentPath, sz);
+
+            if (!bmp)
+                bmp = FileService::GetShellBitmap(p, sz);  // shell resolves .lnk for icon
+        }
 
         if (bmp) {
             PostMessageW(hwnd, WM_ICON_BITMAP, (WPARAM)idx, (LPARAM)bmp);
         } else {
-            HICON ico = FileService::GetShellIcon(p);
-            if (ico)
-                PostMessageW(hwnd, WM_ICON_ICON, (WPARAM)idx, (LPARAM)ico);
-            else
-                PostMessageW(hwnd, WM_ICON_BITMAP, (WPARAM)idx, (LPARAM)nullptr);
+            // For online items use the filename/extension for type icon lookup;
+            // for local items fall back to the full path.
+            std::wstring iconPath;
+            if (isOnline) {
+                // tp should be the filename (e.g. "document.docx") — guard against
+                // tp accidentally containing a URL by checking for "://"
+                if (!tp.empty() && tp.find(L"://") == std::wstring::npos)
+                    iconPath = tp;
+                else if (!tp.empty()) {
+                    auto sl = tp.rfind(L'/');
+                    auto qs = tp.find(L'?');
+                    iconPath = (sl != std::wstring::npos)
+                        ? tp.substr(sl + 1, qs == std::wstring::npos ? std::wstring::npos : qs - sl - 1)
+                        : tp;
+                }
+            } else {
+                iconPath = p;
+            }
+            if (isOnline) {
+                HBITMAP iconBmp = FileService::GetShellBitmapByExtension(iconPath, sz);
+                PostMessageW(hwnd, WM_ICON_BITMAP, (WPARAM)idx, (LPARAM)iconBmp);
+            } else {
+                HICON ico = FileService::GetShellIcon(iconPath);
+                if (ico)
+                    PostMessageW(hwnd, WM_ICON_ICON, (WPARAM)idx, (LPARAM)ico);
+                else
+                    PostMessageW(hwnd, WM_ICON_BITMAP, (WPARAM)idx, (LPARAM)nullptr);
+            }
         }
     }).detach();
 }
@@ -1032,7 +1179,7 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             float elapsed = (float)(now - self->_createTick);
             bool  dirty   = false;
 
-            int total = (int)self->_items.size() + 1;
+            int total = (int)self->_items.size() + (self->_hasExplorerButton ? 1 : 0);
 
             switch (self->_config.animStyle) {
             case ConfigData::AnimStyle::Spring: {
@@ -1184,7 +1331,7 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             std::lock_guard<std::mutex> lk(self->_iconMutex);
             if (idx < (int)self->_bitmaps.size()) {
                 if (self->_bitmaps[idx]) DeleteObject(self->_bitmaps[idx]);
-                self->_bitmaps[idx]   = bmp;
+                self->_bitmaps[idx] = bmp;
             }
             if (idx < (int)self->_iconLoaded.size())
                 self->_iconLoaded[idx] = true;

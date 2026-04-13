@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ole Bülow Hartvigsen. All rights reserved.
 #pragma once
 #include "pch.h"
 
@@ -10,7 +11,7 @@ struct ConfigData {
     enum class SortMode { DateModifiedDesc, DateModifiedAsc, NameAsc, NameDesc, DateCreatedDesc, DateCreatedAsc }
         sortMode = SortMode::DateModifiedDesc;
     enum class AnimStyle { Fan, Glide, Spring, None, Fade }
-        animStyle = AnimStyle::Spring;
+        animStyle = AnimStyle::Glide;
 };
 
 class Config {

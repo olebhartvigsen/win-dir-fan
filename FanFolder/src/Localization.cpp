@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ole Bülow Hartvigsen. All rights reserved.
 #include "pch.h"
 #include "Localization.h"
 
@@ -21,6 +22,9 @@ static constexpr Strings kEn = {
     L"Exit Fan Folder",
     L"Open: ",
     L"Select folder to watch",
+    L"Folder",
+    L"Downloads", L"Recent (Explorer)", L"Desktop", L"Documents", L"Recent files", L"Seneste", L"Recent Office 365 documents", L"Browse\u2026",
+    L"Open in Explorer",
 };
 
 // ---------------------------------------------------------------------------
@@ -43,6 +47,9 @@ static constexpr Strings kDa = {
     L"Afslut Fan Folder",
     L"\u00c5bn: ",
     L"V\u00e6lg mappe at overv\u00e5ge",
+    L"Mappe",
+    L"Overf\u00f8rsler", L"Seneste", L"Skrivebord", L"Dokumenter", L"Seneste filer", L"Seneste", L"Seneste Office 365 dokumenter", L"Gennemse\u2026",
+    L"\u00c5bn i Stifinder",
 };
 
 // ---------------------------------------------------------------------------
@@ -65,6 +72,9 @@ static constexpr Strings kSv = {
     L"Avsluta Fan Folder",
     L"\u00d6ppna: ",
     L"V\u00e4lj mapp att \u00f6vervaka",
+    L"Mapp",
+    L"Nedladdningar", L"Senaste (Utforskaren)", L"Skrivbord", L"Dokument", L"Senaste filer", L"Seneste", L"Senaste Office 365-dokument", L"Bl\u00e4ddra\u2026",
+    L"\u00d6ppna i Utforskaren",
 };
 
 // ---------------------------------------------------------------------------
@@ -87,6 +97,9 @@ static constexpr Strings kNo = {
     L"Avslutt Fan Folder",
     L"\u00c5pne: ",
     L"Velg mappe \u00e5 overv\u00e5ke",
+    L"Mappe",
+    L"Nedlastinger", L"Siste (Utforsker)", L"Skrivebord", L"Dokumenter", L"Siste filer", L"Seneste", L"Siste Office 365-dokumenter", L"Bla gjennom\u2026",
+    L"\u00c5pne i Utforsker",
 };
 
 // ---------------------------------------------------------------------------
@@ -109,6 +122,9 @@ static constexpr Strings kDe = {
     L"Fan Folder beenden",
     L"\u00d6ffnen: ",
     L"Ordner zum \u00dcberwachen ausw\u00e4hlen",
+    L"Ordner",
+    L"Downloads", L"Zuletzt (Explorer)", L"Desktop", L"Dokumente", L"Zuletzt ge\u00f6ffnete Dateien", L"Zuletzt", L"Zuletzt ge\u00f6ffnete Office 365-Dokumente", L"Durchsuchen\u2026",
+    L"Im Explorer \u00f6ffnen",
 };
 
 // ---------------------------------------------------------------------------
@@ -131,6 +147,9 @@ static constexpr Strings kNl = {
     L"Fan Folder afsluiten",
     L"Openen: ",
     L"Map selecteren om te bekijken",
+    L"Map",
+    L"Downloads", L"Recent (Verkenner)", L"Bureaublad", L"Documenten", L"Recente bestanden", L"Recent", L"Recente Office 365-documenten", L"Bladeren\u2026",
+    L"Openen in Verkenner",
 };
 
 // ---------------------------------------------------------------------------
@@ -153,6 +172,9 @@ static constexpr Strings kPl = {
     L"Zamknij Fan Folder",
     L"Otw\u00f3rz: ",
     L"Wybierz folder do \u015bledzenia",
+    L"Folder",
+    L"Pobrane", L"Ostatnie (Eksplorator)", L"Pulpit", L"Dokumenty", L"Ostatnie pliki", L"Ostatnie", L"Ostatnie dokumenty Office 365", L"Przegl\u0105daj\u2026",
+    L"Otw\u00f3rz w Eksploratorze",
 };
 
 // ---------------------------------------------------------------------------
@@ -175,6 +197,9 @@ static constexpr Strings kAr = {
     L"\u0625\u0646\u0647\u0627\u0621 Fan Folder",
     L"\u0641\u062a\u062d: ",
     L"\u0627\u062e\u062a\u0631 \u0645\u062c\u0644\u062f\u064b\u0627 \u0644\u0644\u0645\u0631\u0627\u0642\u0628\u0629",
+    L"\u0627\u0644\u0645\u062c\u0644\u062f",
+    L"\u0627\u0644\u062a\u0646\u0632\u064a\u0644\u0627\u062a", L"\u0627\u0644\u0645\u0644\u0641\u0627\u062a \u0627\u0644\u0623\u062e\u064a\u0631\u0629", L"\u0633\u0637\u062d \u0627\u0644\u0645\u0643\u062a\u0628", L"\u0627\u0644\u0645\u0633\u062a\u0646\u062f\u0627\u062a", L"\u0627\u0644\u0645\u0644\u0641\u0627\u062a \u0627\u0644\u0623\u062e\u064a\u0631\u0629", L"\u0627\u0644\u0623\u062e\u064a\u0631\u0629", L"\u0645\u0633\u062a\u0646\u062f\u0627\u062a Office 365 \u0627\u0644\u0623\u062e\u064a\u0631\u0629", L"\u0627\u0633\u062a\u0639\u0631\u0627\u0636\u2026",
+    L"\u0641\u062a\u062d \u0641\u064a \u0627\u0644\u0645\u0633\u062a\u0643\u0634\u0641",
 };
 
 // ---------------------------------------------------------------------------
@@ -197,6 +222,9 @@ static constexpr Strings kZh = {
     L"\u9000\u51fa Fan Folder",
     L"\u6253\u5f00\uff1a",
     L"\u9009\u62e9\u8981\u76d1\u89c6\u7684\u6587\u4ef6\u5939",
+    L"\u6587\u4ef6\u5939",
+    L"\u4e0b\u8f7d", L"\u6700\u8fd1\uff08\u6587\u4ef6\u8d44\u6e90\u7ba1\u7406\u5668\uff09", L"\u684c\u9762", L"\u6587\u6863", L"\u6700\u8fd1\u7684\u6587\u4ef6", L"\u6700\u8fd1", L"\u6700\u8fd1\u7684 Office 365 \u6587\u6863", L"\u6d4f\u89c8\u2026",
+    L"\u5728\u6587\u4ef6\u8d44\u6e90\u7ba1\u7406\u5668\u4e2d\u6253\u5f00",
 };
 
 // ---------------------------------------------------------------------------
@@ -219,6 +247,9 @@ static constexpr Strings kJa = {
     L"Fan Folder \u3092\u7d42\u4e86",
     L"\u958b\u304f\uff1a",
     L"\u76e3\u8996\u3059\u308b\u30d5\u30a9\u30eb\u30c0\u30fc\u3092\u9078\u629e",
+    L"\u30d5\u30a9\u30eb\u30c0\u30fc",
+    L"\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9", L"\u6700\u8fd1\uff08\u30a8\u30af\u30b9\u30d7\u30ed\u30fc\u30e9\u30fc\uff09", L"\u30c7\u30b9\u30af\u30c8\u30c3\u30d7", L"\u30c9\u30ad\u30e5\u30e1\u30f3\u30c8", L"\u6700\u8fd1\u306e\u30d5\u30a1\u30a4\u30eb", L"\u6700\u8fd1", L"\u6700\u8fd1\u306e Office 365 \u30c9\u30ad\u30e5\u30e1\u30f3\u30c8", L"\u53c2\u7167\u2026",
+    L"\u30a8\u30af\u30b9\u30d7\u30ed\u30fc\u30e9\u30fc\u3067\u958b\u304f",
 };
 
 // ---------------------------------------------------------------------------
@@ -241,6 +272,9 @@ static constexpr Strings kKo = {
     L"Fan Folder \uc885\ub8cc",
     L"\uc5f4\uae30: ",
     L"\uac10\uc2dc\ud560 \ud3f4\ub354 \uc120\ud0dd",
+    L"\ud3f4\ub354",
+    L"\ub2e4\uc6b4\ub85c\ub4dc", L"\uc904\uadfc \ud30c\uc77c (\ud0d0\uc0c9\uae30)", L"\ubc14\ud0d5 \ud654\uba74", L"\ubb38\uc11c", L"\ucd5c\uadfc \ud30c\uc77c", L"\ucd5c\uadfc", L"\ucd5c\uadfc Office 365 \ubb38\uc11c", L"\ucc3e\uc544\ubcf4\uae30\u2026",
+    L"\ud0d0\uc0c9\uae30\uc5d0\uc11c \uc5f4\uae30",
 };
 
 // ---------------------------------------------------------------------------
@@ -263,6 +297,9 @@ static constexpr Strings kSw = {
     L"Funga Fan Folder",
     L"Fungua: ",
     L"Chagua folda ya kufuatilia",
+    L"Folda",
+    L"Vipakuliwa", L"Hivi karibuni (Kichunguzi)", L"Eneo-kazi", L"Nyaraka", L"Faili za hivi karibuni", L"Hivi karibuni", L"Hati za hivi karibuni za Office 365", L"Vinjari\u2026",
+    L"Fungua katika Kichunguzi",
 };
 
 // ---------------------------------------------------------------------------
@@ -285,6 +322,9 @@ static constexpr Strings kFr = {
     L"Quitter Fan Folder",
     L"Ouvrir : ",
     L"S\u00e9lectionner un dossier \u00e0 surveiller",
+    L"Dossier",
+    L"T\u00e9l\u00e9chargements", L"R\u00e9cent (Explorateur)", L"Bureau", L"Documents", L"Fichiers r\u00e9cents", L"R\u00e9cent", L"Documents r\u00e9cents Office 365", L"Parcourir\u2026",
+    L"Ouvrir dans l\u2019Explorateur",
 };
 
 // ---------------------------------------------------------------------------
@@ -307,6 +347,9 @@ static constexpr Strings kIt = {
     L"Esci da Fan Folder",
     L"Apri: ",
     L"Seleziona cartella da monitorare",
+    L"Cartella",
+    L"Download", L"Recenti (Esplora risorse)", L"Desktop", L"Documenti", L"File recenti", L"Recenti", L"Documenti recenti di Office 365", L"Sfoglia\u2026",
+    L"Apri in Esplora risorse",
 };
 
 // ---------------------------------------------------------------------------
@@ -329,6 +372,9 @@ static constexpr Strings kEs = {
     L"Salir de Fan Folder",
     L"Abrir: ",
     L"Seleccionar carpeta a vigilar",
+    L"Carpeta",
+    L"Descargas", L"Reciente (Explorador)", L"Escritorio", L"Documentos", L"Archivos recientes", L"Reciente", L"Documentos recientes de Office 365", L"Examinar\u2026",
+    L"Abrir en el Explorador",
 };
 
 // ---------------------------------------------------------------------------
@@ -351,6 +397,9 @@ static constexpr Strings kPt = {
     L"Sair do Fan Folder",
     L"Abrir: ",
     L"Selecionar pasta para monitorar",
+    L"Pasta",
+    L"Downloads", L"Recente (Explorador)", L"Ambiente de trabalho", L"Documentos", L"Ficheiros recentes", L"Recentes", L"Documentos recentes do Office 365", L"Procurar\u2026",
+    L"Abrir no Explorador",
 };
 
 // ---------------------------------------------------------------------------

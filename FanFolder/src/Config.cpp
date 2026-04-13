@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ole Bülow Hartvigsen. All rights reserved.
 #include "pch.h"
 #include "Config.h"
 
@@ -15,7 +16,7 @@ ConfigData Config::Load() {
                 DWORD type = REG_SZ;
                 if (RegQueryValueExW(hKey, L"FolderPath", nullptr, &type, (LPBYTE)buf, &size) == ERROR_SUCCESS) {
                     std::wstring path(buf);
-                    if (!path.empty() && GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES)
+                    if (!path.empty() && (path == L"::RecentDocs::" || path == L"::RecentFiles::" || path == L"::GraphRecent::" || GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES))
                         cfg.folderPath = path;
                 }
             }
@@ -87,7 +88,7 @@ ConfigData Config::Load() {
                     else if (wcscmp(buf, L"Glide") == 0)  cfg.animStyle = ConfigData::AnimStyle::Glide;
                     else if (wcscmp(buf, L"None") == 0)   cfg.animStyle = ConfigData::AnimStyle::None;
                     else if (wcscmp(buf, L"Fade") == 0)   cfg.animStyle = ConfigData::AnimStyle::Fade;
-                    // else stays Spring
+                    // else stays Glide
                 }
             }
             RegCloseKey(hKey);
@@ -202,12 +203,12 @@ void Config::Save(const ConfigData& cfg) {
                    (DWORD)((cfg.filterRegex.size() + 1) * sizeof(wchar_t)));
 
     // AnimationStyle
-    const wchar_t* animStr = L"Spring";
+    const wchar_t* animStr = L"Glide";
     switch (cfg.animStyle) {
-    case ConfigData::AnimStyle::Fan:   animStr = L"Fan";   break;
-    case ConfigData::AnimStyle::Glide: animStr = L"Glide"; break;
-    case ConfigData::AnimStyle::None:  animStr = L"None";  break;
-    case ConfigData::AnimStyle::Fade:  animStr = L"Fade";  break;
+    case ConfigData::AnimStyle::Fan:    animStr = L"Fan";    break;
+    case ConfigData::AnimStyle::Spring: animStr = L"Spring"; break;
+    case ConfigData::AnimStyle::None:   animStr = L"None";   break;
+    case ConfigData::AnimStyle::Fade:   animStr = L"Fade";   break;
     default: break;
     }
     RegSetValueExW(hKey, L"AnimationStyle", 0, REG_SZ,

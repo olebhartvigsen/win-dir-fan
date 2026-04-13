@@ -1,10 +1,14 @@
-﻿#include "pch.h"
+﻿// Copyright (c) 2026 Ole Bülow Hartvigsen. All rights reserved.
+#include "pch.h"
 #include "Config.h"
 #include "MainWindow.h"
 #include "FanWindow.h"
 #include <gdiplus.h>
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
+    // Set explicit AppUserModelID so the taskbar shows "Fan Folder" instead of "FanFolder.exe"
+    SetCurrentProcessExplicitAppUserModelID(L"FanFolder.App");
+
     Gdiplus::GdiplusStartupInput gdiplusInput;
     ULONG_PTR gdiplusToken;
     Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusInput, nullptr);
