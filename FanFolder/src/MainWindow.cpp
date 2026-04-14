@@ -287,12 +287,16 @@ void MainWindow::ShowTrayMenu() {
     const Strings& s = GetStrings();
 
     HMENU hSort = CreatePopupMenu();
+    const bool isRecentMode = (_config.folderPath == L"::RecentDocs::" ||
+                                _config.folderPath == L"::GraphRecent::");
     AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateModifiedDesc ? MF_CHECKED : 0), ID_SORT_DATE_DESC,    s.sortDateModDesc);
     AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateModifiedAsc  ? MF_CHECKED : 0), ID_SORT_DATE_ASC,     s.sortDateModAsc);
-    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateCreatedDesc  ? MF_CHECKED : 0), ID_SORT_CREATED_DESC, s.sortDateCreatedDesc);
-    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateCreatedAsc   ? MF_CHECKED : 0), ID_SORT_CREATED_ASC,  s.sortDateCreatedAsc);
-    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::NameAsc          ? MF_CHECKED : 0), ID_SORT_NAME_ASC,     s.sortNameAsc);
-    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::NameDesc         ? MF_CHECKED : 0), ID_SORT_NAME_DESC,    s.sortNameDesc);
+    if (!isRecentMode) {
+        AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateCreatedDesc ? MF_CHECKED : 0), ID_SORT_CREATED_DESC, s.sortDateCreatedDesc);
+        AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateCreatedAsc  ? MF_CHECKED : 0), ID_SORT_CREATED_ASC,  s.sortDateCreatedAsc);
+    }
+    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::NameAsc  ? MF_CHECKED : 0), ID_SORT_NAME_ASC,  s.sortNameAsc);
+    AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::NameDesc ? MF_CHECKED : 0), ID_SORT_NAME_DESC, s.sortNameDesc);
 
     HMENU hMax = CreatePopupMenu();
     for (int n : {5, 10, 15, 20, 25}) {

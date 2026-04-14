@@ -137,26 +137,9 @@ ConfigData Config::Load() {
         }
     }
 
-    // 3. Downloads folder
-    {
-        wchar_t* pPath = nullptr;
-        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Downloads, 0, nullptr, &pPath))) {
-            std::wstring path(pPath);
-            CoTaskMemFree(pPath);
-            if (!path.empty() && GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) {
-                cfg.folderPath = path;
-                return cfg;
-            }
-        }
-    }
-
-    // 4. Desktop folder
-    {
-        wchar_t buf[MAX_PATH] = {};
-        if (SHGetFolderPathW(nullptr, CSIDL_DESKTOPDIRECTORY, nullptr, SHGFP_TYPE_CURRENT, buf) == S_OK) {
-            cfg.folderPath = buf;
-        }
-    }
+    // 3. Default: Seneste filer (::RecentDocs::) — no path validation needed
+    cfg.folderPath = L"::RecentDocs::";
+    return cfg;
 
     return cfg;
 }
