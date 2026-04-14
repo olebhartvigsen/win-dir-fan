@@ -34,7 +34,7 @@
 
   <g transform="translate(128, 180)">
     <!-- PDF document (red) -->
-    <g transform="rotate(-35) translate(-36, -135)" filter="url(#fileShadow)">
+    <g transform="rotate(-35) translate(-36, -160)" filter="url(#fileShadow)">
       <rect x="0" y="0" width="72" height="96" rx="6" fill="url(#fileGrad3)" />
       <!-- Dog-ear corner fold -->
       <path d="M 52 0 L 72 0 C 75.3 0 78 2.7 78 6 L 72 6 L 72 20 L 52 0 Z" fill="#E2E8F0" />
@@ -48,7 +48,7 @@
       <rect x="12" y="50" width="28" height="4" rx="2" fill="#94A3B8" opacity="0.2" />
     </g>
     <!-- Word document (blue) -->
-    <g transform="rotate(-12) translate(-36, -150)" filter="url(#fileShadow)">
+    <g transform="rotate(-12) translate(-36, -175)" filter="url(#fileShadow)">
       <rect x="0" y="0" width="72" height="96" rx="6" fill="url(#fileGrad2)" />
       <!-- Blue top bar -->
       <rect x="0" y="0" width="72" height="20" rx="6" fill="#2563EB" />
@@ -62,7 +62,7 @@
       <rect x="12" y="74" width="40" height="4" rx="2" fill="#64748B" opacity="0.2" />
     </g>
     <!-- Excel spreadsheet (green) -->
-    <g transform="rotate(12) translate(-36, -150)" filter="url(#fileShadow)">
+    <g transform="rotate(12) translate(-36, -175)" filter="url(#fileShadow)">
       <rect x="0" y="0" width="72" height="96" rx="6" fill="url(#fileGrad2)" />
       <!-- Green top bar -->
       <rect x="0" y="0" width="72" height="20" rx="6" fill="#16A34A" />
@@ -80,7 +80,7 @@
       <rect x="45" y="57" width="16" height="12" fill="#16A34A" opacity="0.08" />
     </g>
     <!-- Image/photo file (amber) -->
-    <g transform="rotate(35) translate(-36, -135)" filter="url(#fileShadow)">
+    <g transform="rotate(35) translate(-36, -160)" filter="url(#fileShadow)">
       <rect x="0" y="0" width="72" height="96" rx="6" fill="url(#fileGrad1)" />
       <!-- Image preview area -->
       <rect x="8" y="10" width="56" height="42" rx="4" fill="#0EA5E9" opacity="0.15" />
