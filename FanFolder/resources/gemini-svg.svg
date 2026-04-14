@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="100%" height="100%">
+  <defs>
+    <linearGradient id="folderBackGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFD13B" />
+      <stop offset="100%" stop-color="#FF9E00" />
+    </linearGradient>
+    <linearGradient id="folderFrontGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFEA74" />
+      <stop offset="100%" stop-color="#FFB900" />
+    </linearGradient>
+
+    <linearGradient id="fileGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#E2E8F0" />
+    </linearGradient>
+    <linearGradient id="fileGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F8FAFC" />
+      <stop offset="100%" stop-color="#CBD5E1" />
+    </linearGradient>
+    <linearGradient id="fileGrad3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F1F5F9" />
+      <stop offset="100%" stop-color="#94A3B8" />
+    </linearGradient>
+
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#000000" flood-opacity="0.15" />
+    </filter>
+    <filter id="fileShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000000" flood-opacity="0.2" />
+    </filter>
+  </defs>
+
+  <path d="M 24 56 C 24 47.163 31.163 40 40 40 L 96 40 C 102.5 40 108.2 43.8 110.8 49.8 L 120 72 L 216 72 C 224.837 72 232 79.163 232 88 L 232 200 C 232 208.837 224.837 216 216 216 L 40 216 C 31.163 216 24 208.837 24 200 L 24 56 Z" fill="url(#folderBackGrad)" />
+
+  <g transform="translate(128, 180)">
+    <g transform="rotate(-35) translate(-36, -110)" filter="url(#fileShadow)">
+      <rect x="0" y="0" width="72" height="96" rx="6" fill="url(#fileGrad3)" />
+      <rect x="12" y="16" width="32" height="6" rx="3" fill="#64748B" opacity="0.3" />
+      <rect x="12" y="32" width="48" height="6" rx="3" fill="#64748B" opacity="0.2" />
+      <rect x="12" y="48" width="40" height="6" rx="3" fill="#64748B" opacity="0.2" />
+    </g>
+    <g transform="rotate(-12) translate(-36, -125)" filter="url(#fileShadow)">
+      <rect x="0" y="0" width="72" height="96" rx="6" fill="url(#fileGrad2)" />
+      <rect x="12" y="16" width="32" height="6" rx="3" fill="#3B82F6" opacity="0.4" />
+      <rect x="12" y="32" width="48" height="6" rx="3" fill="#64748B" opacity="0.2" />
+      <rect x="12" y="48" width="48" height="6" rx="3" fill="#64748B" opacity="0.2" />
+    </g>
+    <g transform="rotate(12) translate(-36, -125)" filter="url(#fileShadow)">
+      <rect x="0" y="0" width="72" height="96" rx="6" fill="url(#fileGrad2)" />
+      <rect x="12" y="16" width="32" height="6" rx="3" fill="#10B981" opacity="0.4" />
+      <rect x="12" y="32" width="48" height="6" rx="3" fill="#64748B" opacity="0.2" />
+      <rect x="12" y="48" width="48" height="6" rx="3" fill="#64748B" opacity="0.2" />
+    </g>
+    <g transform="rotate(35) translate(-36, -110)" filter="url(#fileShadow)">
+      <rect x="0" y="0" width="72" height="96" rx="6" fill="url(#fileGrad1)" />
+      <rect x="12" y="16" width="32" height="6" rx="3" fill="#F59E0B" opacity="0.4" />
+      <rect x="12" y="32" width="48" height="6" rx="3" fill="#64748B" opacity="0.2" />
+      <rect x="12" y="48" width="36" height="6" rx="3" fill="#64748B" opacity="0.2" />
+    </g>
+  </g>
+
+  <path d="M 16 112 C 16 103.163 23.163 96 32 96 L 224 96 C 232.837 96 240 103.163 240 112 L 240 200 C 240 208.837 232.837 216 224 216 L 32 216 C 23.163 216 16 208.837 16 200 L 16 112 Z" fill="url(#folderFrontGrad)" filter="url(#shadow)" />
+
+  <path d="M 18 112 C 18 104.268 24.268 98 32 98 L 224 98 C 231.732 98 238 104.268 238 112 L 238 114 C 238 106.268 231.732 100 224 100 L 32 100 C 24.268 100 18 106.268 18 114 L 18 112 Z" fill="#FFFFFF" opacity="0.4" />
+</svg>
