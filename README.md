@@ -6,6 +6,14 @@ Native Win32/C++ application. No .NET runtime required. ~161 KB executable.
 
 ---
 
+## License
+
+- Source code in this repository is licensed under the MIT License. See [LICENSE](LICENSE).
+- Use of the compiled application is governed by the End User License Agreement. See [EULA.md](EULA.md).
+- Fan Folder is free to use. If you like it, optional support via a "buy me a coffee" payment is appreciated.
+
+---
+
 ## Features
 
 - Animated arc/fan popup anchored to the taskbar

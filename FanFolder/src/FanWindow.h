@@ -56,6 +56,13 @@ private:
     std::mutex                    _iconMutex;
     Gdiplus::ImageAttributes*     _drawIA = nullptr;  // reused per draw call
 
+    // Pre-rendered shadow cache — rebuilt only when hover target or scale changes
+    int              _shadowIdx    = -1;
+    float            _shadowHsc    = 0.f;
+    Gdiplus::Bitmap* _shadowBmp    = nullptr;
+    float            _shadowOffX   = 0.f;   // offset from icon origin to shadow bitmap origin
+    float            _shadowOffY   = 0.f;
+
     // Cached backbuffer— recreated only when window size changes
     HBITMAP          _hBackDIB  = nullptr;
     void*            _pBackBits = nullptr;
@@ -63,6 +70,9 @@ private:
     Gdiplus::Bitmap* _backBmp   = nullptr;
     int              _backW     = 0;
     int              _backH     = 0;
+
+    // Persistent tiny bitmap for text measurement (avoids per-layout allocation)
+    Gdiplus::Bitmap  _measureBmp{1, 1, PixelFormat32bppARGB};
 
     // Pre-warmed icons injected before Show()
     std::vector<HBITMAP> _prewarmBitmaps;
@@ -119,6 +129,8 @@ private:
                                    float x, float y, float size, Gdiplus::ImageAttributes* ia);
     static Gdiplus::Bitmap* HBitmapToGdiBitmap(HBITMAP hBmp);
     void PremultiplyBitmap(Gdiplus::BitmapData& data);
+    Gdiplus::Bitmap* RenderShadow(Gdiplus::Bitmap* srcBmp, float drawSz, float hsc);
+    void InvalidateShadow();
     int  HitTest(int x, int y) const;
     void LaunchItem(int idx);
     void ShowContextMenu(int idx, POINT screenPt);

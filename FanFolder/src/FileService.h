@@ -23,6 +23,10 @@ public:
         bool resolveLnk = true,
         HWND hwndForAuth = nullptr);
 
+    // Resolves a .lnk shortcut file to its target path.
+    // Returns the target path, or empty if resolution fails or target doesn't exist.
+    static std::wstring ResolveLnk(const std::wstring& lnkPath, bool& outIsDir);
+
     // Returns true when folderPath is the special "recent documents" sentinel
     static bool IsRecentDocsSentinel(const std::wstring& folderPath) {
         return folderPath == L"::RecentDocs::";

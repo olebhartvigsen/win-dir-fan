@@ -140,8 +140,6 @@ ConfigData Config::Load() {
     // 3. Default: Seneste filer (::RecentDocs::) — no path validation needed
     cfg.folderPath = L"::RecentDocs::";
     return cfg;
-
-    return cfg;
 }
 
 void Config::Save(const ConfigData& cfg) {

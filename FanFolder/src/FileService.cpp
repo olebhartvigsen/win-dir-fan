@@ -20,7 +20,7 @@ static const GUID IID_IImageList_ = {
 
 // Resolves a .lnk shortcut file to its target path.
 // Returns the target path, or empty if resolution fails or target doesn't exist.
-static std::wstring ResolveLnk(const std::wstring& lnkPath, bool& outIsDir) {
+std::wstring FileService::ResolveLnk(const std::wstring& lnkPath, bool& outIsDir) {
     outIsDir = false;
     IShellLinkW* psl = nullptr;
     if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
@@ -1032,10 +1032,16 @@ std::vector<FileItem> FileService::ScanFolder(const std::wstring& folderPath, in
             [](const FileItem& f) { return f.isDirectory; }), items.end());
     }
 
-    // Filter: regex
+    // Filter: regex (cached compilation — std::wregex construction is expensive)
     if (!filterRegex.empty()) {
         try {
-            std::wregex re(filterRegex, std::regex_constants::icase);
+            static std::wstring sCachedPattern;
+            static std::wregex  sCachedRegex;
+            if (filterRegex != sCachedPattern) {
+                sCachedRegex   = std::wregex(filterRegex, std::regex_constants::icase);
+                sCachedPattern = filterRegex;
+            }
+            const auto& re = sCachedRegex;
             items.erase(std::remove_if(items.begin(), items.end(),
                 [&re](const FileItem& f) {
                     return !std::regex_search(f.name, re);
@@ -1281,7 +1287,7 @@ HICON FileService::GetShellIcon(const std::wstring& path) {
             HICON hIcon = nullptr;
             pList->GetIcon(sfi.iIcon, ILD_TRANSPARENT, &hIcon);
             pList->Release();
-            if (hIcon) return hIcon;
+            if (hIcon) { DestroyIcon(sfi.hIcon); return hIcon; }
         }
     }
     return sfi.hIcon;
@@ -1305,7 +1311,7 @@ HICON FileService::GetShellIconByExtension(const std::wstring& nameWithExt) {
             HICON hIcon = nullptr;
             pList->GetIcon(sfi.iIcon, ILD_TRANSPARENT, &hIcon);
             pList->Release();
-            if (hIcon) return hIcon;
+            if (hIcon) { DestroyIcon(sfi.hIcon); return hIcon; }
         }
     }
     return sfi.hIcon;
@@ -1408,31 +1414,6 @@ HBITMAP FileService::GetShellBitmapByExtension(const std::wstring& nameWithExt, 
         // The path coordinates are in a 512x512 viewBox (y increases downward in SVG).
         // transform="scale(1,-1) translate(0,-512)" flips it vertically so the bumps
         // face upward as expected.
-        static std::string sCloudSvgData;
-        static bool sCloudSvgLoaded = false;
-        if (!sCloudSvgLoaded) {
-            sCloudSvgLoaded = true;
-            wchar_t userProfile[MAX_PATH] = {};
-            if (GetEnvironmentVariableW(L"USERPROFILE", userProfile, MAX_PATH) > 0) {
-                std::wstring svgPath = std::wstring(userProfile)
-                    + L"\\Downloads\\cloud, microsoft, onedrive svg icon.svg";
-                FILE* f = _wfopen(svgPath.c_str(), L"rb");
-                if (f) {
-                    fseek(f, 0, SEEK_END);
-                    long sz2 = ftell(f);
-                    fseek(f, 0, SEEK_SET);
-                    if (sz2 > 0) {
-                        sCloudSvgData.resize((size_t)sz2);
-                        fread(sCloudSvgData.data(), 1, (size_t)sz2, f);
-                    }
-                    fclose(f);
-                }
-            }
-        }
-        // Build the final SVG: the cloud path with explicit blue fill + vertical flip.
-        // We use only the cloud outline path regardless of whether the file was loaded,
-        // because the file has no fill attribute (would render black) and has a complex
-        // polka-dot pattern that doesn't suit a small badge.
         static const char kCloudSvg[] =
             "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'>"
             "<path fill='#0078D4' transform='scale(1,-1) translate(0,-512)' d='"

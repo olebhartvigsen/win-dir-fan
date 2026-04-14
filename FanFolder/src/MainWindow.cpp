@@ -162,7 +162,17 @@ void MainWindow::StartPrewarm() {
     ConfigData cfg   = _config;
     HWND       hwnd  = _hwnd;
     int        myGen = ++_prewarmGen;  // invalidates any still-running prewarm thread
-    std::thread([this, cfg = std::move(cfg), hwnd, myGen]() {
+
+    struct PrewarmWork {
+        MainWindow* self;
+        ConfigData  cfg;
+        HWND        hwnd;
+        int         myGen;
+    };
+    auto* work = new PrewarmWork{this, std::move(cfg), hwnd, myGen};
+
+    TrySubmitThreadpoolCallback([](PTP_CALLBACK_INSTANCE, PVOID ctx) {
+        auto* pw = static_cast<PrewarmWork*>(ctx);
         CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
         // Calculate icon size using the same formula as FanWindow::CalculateLayout
@@ -178,9 +188,9 @@ void MainWindow::StartPrewarm() {
             iconSize = std::clamp(screenH / 19, 48, 128);
         }
 
-        auto items = FileService::ScanFolder(cfg.folderPath, cfg.maxItems,
-                                             cfg.includeDirs, cfg.filterRegex, cfg.sortMode);
-        auto* data      = new PrewarmData;
+        auto items = FileService::ScanFolder(pw->cfg.folderPath, pw->cfg.maxItems,
+                                             pw->cfg.includeDirs, pw->cfg.filterRegex, pw->cfg.sortMode);
+        auto* data      = new MainWindow::PrewarmData;
         data->items     = items;
         data->iconSize  = iconSize;
         data->ready     = true;
@@ -221,16 +231,18 @@ void MainWindow::StartPrewarm() {
         }
 
         // Only post if still the current generation; discard stale results
-        if (myGen != _prewarmGen.load()) {
+        if (pw->myGen != pw->self->_prewarmGen.load()) {
             data->FreeHandles();
             delete data;
             CoUninitialize();
+            delete pw;
             return;
         }
-        data->gen = myGen;
-        PostMessageW(hwnd, WM_MAIN_PREWARM, 0, (LPARAM)data);
+        data->gen = pw->myGen;
+        PostMessageW(pw->hwnd, WM_MAIN_PREWARM, 0, (LPARAM)data);
         CoUninitialize();
-    }).detach();
+        delete pw;
+    }, work, nullptr);
 }
 
 // ─── Tray icon ──────────────────────────────────────────────────────────────

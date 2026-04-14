@@ -16,18 +16,7 @@ public:
     static const wchar_t* ClassName() { return L"FanFolderMain"; }
     static void Register(HINSTANCE hInst);
 
-private:
-    HINSTANCE      _hInst;
-    HWND           _hwnd = nullptr;
-    ConfigData     _config;
-    NOTIFYICONDATAW _nid = {};     // system tray icon
-
-    std::unique_ptr<FanWindow> _fanWindow;
-    DWORD  _lastToggleTick = 0;
-    DWORD  _fanOpenTick    = 0;
-    bool   _fanOpen        = false;
-
-    // Prewarm cache — file list + pre-loaded icons
+    // Prewarm cache — file list + pre-loaded icons (public for threadpool callback access)
     struct PrewarmData {
         std::vector<FileItem>  items;
         std::vector<HBITMAP>   bitmaps;
@@ -44,6 +33,18 @@ private:
             ready = false;
         }
     };
+
+private:
+    HINSTANCE      _hInst;
+    HWND           _hwnd = nullptr;
+    ConfigData     _config;
+    NOTIFYICONDATAW _nid = {};     // system tray icon
+
+    std::unique_ptr<FanWindow> _fanWindow;
+    DWORD  _lastToggleTick = 0;
+    DWORD  _fanOpenTick    = 0;
+    bool   _fanOpen        = false;
+
     PrewarmData          _prewarm;
     std::vector<FileItem> _cachedItems;   // last known-good item list; used when prewarm not yet ready
     std::mutex           _prewarmMutex;

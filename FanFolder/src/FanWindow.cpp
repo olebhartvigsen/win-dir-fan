@@ -94,6 +94,7 @@ FanWindow::~FanWindow() {
     delete _labelSF;     _labelSF     = nullptr;
     delete _measureSF;   _measureSF   = nullptr;
     delete _drawIA;      _drawIA      = nullptr;
+    delete _shadowBmp;   _shadowBmp   = nullptr;
     FreeBackBuffer();
     if (_hwnd) {
         RevokeDragDrop(_hwnd);
@@ -358,9 +359,8 @@ void FanWindow::CalculateLayout() {
     _maxStackHeight = (int)(screenH * 0.75f);
     _iconSize = std::clamp(screenH / 19, 48, 128);
 
-    // Measure label widths with GDI+
-    Gdiplus::Bitmap tmpBmp(1, 1, PixelFormat32bppARGB);
-    Gdiplus::Graphics tmpG(&tmpBmp);
+    // Measure label widths with GDI+ (reuse persistent _measureBmp to avoid allocation)
+    Gdiplus::Graphics tmpG(&_measureBmp);
     if (_iconSize * 0.22f != _cachedFontSize || !_labelFont)
         RebuildFontCache();
 
@@ -528,12 +528,56 @@ void FanWindow::PremultiplyBitmap(Gdiplus::BitmapData& data) {
             if (a == 0) {
                 px[0] = px[1] = px[2] = 0;
             } else if (a < 255) {
-                px[0] = (BYTE)((px[0] * a) >> 8);
-                px[1] = (BYTE)((px[1] * a) >> 8);
-                px[2] = (BYTE)((px[2] * a) >> 8);
+                px[0] = (BYTE)((px[0] * a + 128) >> 8);
+                px[1] = (BYTE)((px[1] * a + 128) >> 8);
+                px[2] = (BYTE)((px[2] * a + 128) >> 8);
             }
         }
     }
+}
+
+void FanWindow::InvalidateShadow() {
+    delete _shadowBmp;
+    _shadowBmp  = nullptr;
+    _shadowIdx  = -1;
+    _shadowHsc  = 0.f;
+}
+
+Gdiplus::Bitmap* FanWindow::RenderShadow(Gdiplus::Bitmap* srcBmp, float drawSz, float hsc) {
+    if (!srcBmp) return nullptr;
+    float hoverT = (hsc - 1.f) / (HoverScaleMax - 1.f);
+    struct ShadowPass { float offset; float peakAlpha; };
+    static const ShadowPass passes[] = {
+        {2.f, 18.f}, {4.f, 14.f}, {6.f, 10.f}, {8.f, 6.f}, {11.f, 3.f}
+    };
+    float maxOff = 11.f;
+    float margin = maxOff;
+    int   bmpSz  = (int)(drawSz + margin * 2.f + 0.5f);
+    auto* result = new Gdiplus::Bitmap(bmpSz, bmpSz, PixelFormat32bppARGB);
+    Gdiplus::Graphics g(result);
+    g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+    Gdiplus::ImageAttributes ia;
+    for (auto& pass : passes) {
+        int alpha = (int)(hoverT * pass.peakAlpha);
+        if (alpha <= 0) continue;
+        float shadowAlphaF = (float)alpha / 255.f;
+        Gdiplus::ColorMatrix shadowCm = {
+            0,0,0,0,0,  0,0,0,0,0,  0,0,0,0,0,
+            0,0,0, shadowAlphaF, 0,
+            0,0,0,0,1
+        };
+        ia.SetColorMatrix(&shadowCm, Gdiplus::ColorMatrixFlagsDefault,
+                          Gdiplus::ColorAdjustTypeBitmap);
+        float offsets[] = {-pass.offset, 0.f, pass.offset};
+        for (float ox : offsets) for (float oy : offsets) {
+            if (ox == 0.f && oy == 0.f) continue;
+            DrawCachedBitmapIA(g, srcBmp, margin + ox, margin + oy, drawSz, &ia);
+        }
+    }
+    _shadowOffX = margin;
+    _shadowOffY = margin;
+    return result;
 }
 
 void FanWindow::FreeBackBuffer() {
@@ -567,12 +611,14 @@ void FanWindow::DrawToLayeredWindow() {
         if (!_hBackDIB || !_hdcBack) { FreeBackBuffer(); return; }
         SelectObject(_hdcBack, _hBackDIB);
 
-        _backBmp = new Gdiplus::Bitmap(_winWidth, _winHeight, PixelFormat32bppARGB);
+        // Wrap DIB memory directly — GDI+ renders into the DIB, no extra copy needed
+        _backBmp = new Gdiplus::Bitmap(_winWidth, _winHeight, _winWidth * 4,
+                                       PixelFormat32bppARGB, (BYTE*)_pBackBits);
         _backW   = _winWidth;
         _backH   = _winHeight;
     }
 
-    // Clear and render into the cached GDI+ bitmap
+    // Clear and render into the DIB-backed GDI+ bitmap
     {
         Gdiplus::Graphics g(_backBmp);
         g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
@@ -610,23 +656,23 @@ void FanWindow::DrawToLayeredWindow() {
         }
     }
 
-    Gdiplus::Rect rect(0, 0, _winWidth, _winHeight);
-    Gdiplus::BitmapData bd;
-    if (_backBmp->LockBits(&rect,
-                           Gdiplus::ImageLockModeRead | Gdiplus::ImageLockModeWrite,
-                           PixelFormat32bppARGB, &bd) == Gdiplus::Ok) {
-        PremultiplyBitmap(bd);
-        auto* src = static_cast<BYTE*>(bd.Scan0);
-        auto* dst = static_cast<BYTE*>(_pBackBits);
-        if ((int)bd.Stride == _winWidth * 4) {
-            memcpy(dst, src, (size_t)_winHeight * _winWidth * 4);
-        } else {
-            for (int y = 0; y < _winHeight; y++)
-                memcpy(dst + (size_t)y * _winWidth * 4,
-                       src + (size_t)y * bd.Stride,
-                       (size_t)_winWidth * 4);
+    // Premultiply alpha in-place on the DIB bits (no LockBits/memcpy needed)
+    {
+        BYTE* px = static_cast<BYTE*>(_pBackBits);
+        int stride = _winWidth * 4;
+        for (int y = 0; y < _winHeight; y++) {
+            BYTE* row = px + y * stride;
+            for (int x = 0; x < _winWidth; x++, row += 4) {
+                BYTE a = row[3];
+                if (a == 0) {
+                    row[0] = row[1] = row[2] = 0;
+                } else if (a < 255) {
+                    row[0] = (BYTE)((row[0] * a + 128) >> 8);
+                    row[1] = (BYTE)((row[1] * a + 128) >> 8);
+                    row[2] = (BYTE)((row[2] * a + 128) >> 8);
+                }
+            }
         }
-        _backBmp->UnlockBits(&bd);
     }
 
     HDC hdcScreen = GetDC(nullptr);
@@ -648,7 +694,6 @@ Gdiplus::Bitmap* FanWindow::HBitmapToGdiBitmap(HBITMAP hBmp) {
 
     int w = bm.bmWidth;
     int h = std::abs(bm.bmHeight);
-    std::vector<BYTE> bits((size_t)w * h * 4);
 
     // For DIB sections, read raw bits directly to preserve premultiplied alpha
     // (GetDIBits with BI_RGB zeroes the alpha channel, breaking transparent icons).
@@ -661,33 +706,58 @@ Gdiplus::Bitmap* FanWindow::HBitmapToGdiBitmap(HBITMAP hBmp) {
         bool topDown = (ds.dsBmih.biHeight < 0);
         int  stride  = ds.dsBm.bmWidthBytes;
         BYTE* src    = static_cast<BYTE*>(ds.dsBm.bmBits);
-        for (int row = 0; row < h; row++) {
-            int srcRow = topDown ? row : (h - 1 - row);
-            memcpy(bits.data() + (size_t)row * w * 4,
-                   src + (size_t)srcRow * stride, (size_t)w * 4);
-        }
+
+        // For top-down DIBs where stride == w*4, we can wrap memory directly
+        // and avoid the intermediate vector + LockBits copy entirely.
+        bool needsFlip = !topDown;
         bool hasAlpha = false;
-        for (int i = 0; i < w * h && !hasAlpha; i++)
-            if (bits[(size_t)i * 4 + 3] != 0) hasAlpha = true;
-        if (!hasAlpha)
-            for (int i = 0; i < w * h; i++) bits[(size_t)i * 4 + 3] = 255;
-    } else {
-        HDC     hdc  = CreateCompatibleDC(nullptr);
-        HBITMAP hOld = (HBITMAP)SelectObject(hdc, hBmp);
-        BITMAPINFO bi = {};
-        bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
-        bi.bmiHeader.biWidth       = w;
-        bi.bmiHeader.biHeight      = -h;
-        bi.bmiHeader.biPlanes      = 1;
-        bi.bmiHeader.biBitCount    = 32;
-        bi.bmiHeader.biCompression = BI_RGB;
-        GetDIBits(hdc, hBmp, 0, h, bits.data(), &bi, DIB_RGB_COLORS);
-        SelectObject(hdc, hOld);
-        DeleteDC(hdc);
-        for (int i = 0; i < w * h; i++) bits[(size_t)i * 4 + 3] = 255;
+
+        // Check alpha in the source pixels
+        for (int i = 0; i < w * h && !hasAlpha; i++) {
+            BYTE* px = src + (size_t)i * 4;
+            if (px[3] != 0) hasAlpha = true;
+        }
+
+        // We still need a copy when: row order must be flipped or alpha must be patched.
+        // But we create the bitmap first and LockBits into it directly (no intermediate vector).
+        auto* bmpG = new Gdiplus::Bitmap(w, h, PixelFormat32bppARGB);
+        if (!bmpG) return nullptr;
+        Gdiplus::Rect rect(0, 0, w, h);
+        Gdiplus::BitmapData bd;
+        if (bmpG->LockBits(&rect, Gdiplus::ImageLockModeWrite,
+                           PixelFormat32bppARGB, &bd) == Gdiplus::Ok) {
+            for (int row = 0; row < h; row++) {
+                int srcRow = needsFlip ? (h - 1 - row) : row;
+                memcpy(static_cast<BYTE*>(bd.Scan0) + row * bd.Stride,
+                       src + (size_t)srcRow * stride, (size_t)w * 4);
+            }
+            if (!hasAlpha) {
+                for (int row = 0; row < h; row++) {
+                    BYTE* px = static_cast<BYTE*>(bd.Scan0) + row * bd.Stride;
+                    for (int x = 0; x < w; x++, px += 4) px[3] = 255;
+                }
+            }
+            bmpG->UnlockBits(&bd);
+        }
+        return bmpG;
     }
 
-    // Create an owning Gdiplus::Bitmap (LockBits copies pixels into GDI+ memory)
+    // Non-DIB path: use GetDIBits (rare — most shell bitmaps are DIBs)
+    std::vector<BYTE> bits((size_t)w * h * 4);
+    HDC     hdc  = CreateCompatibleDC(nullptr);
+    HBITMAP hOld = (HBITMAP)SelectObject(hdc, hBmp);
+    BITMAPINFO bi = {};
+    bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth       = w;
+    bi.bmiHeader.biHeight      = -h;
+    bi.bmiHeader.biPlanes      = 1;
+    bi.bmiHeader.biBitCount    = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    GetDIBits(hdc, hBmp, 0, h, bits.data(), &bi, DIB_RGB_COLORS);
+    SelectObject(hdc, hOld);
+    DeleteDC(hdc);
+    for (int i = 0; i < w * h; i++) bits[(size_t)i * 4 + 3] = 255;
+
     auto* bmpG = new Gdiplus::Bitmap(w, h, PixelFormat32bppARGB);
     if (!bmpG) return nullptr;
     Gdiplus::Rect rect(0, 0, w, h);
@@ -866,27 +936,19 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
 
     bool hoverActive = (idx < (int)_hoverScale.size() && _hoverScale[idx] > 1.01f);
     if (!isArrow && hoverActive && gdiBmp != nullptr) {
-        float hoverT = (hsc - 1.f) / (HoverScaleMax - 1.f);
-        struct ShadowPass { float offset; float peakAlpha; };
-        static const ShadowPass passes[] = {
-            {2.f, 18.f}, {4.f, 14.f}, {6.f, 10.f}, {8.f, 6.f}, {11.f, 3.f}
-        };
-        for (auto& pass : passes) {
-            int alpha = (int)(hoverT * pass.peakAlpha);
-            if (alpha <= 0) continue;
-            float shadowAlphaF = (float)alpha / 255.f;
-            Gdiplus::ColorMatrix shadowCm = {
-                0,0,0,0,0,  0,0,0,0,0,  0,0,0,0,0,
-                0,0,0, shadowAlphaF, 0,
-                0,0,0,0,1
-            };
-            _drawIA->SetColorMatrix(&shadowCm, Gdiplus::ColorMatrixFlagsDefault,
-                                    Gdiplus::ColorAdjustTypeBitmap);
-            float offsets[] = {-pass.offset, 0.f, pass.offset};
-            for (float ox : offsets) for (float oy : offsets) {
-                if (ox == 0.f && oy == 0.f) continue;
-                DrawCachedBitmapIA(g, gdiBmp, iconX + ox, iconY + oy, drawSz, _drawIA);
-            }
+        // Rebuild shadow bitmap only when hover target or scale changes significantly
+        float quantHsc = floorf(hsc * 20.f + 0.5f) / 20.f;  // quantize to avoid thrashing
+        if (_shadowIdx != idx || _shadowHsc != quantHsc) {
+            delete _shadowBmp;
+            _shadowBmp  = RenderShadow(gdiBmp, drawSz, hsc);
+            _shadowIdx  = idx;
+            _shadowHsc  = quantHsc;
+        }
+        if (_shadowBmp) {
+            g.DrawImage(_shadowBmp,
+                        iconX - _shadowOffX, iconY - _shadowOffY,
+                        (float)_shadowBmp->GetWidth(),
+                        (float)_shadowBmp->GetHeight());
         }
     }
 
@@ -1108,68 +1170,53 @@ void FanWindow::StartIconLoad(int idx) {
     std::wstring tp = _items[idx].targetPath; // may be empty if fast-scan was used
     int       sz   = _iconSize;
 
-    std::thread([hwnd, idx, p, tp, sz]() mutable {
+    struct IconWork { HWND hwnd; int idx; std::wstring p, tp; int sz; };
+    auto* work = new IconWork{hwnd, idx, std::move(p), std::move(tp), sz};
+
+    TrySubmitThreadpoolCallback([](PTP_CALLBACK_INSTANCE, PVOID ctx) {
+        auto* w = static_cast<IconWork*>(ctx);
+        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+
         // Resolve .lnk target lazily if prewarm fast-scan skipped it
-        if (tp.empty()) {
-            auto dot = p.rfind(L'.');
+        if (w->tp.empty()) {
+            auto dot = w->p.rfind(L'.');
             if (dot != std::wstring::npos) {
-                std::wstring ext = p.substr(dot);
+                std::wstring ext = w->p.substr(dot);
                 for (auto& c : ext) c = (wchar_t)towlower(c);
                 if (ext == L".lnk") {
                     bool isDir = false;
-                    std::wstring resolved = [&]() -> std::wstring {
-                        IShellLinkW* psl = nullptr;
-                        if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
-                                                    IID_IShellLinkW, (void**)&psl))) return {};
-                        std::wstring r;
-                        IPersistFile* ppf = nullptr;
-                        if (SUCCEEDED(psl->QueryInterface(IID_IPersistFile, (void**)&ppf))) {
-                            if (SUCCEEDED(ppf->Load(p.c_str(), STGM_READ))) {
-                                wchar_t target[MAX_PATH] = {};
-                                if (SUCCEEDED(psl->GetPath(target, MAX_PATH, nullptr, SLGP_RAWPATH)) && target[0]) {
-                                    DWORD attr = GetFileAttributesW(target);
-                                    if (attr != INVALID_FILE_ATTRIBUTES) {
-                                        r = target;
-                                        isDir = (attr & FILE_ATTRIBUTE_DIRECTORY) != 0;
-                                    }
-                                }
-                            }
-                            ppf->Release();
-                        }
-                        psl->Release();
-                        return r;
-                    }();
+                    std::wstring resolved = FileService::ResolveLnk(w->p, isDir);
                     if (!resolved.empty() && !isDir)
-                        tp = resolved;
+                        w->tp = resolved;
                 }
             }
         }
 
         // Use resolved target for content thumbnails, fall back to .lnk path for shell icon
-        const std::wstring& contentPath = tp.empty() ? p : tp;
+        const std::wstring& contentPath = w->tp.empty() ? w->p : w->tp;
         HBITMAP bmp = nullptr;
 
         // Detect online items (SharePoint / OneDrive) — p is a URL, tp is the filename
-        const bool isOnline = (p.size() > 8 &&
-                               (_wcsnicmp(p.c_str(), L"https://", 8) == 0 ||
-                                _wcsnicmp(p.c_str(), L"http://",  7) == 0));
+        const bool isOnline = (w->p.size() > 8 &&
+                               (_wcsnicmp(w->p.c_str(), L"https://", 8) == 0 ||
+                                _wcsnicmp(w->p.c_str(), L"http://",  7) == 0));
 
         if (!isOnline) {
             if (FileService::IsSvgExtension(contentPath))
-                bmp = FileService::GetSvgThumbnail(contentPath, sz);
+                bmp = FileService::GetSvgThumbnail(contentPath, w->sz);
 
             if (!bmp && FileService::IsGdiImageExtension(contentPath))
-                bmp = FileService::GetImageThumbnail(contentPath, sz);
+                bmp = FileService::GetImageThumbnail(contentPath, w->sz);
 
             if (!bmp && FileService::IsShellThumbnailExtension(contentPath))
-                bmp = FileService::GetShellThumbnail(contentPath, sz);
+                bmp = FileService::GetShellThumbnail(contentPath, w->sz);
 
             if (!bmp)
-                bmp = FileService::GetShellBitmap(p, sz);  // shell resolves .lnk for icon
+                bmp = FileService::GetShellBitmap(w->p, w->sz);  // shell resolves .lnk for icon
         }
 
         if (bmp) {
-            PostMessageW(hwnd, WM_ICON_BITMAP, (WPARAM)idx, (LPARAM)bmp);
+            PostMessageW(w->hwnd, WM_ICON_BITMAP, (WPARAM)w->idx, (LPARAM)bmp);
         } else {
             // For online items use the filename/extension for type icon lookup;
             // for local items fall back to the full path.
@@ -1177,30 +1224,32 @@ void FanWindow::StartIconLoad(int idx) {
             if (isOnline) {
                 // tp should be the filename (e.g. "document.docx") — guard against
                 // tp accidentally containing a URL by checking for "://"
-                if (!tp.empty() && tp.find(L"://") == std::wstring::npos)
-                    iconPath = tp;
-                else if (!tp.empty()) {
-                    auto sl = tp.rfind(L'/');
-                    auto qs = tp.find(L'?');
+                if (!w->tp.empty() && w->tp.find(L"://") == std::wstring::npos)
+                    iconPath = w->tp;
+                else if (!w->tp.empty()) {
+                    auto sl = w->tp.rfind(L'/');
+                    auto qs = w->tp.find(L'?');
                     iconPath = (sl != std::wstring::npos)
-                        ? tp.substr(sl + 1, qs == std::wstring::npos ? std::wstring::npos : qs - sl - 1)
-                        : tp;
+                        ? w->tp.substr(sl + 1, qs == std::wstring::npos ? std::wstring::npos : qs - sl - 1)
+                        : w->tp;
                 }
             } else {
-                iconPath = p;
+                iconPath = w->p;
             }
             if (isOnline) {
-                HBITMAP iconBmp = FileService::GetShellBitmapByExtension(iconPath, sz);
-                PostMessageW(hwnd, WM_ICON_BITMAP, (WPARAM)idx, (LPARAM)iconBmp);
+                HBITMAP iconBmp = FileService::GetShellBitmapByExtension(iconPath, w->sz);
+                PostMessageW(w->hwnd, WM_ICON_BITMAP, (WPARAM)w->idx, (LPARAM)iconBmp);
             } else {
                 HICON ico = FileService::GetShellIcon(iconPath);
                 if (ico)
-                    PostMessageW(hwnd, WM_ICON_ICON, (WPARAM)idx, (LPARAM)ico);
+                    PostMessageW(w->hwnd, WM_ICON_ICON, (WPARAM)w->idx, (LPARAM)ico);
                 else
-                    PostMessageW(hwnd, WM_ICON_BITMAP, (WPARAM)idx, (LPARAM)nullptr);
+                    PostMessageW(w->hwnd, WM_ICON_BITMAP, (WPARAM)w->idx, (LPARAM)nullptr);
             }
         }
-    }).detach();
+        CoUninitialize();
+        delete w;
+    }, work, nullptr);
 }
 
 // ---------------------------------------------------------------------------
