@@ -225,38 +225,89 @@ void FanWindow::Reposition() {
 }
 
 // ---------------------------------------------------------------------------
-// Walk Shell_TrayWnd → ReBarWindow32 → MSTaskSwWClass → MSTaskListWClass,
-// enumerate child windows to find the button belonging to our process.
-// Returns the button centre X on success, -1 on failure.
-int FanWindow::FindTaskbarButtonCenter(RECT taskbarRect) {
+// Find the taskbar window on a specific monitor.
+// Checks Shell_TrayWnd (primary) and all Shell_SecondaryTrayWnd windows.
+// outRect receives the taskbar's window rect on success.
+HWND FanWindow::FindTaskbarOnMonitor(HMONITOR hMon, RECT& outRect) {
+    // Check primary taskbar first
+    HWND hTray = FindWindowW(L"Shell_TrayWnd", nullptr);
+    if (hTray) {
+        RECT r = {};
+        GetWindowRect(hTray, &r);
+        if (MonitorFromRect(&r, MONITOR_DEFAULTTONEAREST) == hMon) {
+            outRect = r;
+            return hTray;
+        }
+    }
+
+    // Search secondary taskbars
+    struct Ctx { HMONITOR hMon; HWND hFound; RECT rect; };
+    Ctx ctx { hMon, nullptr, {} };
+    EnumWindows([](HWND hwnd, LPARAM lp) -> BOOL {
+        wchar_t cls[64] = {};
+        GetClassNameW(hwnd, cls, 64);
+        if (wcscmp(cls, L"Shell_SecondaryTrayWnd") != 0) return TRUE;
+        RECT r = {};
+        GetWindowRect(hwnd, &r);
+        auto* c = reinterpret_cast<Ctx*>(lp);
+        if (MonitorFromRect(&r, MONITOR_DEFAULTTONEAREST) == c->hMon) {
+            c->hFound = hwnd;
+            c->rect   = r;
+            return FALSE;
+        }
+        return TRUE;
+    }, (LPARAM)&ctx);
+    if (ctx.hFound) { outRect = ctx.rect; return ctx.hFound; }
+
+    // Fallback: primary taskbar rect even if on wrong monitor
+    if (hTray) { GetWindowRect(hTray, &outRect); return hTray; }
+    return nullptr;
+}
+
+// ---------------------------------------------------------------------------
+// Walk taskbar window tree to find the button belonging to our process.
+// Handles both primary (Shell_TrayWnd) and secondary (Shell_SecondaryTrayWnd).
+// Returns the button centre X (or Y for vertical taskbar) on success, -1 on failure.
+int FanWindow::FindTaskbarButtonCenter(HWND hTaskbar, RECT taskbarRect) {
+    if (!hTaskbar) return -1;
     DWORD ourPid = GetCurrentProcessId();
 
     auto findChild = [](HWND parent, const wchar_t* cls) -> HWND {
         return FindWindowExW(parent, nullptr, cls, nullptr);
     };
 
-    HWND tray  = FindWindowW(L"Shell_TrayWnd", nullptr);
-    if (tray) {
-        HWND rebar = findChild(tray,  L"ReBarWindow32");
-        HWND sw    = findChild(rebar ? rebar : tray, L"MSTaskSwWClass");
-        HWND list  = findChild(sw    ? sw    : tray, L"MSTaskListWClass");
-        if (list) {
-            struct FindCtx { DWORD pid; int center; };
-            FindCtx ctx { ourPid, -1 };
-            EnumChildWindows(list, [](HWND hwnd, LPARAM lp) -> BOOL {
-                auto* ctx = reinterpret_cast<FindCtx*>(lp);
-                DWORD pid = 0;
-                GetWindowThreadProcessId(hwnd, &pid);
-                if (pid != ctx->pid) return TRUE;
-                RECT r = {};
-                GetWindowRect(hwnd, &r);
-                ctx->center = (r.left + r.right) / 2;
-                return FALSE;  // stop enumeration
-            }, (LPARAM)&ctx);
-            if (ctx.center >= 0) {
-                s_lastTaskbarAnchorX = ctx.center;
-                return ctx.center;
-            }
+    // Primary taskbar: Shell_TrayWnd → ReBarWindow32 → MSTaskSwWClass → MSTaskListWClass
+    // Secondary taskbar: Shell_SecondaryTrayWnd → WorkerW → MSTaskListWClass  (or direct child)
+    HWND list = nullptr;
+    wchar_t cls[64] = {};
+    GetClassNameW(hTaskbar, cls, 64);
+    if (wcscmp(cls, L"Shell_TrayWnd") == 0) {
+        HWND rebar = findChild(hTaskbar, L"ReBarWindow32");
+        HWND sw    = findChild(rebar ? rebar : hTaskbar, L"MSTaskSwWClass");
+        list       = findChild(sw    ? sw    : hTaskbar, L"MSTaskListWClass");
+    } else {
+        // Secondary: try WorkerW child first, then direct child
+        HWND worker = findChild(hTaskbar, L"WorkerW");
+        list = findChild(worker ? worker : hTaskbar, L"MSTaskListWClass");
+        if (!list) list = findChild(hTaskbar, L"MSTaskListWClass");
+    }
+
+    if (list) {
+        struct FindCtx { DWORD pid; int center; };
+        FindCtx ctx { ourPid, -1 };
+        EnumChildWindows(list, [](HWND hwnd, LPARAM lp) -> BOOL {
+            auto* ctx = reinterpret_cast<FindCtx*>(lp);
+            DWORD pid = 0;
+            GetWindowThreadProcessId(hwnd, &pid);
+            if (pid != ctx->pid) return TRUE;
+            RECT r = {};
+            GetWindowRect(hwnd, &r);
+            ctx->center = (r.left + r.right) / 2;
+            return FALSE;  // stop enumeration
+        }, (LPARAM)&ctx);
+        if (ctx.center >= 0) {
+            s_lastTaskbarAnchorX = ctx.center;
+            return ctx.center;
         }
     }
 
@@ -294,18 +345,14 @@ void FanWindow::CalculateLayout() {
     POINT cursor = {};
     GetCursorPos(&cursor);
 
-    // GetWindowRect(Shell_TrayWnd) returns coordinates in the calling process's
-    // DPI context (per-monitor logical pixels), consistent with GetCursorPos and
-    // GetMonitorInfoW.  SHAppBarMessage returns physical/system-DPI coordinates
-    // which mismatch on monitors with non-100% DPI scaling — do NOT use it.
-    RECT tbRect = {};
-    HWND hTray = FindWindowW(L"Shell_TrayWnd", nullptr);
-    if (hTray)
-        GetWindowRect(hTray, &tbRect);
-
-    HMONITOR hMon = MonitorFromRect(&tbRect, MONITOR_DEFAULTTOPRIMARY);
+    // Find the monitor the cursor is on — this is where the fan should appear.
+    HMONITOR hCursorMon = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
     MONITORINFO mi = { sizeof(mi) };
-    GetMonitorInfoW(hMon, &mi);
+    GetMonitorInfoW(hCursorMon, &mi);
+
+    // Find the taskbar window on that specific monitor (primary or secondary).
+    RECT tbRect = {};
+    HWND hTaskbar = FindTaskbarOnMonitor(hCursorMon, tbRect);
     int screenH = mi.rcMonitor.bottom - mi.rcMonitor.top;
 
     _maxStackHeight = (int)(screenH * 0.75f);
@@ -353,7 +400,7 @@ void FanWindow::CalculateLayout() {
     // the walk fails — the cursor must be on the taskbar for it to be meaningful.
     int anchorX, anchorY;
     if (taskbarAtBottom || taskbarAtTop) {
-        int walked = FindTaskbarButtonCenter(tbRect);   // updates s_lastTaskbarAnchorX on success
+        int walked = FindTaskbarButtonCenter(hTaskbar, tbRect);   // updates s_lastTaskbarAnchorX on success
         if (walked >= 0) {
             anchorX = walked;
         } else if (cursorOnTaskbar) {
@@ -367,7 +414,7 @@ void FanWindow::CalculateLayout() {
         anchorY = cursor.y;
     } else {
         // Vertical taskbar — same logic for Y axis
-        int walked = FindTaskbarButtonCenter(tbRect);
+        int walked = FindTaskbarButtonCenter(hTaskbar, tbRect);
         if (walked >= 0) {
             anchorY = walked;
         } else if (cursorOnTaskbar) {

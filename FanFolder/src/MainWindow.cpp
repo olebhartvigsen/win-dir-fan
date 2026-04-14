@@ -121,9 +121,11 @@ void MainWindow::OpenFan() {
 
     std::vector<FileItem> items = prewarm.ready
         ? std::move(prewarm.items)
-        : FileService::ScanFolder(_config.folderPath, _config.maxItems,
-                                  _config.includeDirs, _config.filterRegex, _config.sortMode,
-                                  false, _hwnd);
+        : !_cachedItems.empty()
+            ? _cachedItems   // open instantly with last known list; icons load async
+            : FileService::ScanFolder(_config.folderPath, _config.maxItems,
+                                      _config.includeDirs, _config.filterRegex, _config.sortMode,
+                                      false, _hwnd);
 
     _fanWindow = std::make_unique<FanWindow>(_hInst, _hwnd, _config, std::move(items));
 
@@ -656,6 +658,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             if (data->gen == self->_prewarmGen.load()) {
                 self->_prewarm.FreeHandles();
                 self->_prewarm = std::move(*data);
+                // Keep a copy of the item list as fallback for fast open
+                self->_cachedItems = self->_prewarm.items;
             } else {
                 data->FreeHandles();
             }

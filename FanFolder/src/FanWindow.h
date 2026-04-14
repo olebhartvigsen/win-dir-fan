@@ -107,7 +107,8 @@ private:
     void RebuildFontCache();
     void RebuildLabelCache();
     void CalculateLayout();
-    static int FindTaskbarButtonCenter(RECT taskbarRect);
+    static HWND FindTaskbarOnMonitor(HMONITOR hMon, RECT& outRect);
+    static int  FindTaskbarButtonCenter(HWND hTaskbar, RECT taskbarRect);
     void DrawToLayeredWindow();
     void DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha);
     std::wstring ItemLabel(int idx) const;

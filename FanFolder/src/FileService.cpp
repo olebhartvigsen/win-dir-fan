@@ -245,7 +245,12 @@ static void ParseCustomDestFile(
                     if (!docPath.empty()
                         && !IsApplicationExtension(docPath.c_str())
                         && IsAllowedRecentDocExtension(docPath.c_str())) {
-                        // Case-insensitive dedup
+                        // Normalize to long path and lowercase for dedup
+                        if (!isOnline) {
+                            wchar_t longPath[MAX_PATH] = {};
+                            if (GetLongPathNameW(docPath.c_str(), longPath, MAX_PATH) > 0)
+                                docPath = longPath;
+                        }
                         std::wstring key = docPath;
                         CharLowerW(key.data());
                         if (seen.insert(key).second) {
@@ -711,39 +716,121 @@ static std::vector<FileItem> ScanRecentDocs(int maxItems, ConfigData::SortMode s
     // CustomDestinations may have pinned/manual items not in AutomaticDestinations.
     ScanCustomDestinations(maxItems, items, seen);
 
-    auto cmpFt = [](const FILETIME& a, const FILETIME& b) {
+    if (!includeDirs)
+        items.erase(std::remove_if(items.begin(), items.end(),
+            [](const FileItem& f) { return f.isDirectory; }), items.end());
+
+    // Supplement with %APPDATA%\Recent\*.lnk — catches files opened by apps
+    // (e.g. PDF readers, browsers) that don't write to AutomaticDestinations.
+    {
+        wchar_t recentDir[MAX_PATH] = {};
+        if (SHGetFolderPathW(nullptr, CSIDL_RECENT, nullptr, SHGFP_TYPE_CURRENT, recentDir) == S_OK) {
+            struct LnkEntry { std::wstring path; FILETIME mtime; };
+            std::vector<LnkEntry> lnks;
+            WIN32_FIND_DATAW fd2 = {};
+            HANDLE hFind2 = FindFirstFileW((std::wstring(recentDir) + L"\\*.lnk").c_str(), &fd2);
+            if (hFind2 != INVALID_HANDLE_VALUE) {
+                do {
+                    if (!(fd2.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+                        lnks.push_back({ std::wstring(recentDir) + L"\\" + fd2.cFileName,
+                                          fd2.ftLastWriteTime });
+                } while (FindNextFileW(hFind2, &fd2));
+                FindClose(hFind2);
+            }
+            // Process in newest-first order so freshest items fill remaining slots
+            std::sort(lnks.begin(), lnks.end(), [](const LnkEntry& a, const LnkEntry& b) {
+                return CompareFileTime(&a.mtime, &b.mtime) > 0;
+            });
+            for (const auto& lf : lnks) {
+                IShellLinkW* pLink = nullptr;
+                if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
+                                            IID_IShellLinkW, (void**)&pLink))) continue;
+                IPersistFile* pPF = nullptr;
+                if (SUCCEEDED(pLink->QueryInterface(IID_IPersistFile, (void**)&pPF))) {
+                    if (SUCCEEDED(pPF->Load(lf.path.c_str(), STGM_READ))) {
+                        wchar_t rawPath[MAX_PATH] = {};
+                        pLink->GetPath(rawPath, MAX_PATH, nullptr, SLGP_RAWPATH);
+                        std::wstring docPath;
+                        if (rawPath[0]) {
+                            wchar_t expanded[MAX_PATH] = {};
+                            ExpandEnvironmentStringsW(rawPath, expanded, MAX_PATH);
+                            // Normalize to long path so dedup matches AutoDest entries
+                            wchar_t longPath[MAX_PATH] = {};
+                            if (GetLongPathNameW(expanded, longPath, MAX_PATH) > 0)
+                                docPath = longPath;
+                            else
+                                docPath = expanded;
+                        }
+                        if (!docPath.empty()
+                            && !IsApplicationExtension(docPath.c_str())
+                            && IsAllowedRecentDocExtension(docPath.c_str())) {
+                            std::wstring key = docPath;
+                            CharLowerW(key.data());
+                            if (seen.insert(key).second) {
+                                DWORD attr = GetFileAttributesW(docPath.c_str());
+                                bool exists = (attr != INVALID_FILE_ATTRIBUTES);
+                                bool isDir  = exists && (attr & FILE_ATTRIBUTE_DIRECTORY) != 0;
+                                if (exists && (!isDir || includeDirs)) {
+                                    FileItem item;
+                                    item.fullPath      = docPath;
+                                    item.isDirectory   = isDir;
+                                    item.lastWriteTime = lf.mtime;
+                                    item.creationTime  = lf.mtime;
+                                    const wchar_t* namePtr = PathFindFileNameW(docPath.c_str());
+                                    item.name = (namePtr && *namePtr) ? namePtr : docPath;
+                                    items.push_back(std::move(item));
+                                }
+                            }
+                        }
+                    }
+                    pPF->Release();
+                }
+                pLink->Release();
+            }
+        }
+    }
+
+    // Sort first so AutoDest entries (with real paths/good icons) come before
+    // ghost .lnk entries — name-dedup then keeps the best one.
+    auto cmpFt2 = [](const FILETIME& a, const FILETIME& b) {
         return CompareFileTime(&a, &b) > 0;
     };
     switch (sortMode) {
     case ConfigData::SortMode::DateModifiedAsc:
         std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
-            return CompareFileTime(&a.lastWriteTime, &b.lastWriteTime) < 0; });
-        break;
+            return CompareFileTime(&a.lastWriteTime, &b.lastWriteTime) < 0; }); break;
     case ConfigData::SortMode::DateCreatedDesc:
-        std::sort(items.begin(), items.end(), [&](const FileItem& a, const FileItem& b) {
-            return CompareFileTime(&a.creationTime, &b.creationTime) > 0; });
-        break;
+        std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
+            return CompareFileTime(&a.creationTime, &b.creationTime) > 0; }); break;
     case ConfigData::SortMode::DateCreatedAsc:
-        std::sort(items.begin(), items.end(), [&](const FileItem& a, const FileItem& b) {
-            return CompareFileTime(&a.creationTime, &b.creationTime) < 0; });
-        break;
+        std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
+            return CompareFileTime(&a.creationTime, &b.creationTime) < 0; }); break;
     case ConfigData::SortMode::NameAsc:
         std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
-            return _wcsicmp(a.name.c_str(), b.name.c_str()) < 0; });
-        break;
+            return _wcsicmp(a.name.c_str(), b.name.c_str()) < 0; }); break;
     case ConfigData::SortMode::NameDesc:
         std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
-            return _wcsicmp(a.name.c_str(), b.name.c_str()) > 0; });
-        break;
-    default:  // DateModifiedDesc
+            return _wcsicmp(a.name.c_str(), b.name.c_str()) > 0; }); break;
+    default:
         std::sort(items.begin(), items.end(), [&](const FileItem& a, const FileItem& b) {
-            return cmpFt(a.lastWriteTime, b.lastWriteTime); });
-        break;
+            return cmpFt2(a.lastWriteTime, b.lastWriteTime); }); break;
     }
 
-    if (!includeDirs)
-        items.erase(std::remove_if(items.begin(), items.end(),
-            [](const FileItem& f) { return f.isDirectory; }), items.end());
+    // Secondary dedup by lowercase filename — catches path-format mismatches
+    // between AutoDest and .lnk sources (e.g. 8.3 vs long path, env-var expansion).
+    // After sorting, the first occurrence is always the fresher/better entry.
+    {
+        std::unordered_set<std::wstring> seenNames;
+        auto it = items.begin();
+        while (it != items.end()) {
+            std::wstring nameKey = it->name;
+            CharLowerW(nameKey.data());
+            if (!seenNames.insert(nameKey).second)
+                it = items.erase(it);
+            else
+                ++it;
+        }
+    }
 
     if ((int)items.size() > maxItems) items.resize(maxItems);
 

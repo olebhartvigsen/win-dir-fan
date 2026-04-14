@@ -45,6 +45,7 @@ private:
         }
     };
     PrewarmData          _prewarm;
+    std::vector<FileItem> _cachedItems;   // last known-good item list; used when prewarm not yet ready
     std::mutex           _prewarmMutex;
     std::atomic<int>     _prewarmGen{0};  // incremented each StartPrewarm; stale threads self-discard
 
