@@ -63,7 +63,7 @@ MainWindow::~MainWindow() {
 bool MainWindow::Create() {
     _hwnd = CreateWindowExW(
         0,
-        ClassName(), L"Fan Folder",
+        ClassName(), L"FanFolder",
         WS_OVERLAPPEDWINDOW | WS_MINIMIZE,
         -32000, -32000, 1, 1,
         nullptr, nullptr, _hInst, this);
@@ -82,12 +82,15 @@ bool MainWindow::Create() {
     DwmSetWindowAttribute(_hwnd, DWMWA_EXCLUDED_FROM_PEEK,          &val, sizeof(val));
 
     // Set taskbar icon from embedded resource
-    HICON hIcoSmall = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
-                                         IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
-    HICON hIcoBig   = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
-                                         IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
-    if (hIcoSmall) SendMessageW(_hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIcoSmall);
-    if (hIcoBig)   SendMessageW(_hwnd, WM_SETICON, ICON_BIG,   (LPARAM)hIcoBig);
+    _icoSmall     = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
+                                       IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
+    _icoBig       = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
+                                       IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
+    _icoOpenSmall = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP_OPEN),
+                                       IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
+    _icoOpenBig   = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP_OPEN),
+                                       IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
+    SetTaskbarIcon(false);
 
     StartPrewarm();
     AddTrayIcon();
@@ -139,6 +142,7 @@ void MainWindow::OpenFan() {
         _fanWindow->Show();
         _fanOpen     = true;
         _fanOpenTick = GetTickCount();
+        SetTaskbarIcon(true);
         InstallHooks();
     } else {
         _fanWindow.reset();
@@ -153,8 +157,17 @@ void MainWindow::CloseFan() {
     }
     _fanOpen = false;
     _lastToggleTick = GetTickCount();  // prevent SC_RESTORE from immediately reopening
+    SetTaskbarIcon(false);
     ShowWindow(_hwnd, SW_SHOWMINNOACTIVE);
     StartPrewarm();  // pre-load icons while idle, ready for next open
+}
+
+// ---------------------------------------------------------------------------
+void MainWindow::SetTaskbarIcon(bool open) {
+    HICON sm = open ? _icoOpenSmall : _icoSmall;
+    HICON lg = open ? _icoOpenBig   : _icoBig;
+    if (sm) SendMessageW(_hwnd, WM_SETICON, ICON_SMALL, (LPARAM)sm);
+    if (lg) SendMessageW(_hwnd, WM_SETICON, ICON_BIG,   (LPARAM)lg);
 }
 
 // ---------------------------------------------------------------------------
@@ -248,17 +261,14 @@ void MainWindow::StartPrewarm() {
 // ─── Tray icon ──────────────────────────────────────────────────────────────
 
 void MainWindow::AddTrayIcon() {
-    HICON hIco = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
-                                    IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
-
     _nid             = {};
     _nid.cbSize      = sizeof(_nid);
     _nid.hWnd        = _hwnd;
     _nid.uID         = 1;
     _nid.uFlags      = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     _nid.uCallbackMessage = WM_TRAYICON;
-    _nid.hIcon       = hIco;
-    wcscpy_s(_nid.szTip, L"Fan Folder");
+    _nid.hIcon       = _icoSmall;
+    wcscpy_s(_nid.szTip, L"FanFolder");
 
     Shell_NotifyIconW(NIM_ADD, &_nid);
 

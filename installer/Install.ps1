@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Installs Fan Folder to the user's local app directory.
+    Installs FanFolder to the user's local app directory.
 .DESCRIPTION
     Copies FanFolder.exe to %LocalAppData%\FanFolder,
     creates Start Menu and optional Desktop shortcuts, and optionally adds
@@ -12,7 +12,7 @@ param(
     [switch]$Silent
 )
 
-$AppName      = "Fan Folder"
+$AppName      = "FanFolder"
 $ExeName      = "FanFolder.exe"
 $InstallDir   = Join-Path $env:LOCALAPPDATA "FanFolder"
 $StartMenuDir = Join-Path ([Environment]::GetFolderPath("StartMenu")) "Programs"

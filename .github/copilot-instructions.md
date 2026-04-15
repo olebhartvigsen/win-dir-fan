@@ -1,4 +1,4 @@
-# Fan Folder – Copilot Instructions
+# FanFolder – Copilot Instructions
 
 ## ⚠️ Git Policy — NEVER commit, push, or merge without explicit user instruction
 
@@ -8,7 +8,7 @@
 
 ## Project Overview
 
-**Fan Folder** is a Win32/C++ desktop app that replicates the macOS Dock "Fan" folder on the Windows taskbar. Clicking a taskbar icon reveals an animated, arc-shaped popup showing the most recently modified items in a configured folder. Items can be opened, right-clicked (full shell context menu), or dragged to other applications.
+**FanFolder** is a Win32/C++ desktop app that replicates the macOS Dock "Fan" folder on the Windows taskbar. Clicking a taskbar icon reveals an animated, arc-shaped popup showing the most recently modified items in a configured folder. Items can be opened, right-clicked (full shell context menu), or dragged to other applications.
 
 - **Implementation:** `FanFolder/` — C++20, Win32, GDI+, CMake, MSVC, ~161 KB exe
 - No unit tests; no linting/formatting tooling configured

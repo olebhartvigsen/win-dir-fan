@@ -50,6 +50,12 @@ private:
     std::mutex           _prewarmMutex;
     std::atomic<int>     _prewarmGen{0};  // incremented each StartPrewarm; stale threads self-discard
 
+    // Taskbar icon handles (loaded once, switched on fan open/close)
+    HICON  _icoSmall     = nullptr;
+    HICON  _icoBig       = nullptr;
+    HICON  _icoOpenSmall = nullptr;
+    HICON  _icoOpenBig   = nullptr;
+
     // Hook thread
     std::thread      _hookThread;
     DWORD            _hookThreadId = 0;
@@ -61,6 +67,7 @@ private:
     void OpenFan();
     void CloseFan();
     void StartPrewarm();
+    void SetTaskbarIcon(bool open);
     void InstallHooks();
     void UninstallHooks();
     void ProvideIconicThumbnail(int w, int h);

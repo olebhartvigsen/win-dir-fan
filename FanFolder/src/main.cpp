@@ -6,7 +6,7 @@
 #include <gdiplus.h>
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
-    // Set explicit AppUserModelID so the taskbar shows "Fan Folder" instead of "FanFolder.exe"
+    // Set explicit AppUserModelID so the taskbar shows "FanFolder" in the taskbar
     SetCurrentProcessExplicitAppUserModelID(L"FanFolder.App");
 
     Gdiplus::GdiplusStartupInput gdiplusInput;

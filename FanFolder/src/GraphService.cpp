@@ -431,7 +431,7 @@ static std::string DoDeviceCodeAuth(HWND hwnd) {
     HWND hdlg = CreateWindowExW(
         WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
         kAuthWndClass,
-        L"Fan Folder \u2014 Sign in to Microsoft 365",
+        L"FanFolder \u2014 Sign in to Microsoft 365",
         WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU,
         dx, dy, dlgW, dlgH,
         hwnd, nullptr, GetModuleHandleW(nullptr), &dlgData);
@@ -568,7 +568,7 @@ static std::string GetAccessToken(HWND hwnd) {
         L"https://login.microsoftonline.com/common/adminconsent"
         L"?client_id=66d15612-bee9-4126-ba51-a811a31bfd15\n\n"
         L"Alternatively, use the 'Seneste' mode which reads your recent files without sign-in.",
-        L"Fan Folder \u2014 Sign-in required",
+        L"FanFolder \u2014 Sign-in required",
         MB_OK | MB_ICONINFORMATION);
     return {};
 }

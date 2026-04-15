@@ -1,103 +1,34 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="100%" height="100%">
-  <defs>
-    <linearGradient id="folderBackGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#FFD13B" />
-      <stop offset="100%" stop-color="#FF9E00" />
-    </linearGradient>
-    <linearGradient id="folderFrontGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#FFEA74" />
-      <stop offset="100%" stop-color="#FFB900" />
-    </linearGradient>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- 3 documents fanning bottom-left → top-right, spreadsheet in front -->
 
-    <linearGradient id="fileGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#FFFFFF" />
-      <stop offset="100%" stop-color="#E2E8F0" />
-    </linearGradient>
-    <linearGradient id="fileGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#F8FAFC" />
-      <stop offset="100%" stop-color="#CBD5E1" />
-    </linearGradient>
-    <linearGradient id="fileGrad3" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#F1F5F9" />
-      <stop offset="100%" stop-color="#94A3B8" />
-    </linearGradient>
-
-    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
-      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#000000" flood-opacity="0.15" />
-    </filter>
-    <filter id="fileShadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000000" flood-opacity="0.2" />
-    </filter>
-  </defs>
-
-  <path d="M 24 56 C 24 47.163 31.163 40 40 40 L 96 40 C 102.5 40 108.2 43.8 110.8 49.8 L 120 72 L 216 72 C 224.837 72 232 79.163 232 88 L 232 200 C 232 208.837 224.837 216 216 216 L 40 216 C 31.163 216 24 208.837 24 200 L 24 56 Z" fill="url(#folderBackGrad)" />
-
-  <g transform="translate(128, 180)">
-    <!-- PDF document (red) -->
-    <g transform="rotate(-35) translate(-36, -135)" filter="url(#fileShadow)">
-      <rect x="0" y="0" width="72" height="96" rx="6" fill="url(#fileGrad3)" />
-      <!-- Dog-ear corner fold -->
-      <path d="M 52 0 L 72 0 C 75.3 0 78 2.7 78 6 L 72 6 L 72 20 L 52 0 Z" fill="#E2E8F0" />
-      <path d="M 52 0 L 72 20 L 52 20 Z" fill="#CBD5E1" />
-      <!-- Red banner -->
-      <rect x="10" y="58" width="52" height="22" rx="3" fill="#DC2626" />
-      <text x="36" y="74" font-family="Arial,sans-serif" font-size="14" font-weight="bold" fill="#FFFFFF" text-anchor="middle">PDF</text>
-      <!-- Text lines -->
-      <rect x="12" y="30" width="36" height="4" rx="2" fill="#94A3B8" opacity="0.3" />
-      <rect x="12" y="40" width="48" height="4" rx="2" fill="#94A3B8" opacity="0.2" />
-      <rect x="12" y="50" width="28" height="4" rx="2" fill="#94A3B8" opacity="0.2" />
-    </g>
-    <!-- Word document (blue) -->
-    <g transform="rotate(-12) translate(-36, -150)" filter="url(#fileShadow)">
-      <rect x="0" y="0" width="72" height="96" rx="6" fill="url(#fileGrad2)" />
-      <!-- Blue top bar -->
-      <rect x="0" y="0" width="72" height="20" rx="6" fill="#2563EB" />
-      <rect x="0" y="10" width="72" height="10" fill="#2563EB" />
-      <!-- Text lines simulating paragraphs -->
-      <rect x="12" y="30" width="48" height="4" rx="2" fill="#64748B" opacity="0.3" />
-      <rect x="12" y="38" width="48" height="4" rx="2" fill="#64748B" opacity="0.25" />
-      <rect x="12" y="46" width="32" height="4" rx="2" fill="#64748B" opacity="0.2" />
-      <rect x="12" y="58" width="48" height="4" rx="2" fill="#64748B" opacity="0.25" />
-      <rect x="12" y="66" width="48" height="4" rx="2" fill="#64748B" opacity="0.2" />
-      <rect x="12" y="74" width="40" height="4" rx="2" fill="#64748B" opacity="0.2" />
-    </g>
-    <!-- Excel spreadsheet (green) -->
-    <g transform="rotate(12) translate(-36, -150)" filter="url(#fileShadow)">
-      <rect x="0" y="0" width="72" height="96" rx="6" fill="url(#fileGrad2)" />
-      <!-- Green top bar -->
-      <rect x="0" y="0" width="72" height="20" rx="6" fill="#16A34A" />
-      <rect x="0" y="10" width="72" height="10" fill="#16A34A" />
-      <!-- Grid cells -->
-      <rect x="10" y="28" width="52" height="56" rx="2" fill="none" stroke="#94A3B8" stroke-width="1" opacity="0.3" />
-      <line x1="27" y1="28" x2="27" y2="84" stroke="#94A3B8" stroke-width="1" opacity="0.3" />
-      <line x1="44" y1="28" x2="44" y2="84" stroke="#94A3B8" stroke-width="1" opacity="0.3" />
-      <line x1="10" y1="42" x2="62" y2="42" stroke="#94A3B8" stroke-width="1" opacity="0.3" />
-      <line x1="10" y1="56" x2="62" y2="56" stroke="#94A3B8" stroke-width="1" opacity="0.3" />
-      <line x1="10" y1="70" x2="62" y2="70" stroke="#94A3B8" stroke-width="1" opacity="0.3" />
-      <!-- Colored cell highlights -->
-      <rect x="11" y="29" width="15" height="12" fill="#16A34A" opacity="0.12" />
-      <rect x="28" y="43" width="15" height="12" fill="#16A34A" opacity="0.1" />
-      <rect x="45" y="57" width="16" height="12" fill="#16A34A" opacity="0.08" />
-    </g>
-    <!-- Image/photo file (amber) -->
-    <g transform="rotate(35) translate(-36, -135)" filter="url(#fileShadow)">
-      <rect x="0" y="0" width="72" height="96" rx="6" fill="url(#fileGrad1)" />
-      <!-- Image preview area -->
-      <rect x="8" y="10" width="56" height="42" rx="4" fill="#0EA5E9" opacity="0.15" />
-      <!-- Sky gradient -->
-      <rect x="8" y="10" width="56" height="28" rx="4" fill="#38BDF8" opacity="0.2" />
-      <!-- Sun -->
-      <circle cx="48" cy="22" r="7" fill="#F59E0B" opacity="0.7" />
-      <!-- Mountains -->
-      <polygon points="8,52 28,28 48,52" fill="#16A34A" opacity="0.4" />
-      <polygon points="30,52 50,32 64,52" fill="#15803D" opacity="0.35" />
-      <!-- File type label -->
-      <rect x="10" y="62" width="52" height="22" rx="3" fill="#7C3AED" opacity="0.85" />
-      <text x="36" y="78" font-family="Arial,sans-serif" font-size="12" font-weight="bold" fill="#FFFFFF" text-anchor="middle">JPG</text>
-    </g>
+  <!-- Back: Word doc (blue) — leftmost -->
+  <g transform="translate(95,250) rotate(-10)">
+    <rect x="-44" y="-195" width="88" height="120" rx="8" fill="#3B82F6" stroke="#000" stroke-width="3"/>
+    <rect x="-30" y="-181" width="44" height="5" rx="2" fill="#fff" opacity="0.85"/>
+    <rect x="-30" y="-170" width="58" height="5" rx="2" fill="#fff" opacity="0.7"/>
+    <rect x="-30" y="-159" width="50" height="5" rx="2" fill="#fff" opacity="0.7"/>
+    <rect x="-30" y="-148" width="58" height="5" rx="2" fill="#fff" opacity="0.55"/>
+    <rect x="-30" y="-137" width="36" height="5" rx="2" fill="#fff" opacity="0.55"/>
+    <rect x="-30" y="-120" width="58" height="5" rx="2" fill="#fff" opacity="0.4"/>
   </g>
 
-  <path d="M 16 112 C 16 103.163 23.163 96 32 96 L 224 96 C 232.837 96 240 103.163 240 112 L 240 200 C 240 208.837 232.837 216 224 216 L 32 216 C 23.163 216 16 208.837 16 200 L 16 112 Z" fill="url(#folderFrontGrad)" filter="url(#shadow)" />
+  <!-- Middle: Image file (purple) -->
+  <g transform="translate(95,250) rotate(10)">
+    <rect x="-44" y="-200" width="88" height="120" rx="8" fill="#A855F7" stroke="#000" stroke-width="3"/>
+    <rect x="-33" y="-189" width="66" height="46" rx="5" fill="#fff" opacity="0.25"/>
+    <circle cx="10" cy="-174" r="9" fill="#FBBF24"/>
+    <polygon points="-33,-143 -8,-170 18,-143" fill="#fff" opacity="0.7"/>
+    <polygon points="2,-143 22,-163 33,-143" fill="#fff" opacity="0.5"/>
+  </g>
 
-  <path d="M 18 112 C 18 104.268 24.268 98 32 98 L 224 98 C 231.732 98 238 104.268 238 112 L 238 114 C 238 106.268 231.732 100 224 100 L 32 100 C 24.268 100 18 106.268 18 114 L 18 112 Z" fill="#FFFFFF" opacity="0.4" />
+  <!-- Front: Spreadsheet (green) — rightmost, on top -->
+  <g transform="translate(95,250) rotate(28)">
+    <rect x="-44" y="-208" width="88" height="120" rx="8" fill="#22C55E" stroke="#000" stroke-width="3"/>
+    <line x1="-14" y1="-198" x2="-14" y2="-98" stroke="#fff" stroke-width="6" opacity="1"/>
+    <line x1="14"  y1="-198" x2="14"  y2="-98" stroke="#fff" stroke-width="6" opacity="1"/>
+    <line x1="-34" y1="-178" x2="34"  y2="-178" stroke="#fff" stroke-width="6" opacity="1"/>
+    <line x1="-34" y1="-158" x2="34"  y2="-158" stroke="#fff" stroke-width="6" opacity="1"/>
+    <line x1="-34" y1="-138" x2="34"  y2="-138" stroke="#fff" stroke-width="6" opacity="1"/>
+    <line x1="-34" y1="-118" x2="34"  y2="-118" stroke="#fff" stroke-width="6" opacity="1"/>
+  </g>
 </svg>

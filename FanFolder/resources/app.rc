@@ -1,8 +1,9 @@
 #include "resource.h"
 IDI_APP      ICON        "app.ico"
+IDI_APP_OPEN ICON        "app-open.ico"
 IDR_MANIFEST RT_MANIFEST "app.manifest"
 
-// Version resource — provides the "Fan Folder" name shown in the taskbar jump list
+// Version resource — provides the "FanFolder" name shown in the taskbar jump list
 #include <winver.h>
 VS_VERSION_INFO VERSIONINFO
 FILEVERSION     1,0,0,0
@@ -17,8 +18,8 @@ BEGIN
     BEGIN
         BLOCK "040904B0"   // English (US), Unicode
         BEGIN
-            VALUE "FileDescription",  "Fan Folder"
-            VALUE "ProductName",      "Fan Folder"
+            VALUE "FileDescription",  "FanFolder"
+            VALUE "ProductName",      "FanFolder"
             VALUE "CompanyName",      ""
             VALUE "FileVersion",      "1.0.0.0"
             VALUE "ProductVersion",   "1.0.0.0"

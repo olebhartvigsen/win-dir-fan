@@ -1,8 +1,8 @@
-# Fan Folder End User License Agreement (EULA)
+# FanFolder End User License Agreement (EULA)
 
 Effective date: 2026-04-14
 
-This EULA governs use of the compiled Fan Folder application (the "Software") distributed by Ole Bulow Hartvigsen ("Licensor").
+This EULA governs use of the compiled FanFolder application (the "Software") distributed by Ole Bulow Hartvigsen ("Licensor").
 
 ## 1. Grant of License
 
@@ -44,4 +44,4 @@ This EULA is governed by the laws of Denmark, without regard to conflict-of-law 
 ## 9. Contact
 
 Licensor: Ole Bulow Hartvigsen
-Project: Fan Folder
+Project: FanFolder
