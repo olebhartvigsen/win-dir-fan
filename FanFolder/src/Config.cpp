@@ -88,7 +88,7 @@ ConfigData Config::Load() {
                     else if (wcscmp(buf, L"Glide") == 0)  cfg.animStyle = ConfigData::AnimStyle::Glide;
                     else if (wcscmp(buf, L"None") == 0)   cfg.animStyle = ConfigData::AnimStyle::None;
                     else if (wcscmp(buf, L"Fade") == 0)   cfg.animStyle = ConfigData::AnimStyle::Fade;
-                    // else stays Glide
+                    else                                   cfg.animStyle = ConfigData::AnimStyle::Glide;
                 }
             }
             RegCloseKey(hKey);

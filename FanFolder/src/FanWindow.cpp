@@ -63,6 +63,15 @@ static constexpr float AnimSpeed_Out      = 0.65f;
 static constexpr float EntryFadeDurationMs = 60.f;
 static constexpr float ItemStageDurationMs = 14.f;
 static constexpr float ItemAnimDurationMs  = 200.f;
+// Fan (macOS-style): per-item EaseOutQuint with tight stagger + scale
+static constexpr float FanStageDurationMs  = 12.f;
+static constexpr float FanItemDurationMs   = 220.f;
+static constexpr float FanStartScale       = 0.40f;
+// Glide: per-item staggered cascade with scale + drift
+static constexpr float GlideStageDurationMs = 18.f;   // per-item stagger
+static constexpr float GlideItemDurationMs  = 380.f;  // each item's animation
+static constexpr float GlideOffsetPx        = 42.f;   // upward drift distance
+static constexpr float GlideStartScale      = 0.70f;  // start at 70% size
 static constexpr float kPI = 3.14159265358979f;
 
 static const UINT WM_ICON_BITMAP = WM_USER + 1;
@@ -634,6 +643,8 @@ void FanWindow::DrawToLayeredWindow() {
             }
             case ConfigData::AnimStyle::Fan:
             case ConfigData::AnimStyle::Glide:
+                // Per-item alpha tied to entryProgress (no separate window fade)
+                return (i < (int)_entryProgress.size()) ? _entryProgress[i] : 0.f;
             case ConfigData::AnimStyle::Fade:
                 return (i < (int)_entryProgress.size()) ? _entryProgress[i] * _entryAlpha : 0.f;
             case ConfigData::AnimStyle::None:
@@ -889,11 +900,15 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
         break;
     }
     case ConfigData::AnimStyle::Fan:
+        // Position flies from arc origin; scale grows from FanStartScale to 1.0
         cx = _arcOriginX + entryP * (cx - _arcOriginX);
         cy = _arcOriginY + entryP * (cy - _arcOriginY);
+        drawSz = _iconSize * (FanStartScale + (1.f - FanStartScale) * entryP) * hsc;
         break;
     case ConfigData::AnimStyle::Glide:
-        cy += 32.f * (1.f - entryP);
+        // Drift up GlideOffsetPx; subtle scale from GlideStartScale to 1.0
+        cy += GlideOffsetPx * (1.f - entryP);
+        drawSz = _iconSize * (GlideStartScale + (1.f - GlideStartScale) * entryP) * hsc;
         break;
     case ConfigData::AnimStyle::None:
     case ConfigData::AnimStyle::Fade:
@@ -1292,24 +1307,28 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 break;
             }
             case ConfigData::AnimStyle::Fan: {
-                float newAlpha = std::min(elapsed / 80.f, 1.f);
-                if (newAlpha != self->_entryAlpha) { self->_entryAlpha = newAlpha; dirty = true; }
+                // Per-item: position + scale + alpha all tied to entryProgress
+                // _entryAlpha unused for Fan (set to 1 so getItemAlpha works)
+                self->_entryAlpha = 1.f;
                 for (int i = 0; i < total && i < (int)self->_entryProgress.size(); i++) {
-                    float stagger = i * 15.f;
-                    float t = std::clamp((elapsed - stagger) / 165.f, 0.f, 1.f);
+                    float stagger = i * FanStageDurationMs;
+                    float t = std::clamp((elapsed - stagger) / FanItemDurationMs, 0.f, 1.f);
                     float u = 1.f - t;
-                    float eased = 1.f - u * u * u * u;
+                    float eased = 1.f - u * u * u * u * u;  // EaseOutQuint
                     if (eased != self->_entryProgress[i]) { self->_entryProgress[i] = eased; dirty = true; }
                 }
                 break;
             }
             case ConfigData::AnimStyle::Glide: {
-                float newAlpha = std::min(elapsed / 60.f, 1.f);
-                if (newAlpha != self->_entryAlpha) { self->_entryAlpha = newAlpha; dirty = true; }
-                float t = std::clamp(elapsed / 250.f, 0.f, 1.f);
-                float u = 1.f - t;
-                float eased = 1.f - u * u * u;
+                // Per-item stagger: items cascade in from bottom, each with its own
+                // EaseOutQuart curve. Alpha is per-item (tied to progress), no
+                // separate window fade needed.
+                self->_entryAlpha = 1.f;
                 for (int i = 0; i < total && i < (int)self->_entryProgress.size(); i++) {
+                    float stagger = i * GlideStageDurationMs;
+                    float t = std::clamp((elapsed - stagger) / GlideItemDurationMs, 0.f, 1.f);
+                    float u = 1.f - t;
+                    float eased = 1.f - u * u * u * u;  // EaseOutQuart
                     if (eased != self->_entryProgress[i]) { self->_entryProgress[i] = eased; dirty = true; }
                 }
                 break;
