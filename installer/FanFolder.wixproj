@@ -1,8 +1,8 @@
 <Project Sdk="WixToolset.Sdk/4.0.5">
   <PropertyGroup>
-    <OutputName>FanFolderSetup</OutputName>
-    <Platform>x64</Platform>
-    <IntermediateOutputPath>obj\</IntermediateOutputPath>
+    <OutputName Condition="'$(OutputName)' == ''">FanFolderSetup</OutputName>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+    <IntermediateOutputPath>obj\$(Platform)\</IntermediateOutputPath>
     <OutputPath>output\</OutputPath>
     <!-- Override with: dotnet build -p:ProductVersion=1.2.3 -->
     <ProductVersion Condition="'$(ProductVersion)' == ''">1.0.0</ProductVersion>

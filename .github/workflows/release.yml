@@ -3,6 +3,7 @@ name: Release Build
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -12,8 +13,15 @@ env:
 
 jobs:
   build:
-    name: Build FanFolder (Windows x64)
+    name: Build FanFolder (${{ matrix.arch }})
     runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            cmake_arch: x64
+          - arch: arm64
+            cmake_arch: ARM64
 
     steps:
       - name: Checkout
@@ -22,7 +30,12 @@ jobs:
       - name: Extract version from tag
         id: version
         shell: bash
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "VERSION=0.0.0" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Setup .NET (for WiX)
         uses: actions/setup-dotnet@v4
@@ -37,20 +50,87 @@ jobs:
         run: wix extension add WixToolset.UI.wixext/4.0.5
 
       - name: Configure CMake
-        run: cmake -B FanFolder/build -G "Visual Studio 17 2022" -A x64 -S FanFolder
+        run: cmake -B FanFolder/build -G "Visual Studio 17 2022" -A ${{ matrix.cmake_arch }} -S FanFolder
 
       - name: Build Release exe
         run: cmake --build FanFolder/build --config Release
 
       - name: Build MSI installer
         working-directory: installer
-        run: dotnet build FanFolder.wixproj -c Release -p:ProductVersion=${{ steps.version.outputs.VERSION }}
+        run: >
+          dotnet build FanFolder.wixproj -c Release
+          -p:Platform=${{ matrix.arch }}
+          -p:ProductVersion=${{ steps.version.outputs.VERSION }}
+          -p:OutputName=FanFolderSetup-${{ matrix.arch }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.arch }}
+          path: |
+            FanFolder/build/Release/FanFolder.exe
+            installer/output/FanFolderSetup-${{ matrix.arch }}.msi
+
+  bundle:
+    name: Create combined installer
+    runs-on: windows-latest
+    needs: build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "VERSION=0.0.0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup .NET (for WiX)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.x'
+
+      - name: Install WiX toolset
+        run: dotnet tool install --global wix --version 4.0.5
+
+      - name: Add WiX Bal extension
+        working-directory: installer
+        run: |
+          wix extension add WixToolset.Bal.wixext/4.0.5
+          wix extension add WixToolset.Util.wixext/4.0.5
+
+      - name: Download x64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-x64
+          path: artifacts/x64
+
+      - name: Download arm64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-arm64
+          path: artifacts/arm64
+
+      - name: Build Burn bundle
+        working-directory: installer
+        run: >
+          dotnet build FanFolderBundle.wixproj -c Release
+          -p:ProductVersion=${{ steps.version.outputs.VERSION }}
 
       - name: Upload assets to release
+        if: github.event_name == 'release'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ github.ref_name }}" \
-            "FanFolder/build/Release/FanFolder.exe" \
-            "installer/output/FanFolderSetup.msi"
+            "artifacts/x64/FanFolder/build/Release/FanFolder.exe#FanFolder-x64.exe" \
+            "artifacts/arm64/FanFolder/build/Release/FanFolder.exe#FanFolder-arm64.exe" \
+            "artifacts/x64/installer/output/FanFolderSetup-x64.msi" \
+            "artifacts/arm64/installer/output/FanFolderSetup-arm64.msi" \
+            "installer/output/FanFolderSetup.exe"
