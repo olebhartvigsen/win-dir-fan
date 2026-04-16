@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <!-- 3 documents fanning bottom-left → top-right, wider spread (open state) -->
+  <!-- 3 documents fanning bottom-left → top-right, increasing size (open state) -->
 
-  <!-- Back: Word doc (blue) — leftmost -->
+  <!-- Back: Word doc (blue) — smallest, leftmost -->
   <g transform="translate(95,250) rotate(-14)">
     <rect x="-44" y="-205" width="88" height="120" rx="8" fill="#3B82F6" stroke="#000" stroke-width="3"/>
     <rect x="-30" y="-191" width="44" height="5" rx="2" fill="#fff" opacity="0.85"/>
@@ -12,23 +12,23 @@
     <rect x="-30" y="-130" width="58" height="5" rx="2" fill="#fff" opacity="0.4"/>
   </g>
 
-  <!-- Middle: Image file (purple) -->
-  <g transform="translate(95,250) rotate(10)">
-    <rect x="-44" y="-212" width="88" height="120" rx="8" fill="#A855F7" stroke="#000" stroke-width="3"/>
-    <rect x="-33" y="-201" width="66" height="46" rx="5" fill="#fff" opacity="0.25"/>
-    <circle cx="10" cy="-186" r="9" fill="#FBBF24"/>
-    <polygon points="-33,-155 -8,-182 18,-155" fill="#fff" opacity="0.7"/>
-    <polygon points="2,-155 22,-175 33,-155" fill="#fff" opacity="0.5"/>
+  <!-- Middle: Image file (purple) — medium -->
+  <g transform="translate(95,250) rotate(4)">
+    <rect x="-48" y="-218" width="96" height="130" rx="8" fill="#A855F7" stroke="#000" stroke-width="3"/>
+    <rect x="-36" y="-206" width="72" height="50" rx="5" fill="#fff" opacity="0.25"/>
+    <circle cx="11" cy="-190" r="10" fill="#FBBF24"/>
+    <polygon points="-36,-156 -8,-187 20,-156" fill="#fff" opacity="0.7"/>
+    <polygon points="2,-156 24,-180 36,-156" fill="#fff" opacity="0.5"/>
   </g>
 
-  <!-- Front: Spreadsheet (green) — rightmost, on top -->
-  <g transform="translate(95,250) rotate(32)">
-    <rect x="-44" y="-218" width="88" height="120" rx="8" fill="#22C55E" stroke="#000" stroke-width="3"/>
-    <line x1="-14" y1="-208" x2="-14" y2="-108" stroke="#fff" stroke-width="6" opacity="1"/>
-    <line x1="14"  y1="-208" x2="14"  y2="-108" stroke="#fff" stroke-width="6" opacity="1"/>
-    <line x1="-34" y1="-188" x2="34"  y2="-188" stroke="#fff" stroke-width="6" opacity="1"/>
-    <line x1="-34" y1="-168" x2="34"  y2="-168" stroke="#fff" stroke-width="6" opacity="1"/>
-    <line x1="-34" y1="-148" x2="34"  y2="-148" stroke="#fff" stroke-width="6" opacity="1"/>
-    <line x1="-34" y1="-128" x2="34"  y2="-128" stroke="#fff" stroke-width="6" opacity="1"/>
+  <!-- Front: Spreadsheet (green) — largest, on top -->
+  <g transform="translate(95,250) rotate(24)">
+    <rect x="-58" y="-242" width="116" height="160" rx="8" fill="#22C55E" stroke="#000" stroke-width="3"/>
+    <line x1="-20" y1="-230" x2="-20" y2="-94" stroke="#fff" stroke-width="6" opacity="1"/>
+    <line x1="18"  y1="-230" x2="18"  y2="-94" stroke="#fff" stroke-width="6" opacity="1"/>
+    <line x1="-46" y1="-203" x2="46"  y2="-203" stroke="#fff" stroke-width="6" opacity="1"/>
+    <line x1="-46" y1="-176" x2="46"  y2="-176" stroke="#fff" stroke-width="6" opacity="1"/>
+    <line x1="-46" y1="-149" x2="46"  y2="-149" stroke="#fff" stroke-width="6" opacity="1"/>
+    <line x1="-46" y1="-122" x2="46"  y2="-122" stroke="#fff" stroke-width="6" opacity="1"/>
   </g>
 </svg>
