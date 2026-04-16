@@ -15,4 +15,10 @@
     <PackageReference Include="WixToolset.UI.wixext" Version="4.0.5" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Remove="bundle\**" />
+    <None Remove="bundle\**" />
+    <Content Remove="bundle\**" />
+  </ItemGroup>
+
 </Project>
