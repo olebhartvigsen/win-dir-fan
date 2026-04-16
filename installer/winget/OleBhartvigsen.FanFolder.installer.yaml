@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.9.0.schema.json
 PackageIdentifier: OleBhartvigsen.FanFolder
-PackageVersion: 1.0.0
+PackageVersion: 1.1.0
 InstallerLocale: en-US
 Platform:
   - Windows.Desktop
@@ -12,7 +12,7 @@ InstallModes:
 UpgradeBehavior: install
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/olebhartvigsen/win-dir-fan/releases/download/v1.0.0/FanFolderSetup.msi
+    InstallerUrl: https://github.com/olebhartvigsen/win-dir-fan/releases/download/v1.1.0/FanFolderSetup-x64.msi
     InstallerSha256: 5CF9D9803554B10B09A3819986839708CC3681A8AC1024ABB9E41D9AB5FD5881
     ProductCode: '{2418DDE7-3E97-424D-966C-273769C03042}'
     InstallerSwitches:
