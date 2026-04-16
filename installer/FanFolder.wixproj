@@ -9,16 +9,16 @@
     <DefineConstants>ProductVersion=$(ProductVersion)</DefineConstants>
     <!-- ICE91 warns about per-user dirs not varying on ALLUSERS — expected for perUser packages -->
     <SuppressIces>ICE91</SuppressIces>
+    <!-- Disable auto-globbing so bundle\*.wxs is not picked up -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="WixToolset.UI.wixext" Version="4.0.5" />
+    <Compile Include="FanFolder.wxs" />
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Remove="bundle\**" />
-    <None Remove="bundle\**" />
-    <Content Remove="bundle\**" />
+    <PackageReference Include="WixToolset.UI.wixext" Version="4.0.5" />
   </ItemGroup>
 
 </Project>
