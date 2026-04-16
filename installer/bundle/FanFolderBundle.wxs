@@ -17,14 +17,14 @@
     <Chain>
       <!-- x64 MSI — installs on x64 Windows -->
       <MsiPackage Id="FanFolder_x64"
-                  SourceFile="..\artifacts\x64\installer\output\FanFolderSetup-x64.msi"
+                  SourceFile="..\..\artifacts\x64\installer\output\FanFolderSetup-x64.msi"
                   InstallCondition="NOT NativeMachine = 43868">
         <MsiProperty Name="INSTALLFOLDER" Value="[LocalAppDataFolder]FanFolder\" />
       </MsiPackage>
 
       <!-- ARM64 MSI — installs on ARM64 Windows -->
       <MsiPackage Id="FanFolder_arm64"
-                  SourceFile="..\artifacts\arm64\installer\output\FanFolderSetup-arm64.msi"
+                  SourceFile="..\..\artifacts\arm64\installer\output\FanFolderSetup-arm64.msi"
                   InstallCondition="NativeMachine = 43868">
         <MsiProperty Name="INSTALLFOLDER" Value="[LocalAppDataFolder]FanFolder\" />
       </MsiPackage>

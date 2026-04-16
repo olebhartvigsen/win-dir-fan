@@ -51,11 +51,11 @@ foreach ($arch in $archs) {
 
 Write-Host ""
 Write-Host "=== Building combined installer (Burn bundle) ===" -ForegroundColor Cyan
-Set-Location $PSScriptRoot
+Set-Location "$PSScriptRoot\bundle"
 dotnet build FanFolderBundle.wixproj -c Release
 if ($LASTEXITCODE -ne 0) { throw "Bundle build failed" }
 
-$bundle = "$PSScriptRoot\output\FanFolderSetup.exe"
+$bundle = "$PSScriptRoot\bundle\output\FanFolderSetup.exe"
 Write-Host ""
 Write-Host "Combined installer ready: $bundle" -ForegroundColor Green
 Write-Host "Size: $([math]::Round((Get-Item $bundle).Length / 1KB)) KB" -ForegroundColor Gray

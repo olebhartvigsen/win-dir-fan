@@ -117,7 +117,7 @@ jobs:
           path: artifacts/arm64
 
       - name: Build Burn bundle
-        working-directory: installer
+        working-directory: installer/bundle
         run: >
           dotnet build FanFolderBundle.wixproj -c Release
           -p:ProductVersion=${{ steps.version.outputs.VERSION }}
@@ -133,4 +133,4 @@ jobs:
             "artifacts/arm64/FanFolder/build/Release/FanFolder.exe#FanFolder-arm64.exe" \
             "artifacts/x64/installer/output/FanFolderSetup-x64.msi" \
             "artifacts/arm64/installer/output/FanFolderSetup-arm64.msi" \
-            "installer/output/FanFolderSetup.exe"
+            "installer/bundle/output/FanFolderSetup.exe"
