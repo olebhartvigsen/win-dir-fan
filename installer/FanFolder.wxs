@@ -110,7 +110,7 @@
 
     <InstallExecuteSequence>
       <!-- Only on fresh install or upgrade, not on uninstall -->
-      <Custom Action="LaunchApp" After="InstallFinalize">NOT REMOVE</Custom>
+      <Custom Action="LaunchApp" After="InstallFinalize" Condition="NOT REMOVE" />
     </InstallExecuteSequence>
 
     <!-- ── Minimal UI (license screen + install) ─────────────── -->
