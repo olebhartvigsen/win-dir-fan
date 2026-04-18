@@ -4,6 +4,10 @@
 
 **Never** run `git commit`, `git push`, `git merge`, or any equivalent (e.g. `git rebase`, `git tag`) unless the user explicitly asks (e.g. "commit", "push", "merge to master"). The user always initiates these actions.
 
+## ⚠️ Winget Policy — NEVER submit a winget release without explicit user instruction
+
+**Never** submit, create, or trigger a winget package update/PR unless the user explicitly asks (e.g. "submit to winget", "do a winget push"). The user always initiates winget submissions.
+
 ---
 
 ## Project Overview

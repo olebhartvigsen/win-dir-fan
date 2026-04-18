@@ -122,16 +122,39 @@ jobs:
           dotnet build FanFolderBundle.wixproj -c Release
           -p:ProductVersion=${{ steps.version.outputs.VERSION }}
 
-      - name: Upload assets to release
-        if: github.event_name == 'release'
+      - name: Prepare release assets
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           cp "artifacts/x64/FanFolder/build/Release/FanFolder.exe" "artifacts/x64/FanFolder-x64.exe"
           cp "artifacts/arm64/FanFolder/build/Release/FanFolder.exe" "artifacts/arm64/FanFolder-arm64.exe"
 
-          gh release upload "${{ github.ref_name }}" \
+      - name: Publish release to distribution repo
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DIST_REPO_TOKEN }}
+          DIST_REPO: olebhartvigsen/FanFolder
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "release" ]]; then
+            TAG="${{ github.ref_name }}"
+            TITLE="FanFolder ${{ steps.version.outputs.VERSION }}"
+            PRERELEASE=""
+          else
+            SHA=$(git rev-parse --short HEAD)
+            TAG="dev-${SHA}"
+            TITLE="Dev build (${SHA})"
+            PRERELEASE="--prerelease"
+          fi
+
+          # Create the release (ignore error if it already exists)
+          gh release create "$TAG" \
+            --repo "$DIST_REPO" \
+            --title "$TITLE" \
+            $PRERELEASE \
+            --notes "Built from [win-dir-fan](https://github.com/olebhartvigsen/win-dir-fan) @ \`${SHA:-${{ github.ref_name }}}\`" \
+            2>/dev/null || true
+
+          gh release upload "$TAG" \
+            --repo "$DIST_REPO" \
             --clobber \
             "artifacts/x64/FanFolder-x64.exe" \
             "artifacts/arm64/FanFolder-arm64.exe" \
