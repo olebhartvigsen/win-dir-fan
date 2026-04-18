@@ -646,7 +646,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     case WM_SYSCOMMAND:
         if ((wParam & 0xFFF0) == SC_RESTORE) {
             self->ToggleFan();
-            DefWindowProcW(hwnd, msg, wParam, lParam);
+            // Do NOT call DefWindowProc here: it would briefly restore the window,
+            // fire WM_ACTIVATE → SW_MINIMIZE, which activates the next Z-order window
+            // and causes the cursor to jump to the centre of the screen.
             PostMessageW(hwnd, WM_MAIN_SHOW_MIN, 0, 0);
             return 0;
         }
@@ -673,7 +675,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
     case WM_ACTIVATE:
         if (wParam != WA_INACTIVE)
-            ShowWindow(hwnd, SW_MINIMIZE);
+            ShowWindow(hwnd, SW_SHOWMINNOACTIVE);  // SW_MINIMIZE would activate the next window → cursor jump
         return 0;
 
     case WM_MAIN_PREWARM: {
