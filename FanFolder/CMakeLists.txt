@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.20)
 project(FanFolder CXX)
 set(CMAKE_CXX_STANDARD 20)
 
+# Statically link the MSVC runtime so the exe runs without VC++ redistributables
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 include(FetchContent)
 FetchContent_Declare(
     lunasvg
