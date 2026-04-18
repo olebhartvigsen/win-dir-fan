@@ -4,9 +4,9 @@ PackageVersion: 1.1.0
 PackageLocale: en-US
 Publisher: Ole Bhartvigsen
 PublisherUrl: https://github.com/olebhartvigsen
-PublisherSupportUrl: https://github.com/olebhartvigsen/win-dir-fan/issues
+PublisherSupportUrl: https://github.com/olebhartvigsen/FanFolder/issues
 PackageName: FanFolder
-PackageUrl: https://github.com/olebhartvigsen/win-dir-fan
+PackageUrl: https://github.com/olebhartvigsen/FanFolder
 License: MIT
 LicenseUrl: https://github.com/olebhartvigsen/win-dir-fan/blob/master/LICENSE
 ShortDescription: macOS-style animated fan folder for the Windows taskbar

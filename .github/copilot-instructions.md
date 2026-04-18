@@ -17,6 +17,17 @@
 - **Implementation:** `FanFolder/` — C++20, Win32, GDI+, CMake, MSVC, ~161 KB exe
 - No unit tests; no linting/formatting tooling configured
 
+### Repository structure
+
+| Repo | Purpose |
+|---|---|
+| [`olebhartvigsen/win-dir-fan`](https://github.com/olebhartvigsen/win-dir-fan) | Source code, build pipeline, installer project, winget manifest templates |
+| [`olebhartvigsen/FanFolder`](https://github.com/olebhartvigsen/FanFolder) | **Distribution repo** — all releases are published here: `.exe`, `.msi`, bundle installer, and auto-generated winget manifests |
+
+**Release flow:** Every build (tagged or manual) triggers the GitHub Actions pipeline in `win-dir-fan`, which builds x64 + ARM64, bundles a combined installer, auto-generates winget manifests with correct SHA256 hashes and ProductCodes, and publishes everything as a release in `olebhartvigsen/FanFolder`.
+
+**Winget submission:** When ready to submit to winget, download the three manifest files (`OleBhartvigsen.FanFolder.yaml`, `OleBhartvigsen.FanFolder.installer.yaml`, `OleBhartvigsen.FanFolder.locale.en-US.yaml`) from the corresponding release in `olebhartvigsen/FanFolder` — they are ready to submit as-is.
+
 ---
 
 ## Build Commands
