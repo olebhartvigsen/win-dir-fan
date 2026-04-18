@@ -101,6 +101,18 @@
       <ComponentGroupRef Id="StartupComponents" />
     </Feature>
 
+    <!-- ── Launch app after install ─────────────────────────── -->
+    <CustomAction Id="LaunchApp"
+                  FileRef="FanFolderExe"
+                  ExeCommand=""
+                  Execute="immediate"
+                  Return="asyncNoWait" />
+
+    <InstallExecuteSequence>
+      <!-- Only on fresh install or upgrade, not on uninstall -->
+      <Custom Action="LaunchApp" After="InstallFinalize">NOT REMOVE</Custom>
+    </InstallExecuteSequence>
+
     <!-- ── Minimal UI (license screen + install) ─────────────── -->
     <ui:WixUI Id="WixUI_Minimal" />
     <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
