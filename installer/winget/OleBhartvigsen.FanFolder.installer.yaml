@@ -1,45 +1,29 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.9.0.schema.json
 PackageIdentifier: OleBhartvigsen.FanFolder
-PackageVersion: 1.1.1
+PackageVersion: 1.1.3
 InstallerLocale: en-US
 Platform:
   - Windows.Desktop
 MinimumOSVersion: 10.0.17763.0
 InstallerType: msi
-Scope: user
 InstallModes:
   - silent
   - silentWithProgress
 UpgradeBehavior: install
-ReleaseDate: "2026-04-19"
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/olebhartvigsen/FanFolder/releases/download/v1.1.1/FanFolderSetup-x64.msi
-    InstallerSha256: 0C2CE2DD4DDECB452193DF54224AFAABA941DE13B60B972DD3930B87C106AAAC
-    ProductCode: '{0537F654-7A80-4B6A-BEF1-F6E0AD4A1D2B}'
+    InstallerUrl: https://github.com/olebhartvigsen/FanFolder/releases/download/v1.1.3/FanFolderSetup-x64.msi
+    InstallerSha256: 2F573401844E1BF75E3FCFE8B21ED0CD0DE0DFC9F6D11AA40A56832B3D1951CE
+    ProductCode: ' {6763B12E-0B39-486F-A189-C2D99885C44E}'
     InstallerSwitches:
       Silent: /quiet /norestart
       SilentWithProgress: /passive /norestart
-    AppsAndFeaturesEntries:
-      - DisplayName: FanFolder
-        Publisher: FanFolder
-        DisplayVersion: 1.1.1
-        ProductCode: '{0537F654-7A80-4B6A-BEF1-F6E0AD4A1D2B}'
-        UpgradeCode: '{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}'
-        InstallerType: msi
   - Architecture: arm64
-    InstallerUrl: https://github.com/olebhartvigsen/FanFolder/releases/download/v1.1.1/FanFolderSetup-arm64.msi
-    InstallerSha256: 6C4DF76F3D8E53CEA134D62E8425BA22434BA8771C466914916C839CA122857A
-    ProductCode: '{36125AE6-0A97-42CF-92E9-7D75B06D8F3B}'
+    InstallerUrl: https://github.com/olebhartvigsen/FanFolder/releases/download/v1.1.3/FanFolderSetup-arm64.msi
+    InstallerSha256: E1B910ED98FCEE295E5C95A5E6D27D7354FCA2428A9082ED83A58D8E16CDA39D
+    ProductCode: ' {87952CD2-8ACC-4B07-9296-146A34FA713E}'
     InstallerSwitches:
       Silent: /quiet /norestart
       SilentWithProgress: /passive /norestart
-    AppsAndFeaturesEntries:
-      - DisplayName: FanFolder
-        Publisher: FanFolder
-        DisplayVersion: 1.1.1
-        ProductCode: '{36125AE6-0A97-42CF-92E9-7D75B06D8F3B}'
-        UpgradeCode: '{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}'
-        InstallerType: msi
 ManifestType: installer
 ManifestVersion: 1.9.0
