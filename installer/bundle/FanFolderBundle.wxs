@@ -10,7 +10,7 @@
 
     <BootstrapperApplication>
       <bal:WixStandardBootstrapperApplication
-          LicenseUrl=""
+          LicenseUrl="https://github.com/olebhartvigsen/FanFolder/blob/main/LICENSE"
           Theme="hyperlinkLicense" />
     </BootstrapperApplication>
 
