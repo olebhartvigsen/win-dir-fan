@@ -42,6 +42,7 @@ FanFolder lives in two repos with a strict separation of concerns:
 - `scripts/generate-winget-manifests.ps1` is the single source of truth for manifest **shape and content** (fields, tags, description, release-notes extraction from `RELEASE_DRAFT.md`). Any change to what a manifest contains must land in the generator, not only in the template files.
 - On every `release` event, the pipeline runs the generator and then **commits the regenerated manifests back to `installer/winget/` on the default branch** (step: "Sync winget templates back to source repo"). This guarantees the templates, the authoritative artifacts, and the WiX-built MSIs never drift apart.
 - Before tagging a release: update `RELEASE_DRAFT.md` with the correct version and bullet-list changelog. The generator injects those bullets into the locale manifest's `ReleaseNotes` block automatically.
+- **`RELEASE_DRAFT.md` must only contain user-facing application changes**: new features, bug fixes, behaviour improvements, and performance gains in FanFolder itself. Never include build pipeline changes, CI/CD work, website updates, documentation edits, manifest tooling, or any other meta/infrastructure work. Winget release notes are read by end users evaluating an upgrade — keep them focused on what changed in the app.
 - If you hand-edit `installer/winget/*.yaml` without updating the generator, your changes will be overwritten on the next release. Don't do it.
 
 **Public-facing URLs — always use the `FanFolder` repo:**
