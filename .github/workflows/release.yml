@@ -138,6 +138,26 @@ jobs:
             -Version "${{ steps.version.outputs.VERSION }}" `
             -Tag $tag
 
+      - name: Sync winget templates back to source repo
+        if: github.event_name == 'release'
+        shell: bash
+        run: |
+          mkdir -p installer/winget
+          cp winget-manifests/*.yaml installer/winget/
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add installer/winget/*.yaml
+          if ! git diff --cached --quiet; then
+            git commit -m "Sync winget manifest templates for ${{ github.ref_name }}"
+            # Push to the branch the tag was created from (default: master/main).
+            DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
+            git push origin "HEAD:${DEFAULT_BRANCH}"
+          else
+            echo "Templates already in sync."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Publish release to distribution repo
         shell: bash
         env:

@@ -35,8 +35,14 @@ FanFolder lives in two repos with a strict separation of concerns:
 **Release flow:** Tagging `v*` in `win-dir-fan` triggers `.github/workflows/release.yml`, which builds x64 + ARM64, creates MSIs, builds a combined Burn bundle, runs `scripts/generate-winget-manifests.ps1` to produce manifests with real SHA256 hashes and ProductCodes extracted from the freshly built MSIs, and publishes everything as a release on `olebhartvigsen/FanFolder` using the `DIST_REPO_TOKEN` secret.
 
 **Winget manifests — two copies, different purposes:**
-- `installer/winget/*.yaml` in `win-dir-fan` are **templates / hand-maintained baselines** used when the auto-generator is bypassed or when ad-hoc mirroring is needed. They may lag behind the latest release.
+- `installer/winget/*.yaml` in `win-dir-fan` are **templates / hand-maintained baselines**. They are auto-synced back from the release pipeline (see below), so they always reflect the latest shipped release. Treat them as read-mostly — changes to shape/fields belong in the generator script.
 - `winget-manifests/*.yaml` produced by the release pipeline and attached to each `FanFolder` release are the **authoritative, submission-ready** copies for that specific version.
+
+**Manifest sync policy — keep everything in lock-step:**
+- `scripts/generate-winget-manifests.ps1` is the single source of truth for manifest **shape and content** (fields, tags, description, release-notes extraction from `RELEASE_DRAFT.md`). Any change to what a manifest contains must land in the generator, not only in the template files.
+- On every `release` event, the pipeline runs the generator and then **commits the regenerated manifests back to `installer/winget/` on the default branch** (step: "Sync winget templates back to source repo"). This guarantees the templates, the authoritative artifacts, and the WiX-built MSIs never drift apart.
+- Before tagging a release: update `RELEASE_DRAFT.md` with the correct version and bullet-list changelog. The generator injects those bullets into the locale manifest's `ReleaseNotes` block automatically.
+- If you hand-edit `installer/winget/*.yaml` without updating the generator, your changes will be overwritten on the next release. Don't do it.
 
 **Public-facing URLs — always use the `FanFolder` repo:**
 - License: `https://github.com/olebhartvigsen/FanFolder/blob/main/LICENSE`

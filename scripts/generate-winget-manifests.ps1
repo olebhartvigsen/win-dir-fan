@@ -3,7 +3,8 @@ param(
     [string]$Tag,
     [string]$X64Msi   = "artifacts/x64/installer/output/FanFolderSetup-x64.msi",
     [string]$Arm64Msi = "artifacts/arm64/installer/output/FanFolderSetup-arm64.msi",
-    [string]$OutDir   = "winget-manifests"
+    [string]$OutDir   = "winget-manifests",
+    [string]$ReleaseNotesPath = "RELEASE_DRAFT.md"
 )
 
 $baseUrl = "https://github.com/olebhartvigsen/FanFolder/releases/download/$Tag"
@@ -22,6 +23,15 @@ function Get-MsiProductCode($path) {
 
 $pc_x64   = Get-MsiProductCode $X64Msi
 $pc_arm64 = Get-MsiProductCode $Arm64Msi
+
+# Extract release notes (bullet lines) from RELEASE_DRAFT.md for the locale manifest.
+$releaseNotesBlock = ""
+if (Test-Path $ReleaseNotesPath) {
+    $bullets = Get-Content $ReleaseNotesPath | Where-Object { $_ -match '^\s*-\s+' } | ForEach-Object { "  " + $_.TrimStart() }
+    if ($bullets.Count -gt 0) {
+        $releaseNotesBlock = "ReleaseNotes: |-`n  Highlights in $Version`:`n" + ($bullets -join "`n") + "`n"
+    }
+}
 
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 
@@ -77,24 +87,42 @@ PackageLocale: en-US
 Publisher: Ole Bhartvigsen
 PublisherUrl: https://github.com/olebhartvigsen
 PublisherSupportUrl: https://github.com/olebhartvigsen/FanFolder/issues
+Author: Ole Bhartvigsen
 PackageName: FanFolder
 PackageUrl: https://github.com/olebhartvigsen/FanFolder
 License: Proprietary
 LicenseUrl: https://github.com/olebhartvigsen/FanFolder/blob/main/LICENSE
-ShortDescription: Animated fan folder popup for the Windows taskbar
-Description: >-
-  FanFolder adds an animated, arc-shaped "Fan" folder popup to the Windows
-  taskbar. Clicking the taskbar icon reveals the most recently modified items
-  in a configured folder. Items can be opened, right-clicked (full shell
-  context menu), or dragged to other applications. Supports 16 languages and
-  is fully configurable via the Windows registry.
+Copyright: Copyright (c) 2026 Ole Bulow Hartvigsen
+CopyrightUrl: https://github.com/olebhartvigsen/FanFolder/blob/main/LICENSE
+ShortDescription: Animated fan folder popup for the Windows taskbar.
+Description: |-
+  FanFolder turns any folder into an animated, arc-shaped popup on the Windows
+  taskbar. Click the taskbar icon and the most recently modified items in a
+  configured folder fan out in a smooth animation. Open items, use the full
+  Windows shell context menu (right-click), or drag them into other applications.
+
+  Works with local folders as well as cloud-synced folders such as OneDrive,
+  Dropbox and Google Drive — always showing the latest files.
+
+  Key features:
+  - Multiple animation styles: Fan, Glide, Spring, Fade or None.
+  - Sort by date modified, date created or name, with optional filename regex filter.
+  - Configurable item count, folder path and display options via tray menu or registry.
+  - Full Windows shell context menu and drag-and-drop support.
+  - Per-user MSI install, no admin rights required.
+  - Native x64 and ARM64 builds.
+  - Small footprint and low memory usage.
+Moniker: fanfolder
 Tags:
-  - taskbar
-  - productivity
-  - launcher
-  - fan
-  - folder
-  - utility
+- taskbar
+- productivity
+- launcher
+- fan
+- folder
+- utility
+- shell
+- files
+${releaseNotesBlock}ReleaseNotesUrl: https://github.com/olebhartvigsen/FanFolder/releases/tag/v$Version
 ManifestType: defaultLocale
 ManifestVersion: 1.9.0
 "@ | Set-Content "$OutDir/OleBhartvigsen.FanFolder.locale.en-US.yaml" -Encoding UTF8
