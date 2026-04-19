@@ -1,6 +1,6 @@
 # FanFolder
 
-A Windows taskbar app that replicates the macOS Dock **fan folder** — click the taskbar icon to reveal an animated arc menu showing the most recently modified files in a configured folder. Items can be opened, dragged, and managed via the standard Windows shell context menu.
+A Windows taskbar app with an animated **fan folder** popup — click the taskbar icon to reveal an arc menu showing the most recently modified files in a configured folder. Items can be opened, dragged, and managed via the standard Windows shell context menu.
 
 Native Win32/C++ application. No .NET runtime required. ~161 KB executable.
 
@@ -8,9 +8,9 @@ Native Win32/C++ application. No .NET runtime required. ~161 KB executable.
 
 ## License
 
-- Source code in this repository is licensed under the MIT License. See [LICENSE](LICENSE).
-- Use of the compiled application is governed by the End User License Agreement. See [EULA.md](EULA.md).
-- FanFolder is free to use. If you like it, optional support via a "buy me a coffee" payment is appreciated.
+FanFolder is proprietary software, free to use for personal and commercial use forever. The source code is not publicly distributed. See [LICENSE](LICENSE) for full terms.
+
+If you find FanFolder useful, an optional "buy me a coffee" donation is appreciated but never required.
 
 ---
 

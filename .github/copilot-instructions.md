@@ -8,11 +8,15 @@
 
 **Never** submit, create, or trigger a winget package update/PR unless the user explicitly asks (e.g. "submit to winget", "do a winget push"). The user always initiates winget submissions.
 
+## ⚠️ Documentation Policy — NEVER reference Apple, Mac, macOS, OSX, or the Mac Dock
+
+**Never** mention Apple, Mac, macOS, OSX, Mac OS X, the Mac Dock, or any similar reference in any documentation, README, marketing copy, web page, winget manifest, release notes, commit message, or user-facing text. FanFolder is a standalone Windows utility — describe it on its own terms (e.g. "animated fan folder popup for the Windows taskbar"). This applies to all files in the repository except technical CSS identifiers (`-apple-system`, `BlinkMacSystemFont`) inside font stacks, which are rendering hints and not documentation.
+
 ---
 
 ## Project Overview
 
-**FanFolder** is a Win32/C++ desktop app that replicates the macOS Dock "Fan" folder on the Windows taskbar. Clicking a taskbar icon reveals an animated, arc-shaped popup showing the most recently modified items in a configured folder. Items can be opened, right-clicked (full shell context menu), or dragged to other applications.
+**FanFolder** is a Win32/C++ desktop app that adds an animated, arc-shaped "Fan" folder popup to the Windows taskbar. Clicking a taskbar icon reveals the most recently modified items in a configured folder. Items can be opened, right-clicked (full shell context menu), or dragged to other applications.
 
 - **Implementation:** `FanFolder/` — C++20, Win32, GDI+, CMake, MSVC, ~161 KB exe
 - No unit tests; no linting/formatting tooling configured

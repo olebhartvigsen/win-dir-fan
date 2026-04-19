@@ -1,6 +1,6 @@
 # FanFolder — Marketing & Distribution Guide
 
-FanFolder is a free, lightweight Win32 utility that brings the macOS Dock "fan" folder experience to the Windows taskbar. Below are 10 realistic, actionable initiatives to grow its audience, followed by a guide on how to get it listed in the major software directories.
+FanFolder is a free, lightweight Win32 utility that adds an animated "fan" folder popup to the Windows taskbar. Below are 10 realistic, actionable initiatives to grow its audience, followed by a guide on how to get it listed in the major software directories.
 
 ---
 
@@ -21,7 +21,6 @@ Target these subreddits with a short write-up + the demo GIF:
 - [r/Windows](https://www.reddit.com/r/windows) — largest Windows audience
 - [r/windowsapps](https://www.reddit.com/r/windowsapps) — dedicated to Windows utilities
 - [r/productivity](https://www.reddit.com/r/productivity) — focus on workflow improvement angle
-- [r/mac](https://www.reddit.com/r/mac) — angle: "miss the Mac dock fan? Now on Windows"
 
 **Tip:** Post on a weekday morning (US time). Lead with the GIF, not a wall of text.
 
@@ -38,8 +37,8 @@ Target these subreddits with a short write-up + the demo GIF:
 
 ### 4. 🔍 List on AlternativeTo.net
 [AlternativeTo](https://alternativeto.net) is heavily indexed by Google. People searching for  
-"macOS dock for Windows" or "HiDock alternative" will find it.  
-- Add FanFolder as an alternative to macOS Dock / HiDock / RocketDock  
+"animated taskbar launcher" or "HiDock alternative" will find it.  
+- Add FanFolder as an alternative to HiDock / RocketDock and similar taskbar launchers  
 - Free to list; just create an account and submit
 
 ---
@@ -61,7 +60,7 @@ This is **free**, requires no code signing, and gives huge discoverability on Wi
 
 ### 6. 🟡 Show HN on Hacker News
 [Hacker News Show HN](https://news.ycombinator.com/show) posts reach developers and power users worldwide.  
-- Title: `Show HN: FanFolder – macOS-style animated fan folder for the Windows taskbar`  
+- Title: `Show HN: FanFolder – animated fan folder popup for the Windows taskbar`  
 - Include a link to the GitHub repo  
 - Be ready to respond to comments quickly — engagement in the first hour matters most
 
@@ -80,7 +79,7 @@ A single article on any of these can drive thousands of downloads.
 
 ### 8. 📣 Post on social media with the demo video
 - **Twitter/X**: Short thread with the GIF, tag `#Windows`, `#WindowsTips`, `#opensource`
-- **LinkedIn**: Frame it as a productivity story — "I built this because I missed macOS..."
+- **LinkedIn**: Frame it as a productivity story — "I built this small utility because Windows needed it..."
 - **TikTok / YouTube Shorts**: 30-second "did you know Windows can do this?" style video — these go viral organically in the tech niche
 
 ---

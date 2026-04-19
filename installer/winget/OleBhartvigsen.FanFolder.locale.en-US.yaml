@@ -8,13 +8,13 @@ PublisherSupportUrl: https://github.com/olebhartvigsen/FanFolder/issues
 Author: Ole Bhartvigsen
 PackageName: FanFolder
 PackageUrl: https://github.com/olebhartvigsen/FanFolder
-License: MIT
+License: Proprietary
 LicenseUrl: https://github.com/olebhartvigsen/FanFolder/blob/main/LICENSE
 Copyright: Copyright (c) 2026 Ole Bulow Hartvigsen
 CopyrightUrl: https://github.com/olebhartvigsen/FanFolder/blob/main/LICENSE
-ShortDescription: macOS-style animated fan folder for the Windows taskbar.
+ShortDescription: Animated fan folder popup for the Windows taskbar.
 Description: |-
-  FanFolder brings the macOS Dock "Fan" folder experience to the Windows taskbar.
+  FanFolder adds an animated "Fan" folder popup to the Windows taskbar.
   Click a taskbar icon and the most recently modified items in a configured folder
   fan out in an animated arc. Items can be opened, right-clicked for the full
   Windows shell context menu, or dragged to other applications.
@@ -31,8 +31,6 @@ Tags:
   - taskbar
   - productivity
   - launcher
-  - dock
-  - macos
   - fan
   - folder
   - utility
