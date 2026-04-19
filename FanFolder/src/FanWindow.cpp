@@ -63,7 +63,7 @@ static constexpr float AnimSpeed_Out      = 0.65f;
 static constexpr float EntryFadeDurationMs = 60.f;
 static constexpr float ItemStageDurationMs = 14.f;
 static constexpr float ItemAnimDurationMs  = 200.f;
-// Fan (macOS-style): per-item EaseOutQuint with tight stagger + scale
+// Fan (arc style): per-item EaseOutQuint with tight stagger + scale
 static constexpr float FanStageDurationMs  = 12.f;
 static constexpr float FanItemDurationMs   = 220.f;
 static constexpr float FanStartScale       = 0.40f;

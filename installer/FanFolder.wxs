@@ -9,7 +9,7 @@
            Language="1033"
            Scope="perUser">
 
-    <SummaryInformation Description="FanFolder — macOS-style fan menu for the Windows taskbar" />
+    <SummaryInformation Description="FanFolder — animated fan folder popup for the Windows taskbar" />
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of FanFolder is already installed." />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
@@ -54,7 +54,7 @@
                  Guid="32923206-A517-4419-9100-57A6B94A6F26">
         <Shortcut Id="StartMenuShortcutLink"
                   Name="FanFolder"
-                  Description="macOS-style fan folder for the Windows taskbar"
+                  Description="Animated fan folder popup for the Windows taskbar"
                   Target="[INSTALLFOLDER]FanFolder.exe"
                   WorkingDirectory="INSTALLFOLDER" />
         <RemoveFolder Id="RemoveStartMenuFolder" Directory="StartMenuFanFolder" On="uninstall" />
@@ -70,7 +70,7 @@
                  Guid="4779D22A-85B8-4033-B2F2-F884E464D4C3">
         <Shortcut Id="DesktopShortcutLink"
                   Name="FanFolder"
-                  Description="macOS-style fan folder for the Windows taskbar"
+                  Description="Animated fan folder popup for the Windows taskbar"
                   Target="[INSTALLFOLDER]FanFolder.exe"
                   WorkingDirectory="INSTALLFOLDER" />
         <RegistryValue Root="HKCU"
