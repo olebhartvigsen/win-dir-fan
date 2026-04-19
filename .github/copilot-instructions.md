@@ -19,14 +19,28 @@
 
 ### Repository structure
 
-| Repo | Purpose |
-|---|---|
-| [`olebhartvigsen/win-dir-fan`](https://github.com/olebhartvigsen/win-dir-fan) | Source code, build pipeline, installer project, winget manifest templates |
-| [`olebhartvigsen/FanFolder`](https://github.com/olebhartvigsen/FanFolder) | **Distribution repo** — all releases are published here: `.exe`, `.msi`, bundle installer, and auto-generated winget manifests |
+FanFolder lives in two repos with a strict separation of concerns:
 
-**Release flow:** Every build (tagged or manual) triggers the GitHub Actions pipeline in `win-dir-fan`, which builds x64 + ARM64, bundles a combined installer, auto-generates winget manifests with correct SHA256 hashes and ProductCodes, and publishes everything as a release in `olebhartvigsen/FanFolder`.
+| Repo | Visibility | Contains | Do not put here |
+|---|---|---|---|
+| [`olebhartvigsen/win-dir-fan`](https://github.com/olebhartvigsen/win-dir-fan) | **private** — source repo | All source code, CMake/WiX project, build pipeline, docs, winget manifest templates, website source | Release binaries (built artifacts are uploaded to the distribution repo, not committed here) |
+| [`olebhartvigsen/FanFolder`](https://github.com/olebhartvigsen/FanFolder) | **public** — distribution repo | Releases only: `.exe`, `.msi`, bundle installer, auto-generated winget manifests, a public `LICENSE`, and a minimal README pointing to the website. **No source code.** | Any C++/C#/build source, private URLs |
 
-**Winget submission:** When ready to submit to winget, download the three manifest files (`OleBhartvigsen.FanFolder.yaml`, `OleBhartvigsen.FanFolder.installer.yaml`, `OleBhartvigsen.FanFolder.locale.en-US.yaml`) from the corresponding release in `olebhartvigsen/FanFolder` — they are ready to submit as-is.
+**All development happens in `win-dir-fan`.** Clones, PRs, issues, CI, and commits all target that repo. The `FanFolder` repo is a publish target — you do not edit it directly except for release metadata.
+
+**Release flow:** Tagging `v*` in `win-dir-fan` triggers `.github/workflows/release.yml`, which builds x64 + ARM64, creates MSIs, builds a combined Burn bundle, runs `scripts/generate-winget-manifests.ps1` to produce manifests with real SHA256 hashes and ProductCodes extracted from the freshly built MSIs, and publishes everything as a release on `olebhartvigsen/FanFolder` using the `DIST_REPO_TOKEN` secret.
+
+**Winget manifests — two copies, different purposes:**
+- `installer/winget/*.yaml` in `win-dir-fan` are **templates / hand-maintained baselines** used when the auto-generator is bypassed or when ad-hoc mirroring is needed. They may lag behind the latest release.
+- `winget-manifests/*.yaml` produced by the release pipeline and attached to each `FanFolder` release are the **authoritative, submission-ready** copies for that specific version.
+
+**Public-facing URLs — always use the `FanFolder` repo:**
+- License: `https://github.com/olebhartvigsen/FanFolder/blob/main/LICENSE`
+- Installer downloads: `https://github.com/olebhartvigsen/FanFolder/releases/download/v<version>/...`
+- Release notes: `https://github.com/olebhartvigsen/FanFolder/releases/tag/v<version>`
+- Never link the public world to `win-dir-fan` — it is private and will 404 for winget validators, end users, and the website.
+
+**Winget submission:** When the user asks to submit, pull the three manifest files attached to the matching `FanFolder` release (not from `installer/winget/`) and open a PR against `microsoft/winget-pkgs` under `manifests/o/OleBhartvigsen/FanFolder/<version>/`. Run `winget validate` on Windows before opening the PR.
 
 ---
 

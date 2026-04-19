@@ -1,22 +1,32 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
 PackageIdentifier: OleBhartvigsen.FanFolder
-PackageVersion: 1.1.0
+PackageVersion: 1.1.1
 PackageLocale: en-US
 Publisher: Ole Bhartvigsen
 PublisherUrl: https://github.com/olebhartvigsen
 PublisherSupportUrl: https://github.com/olebhartvigsen/FanFolder/issues
+Author: Ole Bhartvigsen
 PackageName: FanFolder
 PackageUrl: https://github.com/olebhartvigsen/FanFolder
 License: MIT
-LicenseUrl: https://github.com/olebhartvigsen/win-dir-fan/blob/master/LICENSE
-ShortDescription: macOS-style animated fan folder for the Windows taskbar
-Description: >-
-  FanFolder replicates the macOS Dock "Fan" folder experience on the Windows
-  taskbar. Clicking the taskbar icon reveals an animated, arc-shaped popup
-  showing the most recently modified items in a configured folder. Items can
-  be opened, right-clicked (full shell context menu), or dragged to other
-  applications. Supports 16 languages and is fully configurable via the
-  Windows registry.
+LicenseUrl: https://github.com/olebhartvigsen/FanFolder/blob/main/LICENSE
+Copyright: Copyright (c) 2026 Ole Bulow Hartvigsen
+CopyrightUrl: https://github.com/olebhartvigsen/FanFolder/blob/main/LICENSE
+ShortDescription: macOS-style animated fan folder for the Windows taskbar.
+Description: |-
+  FanFolder brings the macOS Dock "Fan" folder experience to the Windows taskbar.
+  Click a taskbar icon and the most recently modified items in a configured folder
+  fan out in an animated arc. Items can be opened, right-clicked for the full
+  Windows shell context menu, or dragged to other applications.
+
+  Features:
+  - Per-user MSI install, no admin rights required.
+  - Configurable source folder (works with OneDrive, Dropbox and other cloud folders).
+  - Multiple animation styles: Fan, Glide, Spring, Fade and None.
+  - Sort by date modified, date created or name; optional filename regex filter.
+  - Full Windows shell context menu and drag-and-drop support.
+  - Native x64 and ARM64 builds.
+Moniker: fanfolder
 Tags:
   - taskbar
   - productivity
@@ -26,5 +36,15 @@ Tags:
   - fan
   - folder
   - utility
+  - shell
+  - files
+ReleaseNotes: |-
+  Highlights in 1.1.1:
+  - Multi-architecture release pipeline (x64 + ARM64).
+  - Combined Burn bootstrapper installer for easier distribution.
+  - Refined Glide and Fan animations with per-item stagger and smoother easing.
+  - Updated branding, including new app and taskbar icons.
+  - Performance and correctness fixes, UI/behavior polish.
+ReleaseNotesUrl: https://github.com/olebhartvigsen/FanFolder/releases/tag/v1.1.1
 ManifestType: defaultLocale
 ManifestVersion: 1.9.0
