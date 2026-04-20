@@ -1,16 +1,17 @@
 # FanFolder – Copilot Instructions
 
-## ⚠️ Git & Build Policy — NEVER commit, push, merge, tag, release, *or build* without explicit user instruction
+## ⚠️ Git & Release Policy — NEVER commit, push, merge, tag, or release without explicit user instruction
 
-**Never** run any of the following unless the user explicitly asks for it in the current message (e.g. "commit", "push", "tag", "release", "build", "run cmake"):
+**Never** run any of the following unless the user explicitly asks for it in the current message (e.g. "commit", "push", "tag", "release"):
 - `git commit`, `git push`, `git merge`, `git rebase`, `git tag`, `git pull`
 - `gh release create`, `gh release upload`, any `gh` action that mutates the remote
-- `cmake --build`, `msbuild`, `dotnet build`, `ninja`, or any other full build of FanFolder
-- Launching `FanFolder.exe` from a build output
+- Anything that triggers a CI build or online build (pushing tags, publishing releases, dispatching workflows)
 
-Even when the user asks you to change code, **do not** proactively build to "verify" unless they also asked you to build/test/run. Make the edits, summarize them, and wait. The user always initiates commits, pushes, merges, tags, releases, and builds.
+**Local builds are fine** — `cmake --build` on this machine, running `FanFolder.exe` locally, and local test runs do NOT require explicit authorization. Build freely when it helps verify your changes.
 
-If you are unsure whether the user wants a build or a commit, **stop and ask** — do not guess. A small delay is always preferable to an unwanted commit, tag, or release.
+**Online builds and releases are NOT fine without an explicit order.** Do not push tags, publish releases, or dispatch CI workflows on your own initiative.
+
+If you are unsure whether an action will trigger an online build or release, **stop and ask** — do not guess.
 
 ## ⚠️ Winget Policy — NEVER submit a winget release without explicit user instruction
 
