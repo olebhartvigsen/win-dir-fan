@@ -9,7 +9,12 @@
 #include <fstream>
 
 // Debug log helper — writes to %TEMP%\fanfolder_debug.log
+// Gated by kDebugLogEnabled: set to true for diagnostic builds. When false,
+// this is a no-op so we don't hammer the disk (and spend CPU formatting) on
+// every mouse click, window message, and 60 FPS animation tick.
+static constexpr bool kDebugLogEnabled = false;
 static void DebugLog(const wchar_t* msg) {
+    if constexpr (!kDebugLogEnabled) return;
     OutputDebugStringW(msg);
     static wchar_t logPath[MAX_PATH] = {};
     if (!logPath[0]) {

@@ -5,6 +5,12 @@
 #include "ShellDrag.h"
 #include "Localization.h"
 
+// File-scope diagnostic toggle. Set to true to re-enable the per-message /
+// per-tick / slow-draw logging to %TEMP%\fanfolder_debug.log. Leave false in
+// release builds — these log sites live inside 60 FPS animation ticks and
+// the window proc, so the disk I/O alone can burn significant CPU.
+static constexpr bool kTraceMessages = false;
+
 // ---------------------------------------------------------------------------
 // IDropTarget implementation — receives files dragged from Explorer onto the fan
 // ---------------------------------------------------------------------------
@@ -752,7 +758,7 @@ void FanWindow::DrawToLayeredWindow() {
     _dbg_t_ulw = GetTickCount() - _dbg_t3;
 
     DWORD _dbg_total = GetTickCount() - _dbg_t0;
-    if (_dbg_total > 50) {
+    if (kTraceMessages && _dbg_total > 50) {
         wchar_t p[MAX_PATH] = {};
         GetTempPathW(MAX_PATH, p);
         wcscat_s(p, L"fanfolder_debug.log");
@@ -1421,11 +1427,13 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     if (!self) return DefWindowProcW(hwnd, msg, wParam, lParam);
 
     // TEMP: trace every message + processing time during the first 1500 ms
-    // after window creation, to diagnose UI-thread stalls.
+    // after window creation, to diagnose UI-thread stalls. Gated by the
+    // file-scope kTraceMessages flag; disabled in release builds.
     struct TraceGuard {
         HWND  hwnd; UINT msg; WPARAM wp; DWORD t0; bool active;
         TraceGuard(HWND h, UINT m, WPARAM w, DWORD ct)
             : hwnd(h), msg(m), wp(w), t0(GetTickCount()), active(false) {
+            if constexpr (!kTraceMessages) return;
             // If _createTick is 0 we haven't had our first tick yet (still in
             // the critical window); if >0 but within 1500 ms we're still in
             // the diagnostic window.
@@ -1461,47 +1469,50 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         DWORD now     = GetTickCount();
         if (self->_createTick == 0) {
             self->_createTick = now;
-            // One-off log: measure threadpool-timer → UI latency.
-            // Write to fanfolder_debug.log via Win32 (no DebugLog import from here).
-            wchar_t logPath[MAX_PATH] = {};
-            GetTempPathW(MAX_PATH, logPath);
-            wcscat_s(logPath, L"fanfolder_debug.log");
-            wchar_t buf[256];
-            swprintf_s(buf, L"[FanFolder] FanWindow: first WM_ANIM_TICK at tick=%u\n", now);
-            HANDLE h = CreateFileW(logPath, FILE_APPEND_DATA,
-                                   FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                   nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (h != INVALID_HANDLE_VALUE) {
-                char utf8[512];
-                int n = WideCharToMultiByte(CP_UTF8, 0, buf, -1, utf8, sizeof(utf8), nullptr, nullptr);
-                if (n > 1) { DWORD w = 0; WriteFile(h, utf8, n - 1, &w, nullptr); }
-                CloseHandle(h);
+            if constexpr (kTraceMessages) {
+                // One-off log: measure threadpool-timer → UI latency.
+                wchar_t logPath[MAX_PATH] = {};
+                GetTempPathW(MAX_PATH, logPath);
+                wcscat_s(logPath, L"fanfolder_debug.log");
+                wchar_t buf[256];
+                swprintf_s(buf, L"[FanFolder] FanWindow: first WM_ANIM_TICK at tick=%u\n", now);
+                HANDLE h = CreateFileW(logPath, FILE_APPEND_DATA,
+                                       FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                       nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+                if (h != INVALID_HANDLE_VALUE) {
+                    char utf8[512];
+                    int n = WideCharToMultiByte(CP_UTF8, 0, buf, -1, utf8, sizeof(utf8), nullptr, nullptr);
+                    if (n > 1) { DWORD w = 0; WriteFile(h, utf8, n - 1, &w, nullptr); }
+                    CloseHandle(h);
+                }
             }
         }
         float elapsed = (float)(now - self->_createTick);
 
-        // TEMP diagnostic: log first 5 ticks per open to see elapsed progression
-        static thread_local int s_tickCount = 0;
-        static thread_local HWND s_tickHwnd = nullptr;
-        if (s_tickHwnd != hwnd) { s_tickHwnd = hwnd; s_tickCount = 0; }
-        if (s_tickCount < 5) {
-            wchar_t logPath2[MAX_PATH] = {};
-            GetTempPathW(MAX_PATH, logPath2);
-            wcscat_s(logPath2, L"fanfolder_debug.log");
-            wchar_t buf2[256];
-            swprintf_s(buf2, L"[FanFolder]   tick #%d elapsed=%.0fms entryAlpha=%.2f itemProg[0]=%.2f\n",
-                       s_tickCount, elapsed, self->_entryAlpha,
-                       self->_itemProgress.empty() ? 0.f : self->_itemProgress[0]);
-            HANDLE h2 = CreateFileW(logPath2, FILE_APPEND_DATA,
-                                   FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                   nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (h2 != INVALID_HANDLE_VALUE) {
-                char utf8b[512];
-                int n = WideCharToMultiByte(CP_UTF8, 0, buf2, -1, utf8b, sizeof(utf8b), nullptr, nullptr);
-                if (n > 1) { DWORD w = 0; WriteFile(h2, utf8b, n - 1, &w, nullptr); }
-                CloseHandle(h2);
+        if constexpr (kTraceMessages) {
+            // TEMP diagnostic: log first 5 ticks per open to see elapsed progression
+            static thread_local int s_tickCount = 0;
+            static thread_local HWND s_tickHwnd = nullptr;
+            if (s_tickHwnd != hwnd) { s_tickHwnd = hwnd; s_tickCount = 0; }
+            if (s_tickCount < 5) {
+                wchar_t logPath2[MAX_PATH] = {};
+                GetTempPathW(MAX_PATH, logPath2);
+                wcscat_s(logPath2, L"fanfolder_debug.log");
+                wchar_t buf2[256];
+                swprintf_s(buf2, L"[FanFolder]   tick #%d elapsed=%.0fms entryAlpha=%.2f itemProg[0]=%.2f\n",
+                           s_tickCount, elapsed, self->_entryAlpha,
+                           self->_itemProgress.empty() ? 0.f : self->_itemProgress[0]);
+                HANDLE h2 = CreateFileW(logPath2, FILE_APPEND_DATA,
+                                       FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                       nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+                if (h2 != INVALID_HANDLE_VALUE) {
+                    char utf8b[512];
+                    int n = WideCharToMultiByte(CP_UTF8, 0, buf2, -1, utf8b, sizeof(utf8b), nullptr, nullptr);
+                    if (n > 1) { DWORD w = 0; WriteFile(h2, utf8b, n - 1, &w, nullptr); }
+                    CloseHandle(h2);
+                }
+                s_tickCount++;
             }
-            s_tickCount++;
         }
 
         bool  dirty   = false;
