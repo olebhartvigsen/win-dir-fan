@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
 PackageIdentifier: OleBhartvigsen.FanFolder
-PackageVersion: 1.1.4
+PackageVersion: 1.1.5
 PackageLocale: en-US
 Publisher: Ole Bhartvigsen
 PublisherUrl: https://github.com/olebhartvigsen
@@ -41,10 +41,11 @@ Tags:
 - shell
 - files
 ReleaseNotes: |-
-  Highlights in 1.1.4:
-  - All three winget manifest templates now auto-sync back to source repo on every release.
-  - Winget manifest generator injects release notes from RELEASE_DRAFT.md into the locale manifest.
-  - Removed remaining macOS/Apple references from all documentation and installer metadata.
-ReleaseNotesUrl: https://github.com/olebhartvigsen/FanFolder/releases/tag/v1.1.4
+  Highlights in 1.1.5:
+  - Fan menu now opens reliably on rapid clicks — no more silent reopens without animation.
+  - Much faster menu open: icons are prewarmed in the background and reused across opens.
+  - Taskbar icon, Alt+Tab, live preview and tray now all show the same unified app icon.
+  - File icons with cloud/OneDrive overlays no longer render upside down or with a black background.
+ReleaseNotesUrl: https://github.com/olebhartvigsen/FanFolder/releases/tag/v1.1.5
 ManifestType: defaultLocale
 ManifestVersion: 1.9.0
