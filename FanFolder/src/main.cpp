@@ -6,6 +6,25 @@
 #include <gdiplus.h>
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
+    // Single-instance guard. A named mutex in the Local\ namespace ensures only
+    // one FanFolder.exe runs per user session; if a second copy launches (e.g.
+    // from an installer upgrade or a stray shortcut) we surface the existing
+    // window and exit so the taskbar stays on a single live preview.
+    HANDLE hInstanceMutex = CreateMutexW(nullptr, FALSE, L"Local\\FanFolder.App.SingleInstance");
+    if (hInstanceMutex && GetLastError() == ERROR_ALREADY_EXISTS) {
+        // Ask any existing hidden FanFolder top-level window to come forward.
+        HWND existing = FindWindowW(L"FanFolderMain", nullptr);
+        if (existing) {
+            // Broadcast-safe restore: the main window's SC_RESTORE handler
+            // toggles the fan, so we simply show it minimized again to bring
+            // the taskbar button back if it was hidden.
+            ShowWindow(existing, SW_SHOWMINNOACTIVE);
+            SetForegroundWindow(existing);
+        }
+        if (hInstanceMutex) CloseHandle(hInstanceMutex);
+        return 0;
+    }
+
     // Set explicit AppUserModelID so the taskbar shows "FanFolder" in the taskbar
     SetCurrentProcessExplicitAppUserModelID(L"FanFolder.App");
 
@@ -36,5 +55,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
     OleUninitialize();
     Gdiplus::GdiplusShutdown(gdiplusToken);
+    if (hInstanceMutex) CloseHandle(hInstanceMutex);
     return 0;
 }

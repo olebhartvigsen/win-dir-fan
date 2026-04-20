@@ -47,7 +47,9 @@ jobs:
 
       - name: Add WiX UI extension
         working-directory: installer
-        run: wix extension add WixToolset.UI.wixext/4.0.5
+        run: |
+          wix extension add WixToolset.UI.wixext/4.0.5
+          wix extension add WixToolset.Util.wixext/4.0.5
 
       - name: Configure CMake
         run: cmake -B FanFolder/build -G "Visual Studio 17 2022" -A ${{ matrix.cmake_arch }} -S FanFolder
