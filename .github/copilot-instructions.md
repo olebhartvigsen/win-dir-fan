@@ -55,6 +55,19 @@ FanFolder lives in two repos with a strict separation of concerns:
 
 ---
 
+## Related Repositories
+
+Two separate GitHub repos make up the FanFolder project:
+
+| Repo | Purpose | Local path |
+|---|---|---|
+| `olebhartvigsen/win-dir-fan` (this repo) | The FanFolder **desktop application** — C++ source, installer, tooling | `C:\projekter\win-dir-fan` |
+| `olebhartvigsen/FanFolder` | **Marketing, webpage, and distribution** for FanFolder — `index.html` (GitHub Pages landing page), marketing assets, and hosts the built installer/binaries for end-user download | `C:\projekter\FanFolder-web` (when cloned) |
+
+When the user asks to update "the webpage", "the landing page", "the site", marketing copy, or to publish/distribute a new installer build, work in the `olebhartvigsen/FanFolder` repo — not this one. Clone it to `C:\projekter\FanFolder-web` if not already present.
+
+---
+
 ## Build Commands
 
 ```powershell
