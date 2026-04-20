@@ -1,8 +1,16 @@
 # FanFolder – Copilot Instructions
 
-## ⚠️ Git Policy — NEVER commit, push, or merge without explicit user instruction
+## ⚠️ Git & Build Policy — NEVER commit, push, merge, tag, release, *or build* without explicit user instruction
 
-**Never** run `git commit`, `git push`, `git merge`, or any equivalent (e.g. `git rebase`, `git tag`) unless the user explicitly asks (e.g. "commit", "push", "merge to master"). The user always initiates these actions.
+**Never** run any of the following unless the user explicitly asks for it in the current message (e.g. "commit", "push", "tag", "release", "build", "run cmake"):
+- `git commit`, `git push`, `git merge`, `git rebase`, `git tag`, `git pull`
+- `gh release create`, `gh release upload`, any `gh` action that mutates the remote
+- `cmake --build`, `msbuild`, `dotnet build`, `ninja`, or any other full build of FanFolder
+- Launching `FanFolder.exe` from a build output
+
+Even when the user asks you to change code, **do not** proactively build to "verify" unless they also asked you to build/test/run. Make the edits, summarize them, and wait. The user always initiates commits, pushes, merges, tags, releases, and builds.
+
+If you are unsure whether the user wants a build or a commit, **stop and ask** — do not guess. A small delay is always preferable to an unwanted commit, tag, or release.
 
 ## ⚠️ Winget Policy — NEVER submit a winget release without explicit user instruction
 
