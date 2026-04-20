@@ -92,6 +92,25 @@ private:
     int _arcOriginX = 0;
     int _arcOriginY = 0;
 
+    // Set by async icon-load handlers (WM_USER + 1 / + 2) to request a single
+    // coalesced redraw on the next animation tick.  BEFORE this coalescing,
+    // each of the 15 async icon loads triggered its own DrawToLayeredWindow()
+    // inside the message handler — a storm of sequential GDI+ renders that
+    // blocked the UI thread for ~750 ms on "cached" reopens, during which
+    // WM_ANIM_TICK (and everything else) could not be processed.  The fan
+    // therefore appeared to open with a ~750 ms lag on every reopen where the
+    // prewarm hadn't finished yet.
+    std::atomic<bool> _iconsDirty{false};
+
+    // Animation driver — uses a threadpool timer instead of SetTimer because
+    // WM_TIMER is low-priority and can be starved for 1+ second by queued
+    // input/paint messages on rapid taskbar reopens.  The threadpool timer
+    // PostMessage()s WM_ANIM_TICK which has normal priority.
+    PTP_TIMER _animTimer = nullptr;
+    void StartAnimTimer();
+    void StopAnimTimer();
+    static VOID CALLBACK AnimTimerCb(PTP_CALLBACK_INSTANCE, PVOID ctx, PTP_TIMER);
+
     // Cached GDI+ font/format objects — rebuilt only when _iconSize changes
     float                  _cachedFontSize = 0.f;
     Gdiplus::Font*         _labelFont      = nullptr;

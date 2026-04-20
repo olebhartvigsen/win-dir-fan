@@ -76,6 +76,24 @@ static constexpr float kPI = 3.14159265358979f;
 
 static const UINT WM_ICON_BITMAP = WM_USER + 1;
 static const UINT WM_ICON_ICON   = WM_USER + 2;
+// WM_ICON_READY: lParam = heap-allocated IconReady* (owned by UI handler);
+// wParam unused.  Used when the worker thread has pre-converted the bitmap to
+// Gdiplus::Bitmap* — the UI handler just takes ownership and assigns the
+// slots, avoiding the ~50ms × 15 = ~750ms HBitmapToGdiBitmap cost on the UI
+// thread that otherwise stalls the animation timer on cached reopens.
+static const UINT WM_ICON_READY  = WM_USER + 4;
+
+struct IconReady {
+    int              idx;
+    HBITMAP          hBmp;    // may be null (then hIcon is used)
+    HICON            hIcon;   // may be null
+    Gdiplus::Bitmap* gdiBmp;  // pre-converted on worker thread; may be null
+};
+static const UINT WM_ANIM_TICK   = WM_USER + 3;
+
+// TEMP DIAG: count per-frame conversion cost from DrawItem fallback path.
+thread_local DWORD g_dbgConvertMs  = 0;
+thread_local int   g_dbgConvertCnt = 0;
 
 // ---------------------------------------------------------------------------
 void FanWindow::Register(HINSTANCE hInst) {
@@ -99,6 +117,7 @@ FanWindow::FanWindow(HINSTANCE hInst, HWND hwndOwner,
 {}
 
 FanWindow::~FanWindow() {
+    StopAnimTimer();
     delete _labelFont;   _labelFont   = nullptr;
     delete _labelSF;     _labelSF     = nullptr;
     delete _measureSF;   _measureSF   = nullptr;
@@ -107,7 +126,6 @@ FanWindow::~FanWindow() {
     FreeBackBuffer();
     if (_hwnd) {
         RevokeDragDrop(_hwnd);
-        KillTimer(_hwnd, 1);
         DestroyWindow(_hwnd);
         _hwnd = nullptr;
     }
@@ -209,16 +227,25 @@ void FanWindow::Show() {
 
     DrawToLayeredWindow();
     ShowWindow(_hwnd, SW_SHOWNOACTIVATE);
-    _createTick = GetTickCount();   // start clock after window is visible
-    SetTimer(_hwnd, 1, 16, nullptr);
+    // NB: Don't set _createTick here.  The animation tick posts might race
+    // with other queued messages on rapid taskbar reopens.  Leave _createTick
+    // at 0 and initialise it on the FIRST tick so the animation always begins
+    // from t=0 when the tick is actually processed.
+    _createTick = 0;
+
+    // Kick off the animation via a threadpool timer that PostMessage()s
+    // WM_ANIM_TICK.  This is higher priority than WM_TIMER (which gets
+    // starved by up to ~1.5 seconds when the queue has pending messages),
+    // so the entry animation starts and runs smoothly even on rapid reopens.
+    StartAnimTimer();
 
     TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, _hwnd, 0 };
     TrackMouseEvent(&tme);
 }
 
 void FanWindow::Close() {
+    StopAnimTimer();
     if (_hwnd) {
-        KillTimer(_hwnd, 1);
         DestroyWindow(_hwnd);
         _hwnd = nullptr;
     }
@@ -600,6 +627,11 @@ void FanWindow::FreeBackBuffer() {
 void FanWindow::DrawToLayeredWindow() {
     if (!_hwnd || _winWidth <= 0 || _winHeight <= 0) return;
 
+    DWORD _dbg_t0 = GetTickCount();
+    DWORD _dbg_t_alloc = 0, _dbg_t_items = 0, _dbg_t_premul = 0, _dbg_t_ulw = 0;
+    g_dbgConvertMs  = 0;
+    g_dbgConvertCnt = 0;
+
     // Recreate backbuffer only when size changes
     if (_winWidth != _backW || _winHeight != _backH) {
         FreeBackBuffer();
@@ -626,13 +658,31 @@ void FanWindow::DrawToLayeredWindow() {
         _backW   = _winWidth;
         _backH   = _winHeight;
     }
+    _dbg_t_alloc = GetTickCount() - _dbg_t0;
+    DWORD _dbg_t1 = GetTickCount();
 
     // Clear and render into the DIB-backed GDI+ bitmap
+    int _dbg_placeholders = 0, _dbg_gdiDraws = 0, _dbg_conversions = 0;
+    DWORD _dbg_t_convert = 0, _dbg_t_drawImage = 0, _dbg_t_labels = 0;
+    DWORD _dbg_t_gctor = 0, _dbg_t_gset = 0, _dbg_t_gclear = 0, _dbg_t_gloop = 0, _dbg_t_gdtor = 0;
     {
+        DWORD _gt0 = GetTickCount();
         Gdiplus::Graphics g(_backBmp);
+        _dbg_t_gctor = GetTickCount() - _gt0;
+        DWORD _gt1 = GetTickCount();
         g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
         g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-        g.Clear(Gdiplus::Color(0, 0, 0, 0));
+        _dbg_t_gset = GetTickCount() - _gt1;
+        DWORD _gt2 = GetTickCount();
+        // Bypass GDI+ Clear (which acquires a global GDI+ lock contended by
+        // worker-thread icon conversions) with a direct memset on DIB bits.
+        if (_pBackBits) {
+            std::memset(_pBackBits, 0, (size_t)_winWidth * _winHeight * 4);
+        } else {
+            g.Clear(Gdiplus::Color(0, 0, 0, 0));
+        }
+        _dbg_t_gclear = GetTickCount() - _gt2;
+        DWORD _gt3 = GetTickCount();
 
         int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
         auto getItemAlpha = [&](int i) -> float {
@@ -665,7 +715,11 @@ void FanWindow::DrawToLayeredWindow() {
             Gdiplus::SolidBrush overlay(Gdiplus::Color(55, 80, 160, 255));
             g.FillRectangle(&overlay, 0, 0, _winWidth, _winHeight);
         }
+        _dbg_t_gloop = GetTickCount() - _gt3;
     }
+    _dbg_t_gdtor = 0;
+    _dbg_t_items = GetTickCount() - _dbg_t1;
+    DWORD _dbg_t2 = GetTickCount();
 
     // Premultiply alpha in-place on the DIB bits (no LockBits/memcpy needed)
     {
@@ -685,6 +739,8 @@ void FanWindow::DrawToLayeredWindow() {
             }
         }
     }
+    _dbg_t_premul = GetTickCount() - _dbg_t2;
+    DWORD _dbg_t3 = GetTickCount();
 
     HDC hdcScreen = GetDC(nullptr);
     POINT ptSrc = {0, 0};
@@ -693,6 +749,29 @@ void FanWindow::DrawToLayeredWindow() {
     BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
     UpdateLayeredWindow(_hwnd, hdcScreen, &ptDst, &szWin, _hdcBack, &ptSrc, 0, &blend, ULW_ALPHA);
     ReleaseDC(nullptr, hdcScreen);
+    _dbg_t_ulw = GetTickCount() - _dbg_t3;
+
+    DWORD _dbg_total = GetTickCount() - _dbg_t0;
+    if (_dbg_total > 50) {
+        wchar_t p[MAX_PATH] = {};
+        GetTempPathW(MAX_PATH, p);
+        wcscat_s(p, L"fanfolder_debug.log");
+        wchar_t buf[256];
+        swprintf_s(buf, L"[FanFolder] DRAW slow: alloc=%u items=%u(gctor=%u,gset=%u,gclear=%u,gloop=%u) premul=%u ulw=%u TOTAL=%ums  convert[n=%d,ms=%u]\n",
+                   _dbg_t_alloc, _dbg_t_items,
+                   _dbg_t_gctor, _dbg_t_gset, _dbg_t_gclear, _dbg_t_gloop,
+                   _dbg_t_premul, _dbg_t_ulw, _dbg_total,
+                   g_dbgConvertCnt, g_dbgConvertMs);
+        HANDLE hh = CreateFileW(p, FILE_APPEND_DATA,
+                                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (hh != INVALID_HANDLE_VALUE) {
+            char u[512];
+            int n = WideCharToMultiByte(CP_UTF8, 0, buf, -1, u, sizeof(u), nullptr, nullptr);
+            if (n > 1) { DWORD w = 0; WriteFile(hh, u, n - 1, &w, nullptr); }
+            CloseHandle(hh);
+        }
+    }
 }
 
 // ─── HBitmapToGdiBitmap ─────────────────────────────────────────────────────
@@ -944,8 +1023,12 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
     // Lazy-cache: convert HBITMAP/HICON → Gdiplus::Bitmap* once, reuse every frame.
     // This eliminates the ~65KB heap allocation that DrawShellBitmapIA did per frame.
     if (idx < (int)_gdiBitmaps.size() && !_gdiBitmaps[idx]) {
+        DWORD _cvt0 = GetTickCount();
         if (bmp)      _gdiBitmaps[idx] = HBitmapToGdiBitmap(bmp);
         else if (ico) _gdiBitmaps[idx] = Gdiplus::Bitmap::FromHICON(ico);
+        DWORD _cvt = GetTickCount() - _cvt0;
+        g_dbgConvertMs  += _cvt;
+        g_dbgConvertCnt += 1;
     }
     Gdiplus::Bitmap* gdiBmp = (idx < (int)_gdiBitmaps.size()) ? _gdiBitmaps[idx] : nullptr;
 
@@ -1216,6 +1299,9 @@ void FanWindow::StartIconLoad(int idx) {
                                (_wcsnicmp(w->p.c_str(), L"https://", 8) == 0 ||
                                 _wcsnicmp(w->p.c_str(), L"http://",  7) == 0));
 
+        // NOTE: FileService's GDI+-heavy functions (GetImageThumbnail,
+        // GetShellBitmapByExtension) self-serialise via an internal mutex to
+        // avoid GDI+ lock contention with the UI thread's Graphics calls.
         if (!isOnline) {
             if (FileService::IsSvgExtension(contentPath))
                 bmp = FileService::GetSvgThumbnail(contentPath, w->sz);
@@ -1230,8 +1316,17 @@ void FanWindow::StartIconLoad(int idx) {
                 bmp = FileService::GetShellBitmap(w->p, w->sz);  // shell resolves .lnk for icon
         }
 
+        // Post raw HBITMAP/HICON to UI thread.  Do NOT call GDI+
+        // (HBitmapToGdiBitmap / Bitmap::FromHICON) here — GDI+ has a global
+        // lock and concurrent worker conversions stall the UI thread's
+        // Graphics::Clear / DrawImage calls for hundreds of milliseconds.
+        auto postReady = [&](HBITMAP hBmp, HICON hIco) {
+            auto* r = new IconReady{ w->idx, hBmp, hIco, nullptr };
+            PostMessageW(w->hwnd, WM_ICON_READY, 0, (LPARAM)r);
+        };
+
         if (bmp) {
-            PostMessageW(w->hwnd, WM_ICON_BITMAP, (WPARAM)w->idx, (LPARAM)bmp);
+            postReady(bmp, nullptr);
         } else {
             // For online items use the filename/extension for type icon lookup;
             // for local items fall back to the full path.
@@ -1253,18 +1348,61 @@ void FanWindow::StartIconLoad(int idx) {
             }
             if (isOnline) {
                 HBITMAP iconBmp = FileService::GetShellBitmapByExtension(iconPath, w->sz);
-                PostMessageW(w->hwnd, WM_ICON_BITMAP, (WPARAM)w->idx, (LPARAM)iconBmp);
+                postReady(iconBmp, nullptr);
             } else {
                 HICON ico = FileService::GetShellIcon(iconPath);
                 if (ico)
-                    PostMessageW(w->hwnd, WM_ICON_ICON, (WPARAM)w->idx, (LPARAM)ico);
+                    postReady(nullptr, ico);
                 else
-                    PostMessageW(w->hwnd, WM_ICON_BITMAP, (WPARAM)w->idx, (LPARAM)nullptr);
+                    postReady(nullptr, nullptr);
             }
         }
         CoUninitialize();
         delete w;
     }, work, nullptr);
+}
+
+// ---------------------------------------------------------------------------
+// Animation tick driver.
+//
+// Uses a Windows threadpool timer (PTP_TIMER) which runs on a worker thread
+// and PostMessage()s WM_ANIM_TICK to the fan window at ~60 FPS.  This replaces
+// the original SetTimer/WM_TIMER approach because WM_TIMER is a low-priority
+// message that GetMessage()/PeekMessage() only generate when the thread's
+// queue is otherwise empty.  On rapid taskbar reopens, queued input/paint
+// messages can starve WM_TIMER for up to ~1.5 seconds — long enough that the
+// user sees the fan appear fully-formed with no animation.
+// PostMessage()d WM_USER messages have normal priority and are delivered
+// immediately, so the entry animation starts on time every reopen.
+// ---------------------------------------------------------------------------
+VOID CALLBACK FanWindow::AnimTimerCb(PTP_CALLBACK_INSTANCE, PVOID ctx, PTP_TIMER) {
+    HWND hwnd = (HWND)ctx;
+    // IsWindow is safe across threads — avoids posting to a destroyed HWND
+    // in the small window between Close() and ~FanWindow().
+    if (IsWindow(hwnd)) {
+        PostMessageW(hwnd, WM_ANIM_TICK, 0, 0);
+    }
+}
+
+void FanWindow::StartAnimTimer() {
+    if (_animTimer) return;
+    _animTimer = CreateThreadpoolTimer(AnimTimerCb, (PVOID)_hwnd, nullptr);
+    if (_animTimer) {
+        // Fire immediately, then every 16 ms (~60 FPS).
+        FILETIME ft = {};  // due-time 0 means "as soon as possible"
+        SetThreadpoolTimer(_animTimer, &ft, 16, 0);
+    }
+}
+
+void FanWindow::StopAnimTimer() {
+    if (!_animTimer) return;
+    // Cancel any pending fires, then wait for any in-flight callback to
+    // complete.  Must happen BEFORE the HWND is destroyed so AnimTimerCb
+    // never races against DestroyWindow.
+    SetThreadpoolTimer(_animTimer, nullptr, 0, 0);
+    WaitForThreadpoolTimerCallbacks(_animTimer, TRUE);
+    CloseThreadpoolTimer(_animTimer);
+    _animTimer = nullptr;
 }
 
 // ---------------------------------------------------------------------------
@@ -1282,13 +1420,91 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     FanWindow* self = FromHWND(hwnd);
     if (!self) return DefWindowProcW(hwnd, msg, wParam, lParam);
 
+    // TEMP: trace every message + processing time during the first 1500 ms
+    // after window creation, to diagnose UI-thread stalls.
+    struct TraceGuard {
+        HWND  hwnd; UINT msg; WPARAM wp; DWORD t0; bool active;
+        TraceGuard(HWND h, UINT m, WPARAM w, DWORD ct)
+            : hwnd(h), msg(m), wp(w), t0(GetTickCount()), active(false) {
+            // If _createTick is 0 we haven't had our first tick yet (still in
+            // the critical window); if >0 but within 1500 ms we're still in
+            // the diagnostic window.
+            if (ct != 0 && (t0 - ct) > 1500) return;
+            active = true;
+        }
+        ~TraceGuard() {
+            if (!active) return;
+            DWORD dt = GetTickCount() - t0;
+            // Log every message during the diagnostic window so we can
+            // identify stalls by gaps between entries.
+            wchar_t p[MAX_PATH] = {};
+            GetTempPathW(MAX_PATH, p);
+            wcscat_s(p, L"fanfolder_debug.log");
+            wchar_t buf[256];
+            swprintf_s(buf, L"[FanFolder]   msg 0x%04X wp=0x%X t=%u dt=%ums\n",
+                       msg, (unsigned)wp, t0, dt);
+            HANDLE h = CreateFileW(p, FILE_APPEND_DATA,
+                                   FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                   nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (h != INVALID_HANDLE_VALUE) {
+                char u[512];
+                int n = WideCharToMultiByte(CP_UTF8, 0, buf, -1, u, sizeof(u), nullptr, nullptr);
+                if (n > 1) { DWORD w = 0; WriteFile(h, u, n - 1, &w, nullptr); }
+                CloseHandle(h);
+            }
+        }
+    } _trace(hwnd, msg, wParam, self->_createTick);
+
     switch (msg) {
-    // ── Animation tick ─────────────────────────────────────────────────────
-    case WM_TIMER:
-        if (wParam == 1) {
-            DWORD now     = GetTickCount();
-            float elapsed = (float)(now - self->_createTick);
-            bool  dirty   = false;
+    // ── Animation tick (posted by threadpool timer; see StartAnimTimer) ────
+    case WM_ANIM_TICK: {
+        DWORD now     = GetTickCount();
+        if (self->_createTick == 0) {
+            self->_createTick = now;
+            // One-off log: measure threadpool-timer → UI latency.
+            // Write to fanfolder_debug.log via Win32 (no DebugLog import from here).
+            wchar_t logPath[MAX_PATH] = {};
+            GetTempPathW(MAX_PATH, logPath);
+            wcscat_s(logPath, L"fanfolder_debug.log");
+            wchar_t buf[256];
+            swprintf_s(buf, L"[FanFolder] FanWindow: first WM_ANIM_TICK at tick=%u\n", now);
+            HANDLE h = CreateFileW(logPath, FILE_APPEND_DATA,
+                                   FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                   nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (h != INVALID_HANDLE_VALUE) {
+                char utf8[512];
+                int n = WideCharToMultiByte(CP_UTF8, 0, buf, -1, utf8, sizeof(utf8), nullptr, nullptr);
+                if (n > 1) { DWORD w = 0; WriteFile(h, utf8, n - 1, &w, nullptr); }
+                CloseHandle(h);
+            }
+        }
+        float elapsed = (float)(now - self->_createTick);
+
+        // TEMP diagnostic: log first 5 ticks per open to see elapsed progression
+        static thread_local int s_tickCount = 0;
+        static thread_local HWND s_tickHwnd = nullptr;
+        if (s_tickHwnd != hwnd) { s_tickHwnd = hwnd; s_tickCount = 0; }
+        if (s_tickCount < 5) {
+            wchar_t logPath2[MAX_PATH] = {};
+            GetTempPathW(MAX_PATH, logPath2);
+            wcscat_s(logPath2, L"fanfolder_debug.log");
+            wchar_t buf2[256];
+            swprintf_s(buf2, L"[FanFolder]   tick #%d elapsed=%.0fms entryAlpha=%.2f itemProg[0]=%.2f\n",
+                       s_tickCount, elapsed, self->_entryAlpha,
+                       self->_itemProgress.empty() ? 0.f : self->_itemProgress[0]);
+            HANDLE h2 = CreateFileW(logPath2, FILE_APPEND_DATA,
+                                   FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                   nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (h2 != INVALID_HANDLE_VALUE) {
+                char utf8b[512];
+                int n = WideCharToMultiByte(CP_UTF8, 0, buf2, -1, utf8b, sizeof(utf8b), nullptr, nullptr);
+                if (n > 1) { DWORD w = 0; WriteFile(h2, utf8b, n - 1, &w, nullptr); }
+                CloseHandle(h2);
+            }
+            s_tickCount++;
+        }
+
+        bool  dirty   = false;
 
             int total = (int)self->_items.size() + (self->_hasExplorerButton ? 1 : 0);
 
@@ -1351,6 +1567,10 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     self->_hoverScale[i] = ns; dirty = true;
                 }
             }
+
+            // Coalesced icon-load invalidation (set by WM_USER + 1/+2 handlers)
+            if (self->_iconsDirty.exchange(false, std::memory_order_acq_rel))
+                dirty = true;
 
             if (dirty) self->DrawToLayeredWindow();
 
@@ -1439,50 +1659,42 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     }
 
     // ── Async icon results ─────────────────────────────────────────────────
-    case WM_USER + 1: { // bitmap
-        int     idx = (int)wParam;
-        HBITMAP bmp = (HBITMAP)lParam;
+    // Worker thread returns only the raw HBITMAP/HICON (it must NOT call
+    // GDI+ because GDI+ has a global lock; concurrent worker conversions
+    // would block the UI thread's Graphics calls for ~700 ms on every
+    // cached reopen).  We do the cheap GDI+ conversion here on the UI
+    // thread — contention-free, it takes ~1 ms per icon.
+    case WM_ICON_READY: {
+        std::unique_ptr<IconReady> r(reinterpret_cast<IconReady*>(lParam));
+        if (!r) return 0;
+        int idx = r->idx;
         {
             std::lock_guard<std::mutex> lk(self->_iconMutex);
             if (idx < (int)self->_bitmaps.size()) {
                 if (self->_bitmaps[idx]) DeleteObject(self->_bitmaps[idx]);
-                self->_bitmaps[idx] = bmp;
+                self->_bitmaps[idx] = r->hBmp;
             }
-            if (idx < (int)self->_iconLoaded.size())
-                self->_iconLoaded[idx] = true;
-        }
-        // Invalidate cached GDI+ bitmap so it's re-converted on next draw
-        if (idx < (int)self->_gdiBitmaps.size()) {
-            delete self->_gdiBitmaps[idx];
-            self->_gdiBitmaps[idx] = nullptr;
-        }
-        self->DrawToLayeredWindow();
-        return 0;
-    }
-
-    case WM_USER + 2: { // icon
-        int   idx = (int)wParam;
-        HICON ico = (HICON)lParam;
-        {
-            std::lock_guard<std::mutex> lk(self->_iconMutex);
             if (idx < (int)self->_icons.size()) {
                 if (self->_icons[idx]) DestroyIcon(self->_icons[idx]);
-                self->_icons[idx] = ico;
+                self->_icons[idx] = r->hIcon;
             }
             if (idx < (int)self->_iconLoaded.size())
                 self->_iconLoaded[idx] = true;
         }
-        // Invalidate cached GDI+ bitmap so it's re-converted on next draw
         if (idx < (int)self->_gdiBitmaps.size()) {
             delete self->_gdiBitmaps[idx];
-            self->_gdiBitmaps[idx] = nullptr;
+            Gdiplus::Bitmap* bmp = nullptr;
+            if (r->hBmp)       bmp = FanWindow::HBitmapToGdiBitmap(r->hBmp);
+            else if (r->hIcon) bmp = Gdiplus::Bitmap::FromHICON(r->hIcon);
+            self->_gdiBitmaps[idx] = bmp;
         }
-        self->DrawToLayeredWindow();
+        self->_iconsDirty.store(true, std::memory_order_release);
         return 0;
     }
 
     case WM_DESTROY:
-        KillTimer(hwnd, 1);
+        // Animation timer is stopped by Close()/~FanWindow() before
+        // DestroyWindow is called, so nothing to do here.
         return 0;
     }
 

@@ -6,7 +6,16 @@
 #include <regex>
 #include <shlobj.h>
 #include <ole2.h>
+#include <mutex>
 #include <unordered_map>
+
+// Serialises GDI+ work across threads (prewarm + per-item icon workers).
+// GDI+ has a process-wide lock — if multiple threads call Gdiplus::Graphics
+// operations concurrently, the UI thread's Graphics calls (e.g. the fan's
+// DrawToLayeredWindow) stall for hundreds of ms waiting for them to drain.
+// Serialising here means the UI thread contends with at most ONE worker's
+// active GDI+ call at a time.
+static std::mutex g_gdipWorkerMutex;
 
 static const GUID IID_IShellItemImageFactory_ = {
     0xBCC18B79, 0xBA16, 0x442F,
@@ -1140,6 +1149,7 @@ HBITMAP FileService::GetShellThumbnail(const std::wstring& path, int size) {
 // Load an image file directly with GDI+ and return a square HBITMAP thumbnail
 // with the original aspect ratio preserved (letterboxed on transparent bg).
 HBITMAP FileService::GetImageThumbnail(const std::wstring& path, int size) {
+    std::lock_guard<std::mutex> lk(g_gdipWorkerMutex);
     Gdiplus::Bitmap* src = Gdiplus::Bitmap::FromFile(path.c_str());
     if (!src || src->GetLastStatus() != Gdiplus::Ok) {
         delete src;
@@ -1323,6 +1333,7 @@ HICON FileService::GetShellIconByExtension(const std::wstring& nameWithExt) {
 // size to capture per-pixel alpha correctly. Avoids Gdiplus::Bitmap::FromHICON
 // which returns alpha=0 for system image list icons. Appends a cloud badge overlay.
 HBITMAP FileService::GetShellBitmapByExtension(const std::wstring& nameWithExt, int size) {
+    std::lock_guard<std::mutex> lk(g_gdipWorkerMutex);
     HICON hIcon = GetShellIconByExtension(nameWithExt);
     if (!hIcon) return nullptr;
 

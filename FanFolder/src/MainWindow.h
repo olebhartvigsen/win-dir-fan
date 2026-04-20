@@ -43,7 +43,8 @@ private:
     std::unique_ptr<FanWindow> _fanWindow;
     DWORD  _lastToggleTick = 0;
     DWORD  _fanOpenTick    = 0;
-    bool   _fanOpen        = false;
+    DWORD  _hookCloseTick  = 0;   // set when mouse/keyboard hook closes the fan
+    std::atomic<bool> _fanOpen{false};
 
     PrewarmData          _prewarm;
     std::vector<FileItem> _cachedItems;   // last known-good item list; used when prewarm not yet ready
@@ -59,9 +60,7 @@ private:
     // Hook thread
     std::thread      _hookThread;
     DWORD            _hookThreadId = 0;
-    HHOOK            _mouseHook    = nullptr;
-    HHOOK            _kbHook       = nullptr;
-    HWINEVENTHOOK    _hWinEvent    = nullptr;
+    std::atomic<int> _hookGen{0};  // incremented on each InstallHooks; stale hooks self-ignore
 
     void ToggleFan();
     void OpenFan();

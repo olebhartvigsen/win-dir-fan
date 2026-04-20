@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 Ole Bülow Hartvigsen. All rights reserved.
+// Copyright (c) 2026 Ole Bülow Hartvigsen. All rights reserved.
 #include "pch.h"
 #include "MainWindow.h"
 #include "FanWindow.h"
@@ -6,6 +6,67 @@
 #include "Config.h"
 #include "Localization.h"
 #include "../resources/resource.h"
+#include <fstream>
+
+// Debug log helper — writes to %TEMP%\fanfolder_debug.log
+static void DebugLog(const wchar_t* msg) {
+    OutputDebugStringW(msg);
+    static wchar_t logPath[MAX_PATH] = {};
+    if (!logPath[0]) {
+        GetTempPathW(MAX_PATH, logPath);
+        wcscat_s(logPath, L"fanfolder_debug.log");
+    }
+    // FILE_SHARE_READ|WRITE so tail readers can see it; open/close per write for reliability
+    HANDLE h = CreateFileW(logPath, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                           nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return;
+    // UTF-8 encode for simplicity
+    int n = WideCharToMultiByte(CP_UTF8, 0, msg, -1, nullptr, 0, nullptr, nullptr);
+    if (n > 1) {
+        std::string utf8(n - 1, '\0');
+        WideCharToMultiByte(CP_UTF8, 0, msg, -1, utf8.data(), n, nullptr, nullptr);
+        DWORD written = 0;
+        WriteFile(h, utf8.data(), (DWORD)utf8.size(), &written, nullptr);
+    }
+    CloseHandle(h);
+}
+
+// Duplicate a 32-bit DIB while preserving its top-down/bottom-up orientation.
+// CopyImage(LR_CREATEDIBSECTION) always produces bottom-up output, which flips
+// the icons (cloud-badge overlays produced by GetShellBitmapByExtension are
+// top-down 32-bit DIBs).  This helper reads the source DIBSECTION, creates a
+// fresh DIBSECTION with the same biHeight sign, and memcpy's the pixels.
+static HBITMAP DuplicateTopDownDib32(HBITMAP src) {
+    if (!src) return nullptr;
+    DIBSECTION ds = {};
+    if (GetObjectW(src, sizeof(ds), &ds) != sizeof(ds)) {
+        // Not a DIB section — fall back to CopyImage.
+        return (HBITMAP)CopyImage(src, IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
+    }
+    BITMAPINFO bi = {};
+    bi.bmiHeader = ds.dsBmih;
+    bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biCompression = BI_RGB;
+    bi.bmiHeader.biSizeImage   = 0;
+    // Preserve orientation: top-down source has negative height, keep that sign.
+    // GetObject reports biHeight as the absolute value with orientation info
+    // elsewhere; detect via dsBm.bmBits alignment isn't reliable, so use the
+    // original header's sign directly.
+    bi.bmiHeader.biHeight = ds.dsBmih.biHeight;
+
+    void* bits = nullptr;
+    HDC hdc = GetDC(nullptr);
+    HBITMAP dst = CreateDIBSection(hdc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    ReleaseDC(nullptr, hdc);
+    if (!dst || !bits) { if (dst) DeleteObject(dst); return nullptr; }
+
+    const int absH = ds.dsBm.bmHeight;  // always positive
+    const int width = ds.dsBm.bmWidth;
+    const int bpp   = ds.dsBm.bmBitsPixel;
+    const size_t stride = ((width * bpp + 31) / 32) * 4;
+    memcpy(bits, ds.dsBm.bmBits, stride * absH);
+    return dst;
+}
 
 // DWM constants not always present
 #ifndef DWMWA_FORCE_ICONIC_REPRESENTATION
@@ -100,72 +161,151 @@ bool MainWindow::Create() {
 // ---------------------------------------------------------------------------
 void MainWindow::ToggleFan() {
     DWORD now = GetTickCount();
-    if (now - _lastToggleTick < TOGGLE_COOLDOWN_MS) return;
+    DebugLog((L"[FanFolder] ToggleFan: now=" + std::to_wstring(now) +
+        L" last=" + std::to_wstring(_lastToggleTick) +
+        L" diff=" + std::to_wstring(now - _lastToggleTick) +
+        L" fanOpen=" + std::to_wstring((int)(bool)_fanOpen) +
+        L" hookClose=" + std::to_wstring(now - _hookCloseTick) + L"\n").c_str());
+    if (now - _lastToggleTick < TOGGLE_COOLDOWN_MS) {
+        DebugLog(L"[FanFolder] ToggleFan: COOLDOWN — skipped\n");
+        return;
+    }
     _lastToggleTick = now;
 
-    if (_fanOpen)
+    if (_fanOpen) {
         CloseFan();
-    else
+    } else if (now - _hookCloseTick < 600) {
+        // The mouse/keyboard hook JUST closed the fan; this SC_RESTORE is from
+        // the same physical click that triggered the hook.  Don't re-open.
+        DebugLog(L"[FanFolder] ToggleFan: suppressed re-open (hook just closed)\n");
+    } else {
         OpenFan();
+    }
 }
 
 void MainWindow::OpenFan() {
-    CloseFan();
+    DWORD tEnter = GetTickCount();
+    DebugLog((L"[FanFolder] OpenFan: ENTER tick=" + std::to_wstring(tEnter) + L"\n").c_str());
 
-    // Take ownership of pre-warmed data (items + icons) under the lock
-    PrewarmData prewarm;
+    DWORD t0 = GetTickCount();
+    UninstallHooks();
+    if (_fanWindow) {
+        _fanWindow->Close();
+        _fanWindow.reset();
+    }
+    DWORD tTeardown = GetTickCount() - t0;
+
+    // Copy pre-warmed data (items + icons) under the lock. We duplicate the
+    // icon handles rather than moving them so _prewarm stays ready for rapid
+    // reopens — otherwise the second open would hit "no prewarm" and spawn
+    // 15 concurrent icon workers that stall the UI on GDI+ contention.
+    DWORD tLock0 = GetTickCount();
+    std::vector<FileItem> prewarmItems;
+    std::vector<HBITMAP>  prewarmBitmaps;
+    std::vector<HICON>    prewarmIcons;
+    int                   prewarmIconSize = 0;
+    bool havePrewarm = false;
     {
         std::lock_guard<std::mutex> lk(_prewarmMutex);
         if (_prewarm.ready) {
-            prewarm = std::move(_prewarm);
-            _prewarm.ready = false;  // reset: std::move leaves bool unchanged in moved-from object
+            prewarmItems    = _prewarm.items;
+            prewarmIconSize = _prewarm.iconSize;
+            prewarmBitmaps.reserve(_prewarm.bitmaps.size());
+            prewarmIcons.reserve(_prewarm.icons.size());
+            for (auto h : _prewarm.bitmaps) {
+                prewarmBitmaps.push_back(h ? DuplicateTopDownDib32(h) : nullptr);
+            }
+            for (auto h : _prewarm.icons) {
+                prewarmIcons.push_back(h ? CopyIcon(h) : nullptr);
+            }
+            havePrewarm = true;
+            // _prewarm stays ready & intact — next OpenFan can reuse it.
         }
     }
+    DWORD tLock = GetTickCount() - tLock0;
 
-    std::vector<FileItem> items = prewarm.ready
-        ? std::move(prewarm.items)
-        : !_cachedItems.empty()
-            ? _cachedItems   // open instantly with last known list; icons load async
-            : FileService::ScanFolder(_config.folderPath, _config.maxItems,
-                                      _config.includeDirs, _config.filterRegex, _config.sortMode,
-                                      false, _hwnd);
+    // Never block the UI thread with ScanFolder — use cached items if prewarm isn't ready
+    std::vector<FileItem> items;
+    if (havePrewarm) {
+        items = std::move(prewarmItems);
+        DebugLog((L"[FanFolder] OpenFan: using prewarm (dup), " + std::to_wstring(items.size()) + L" items\n").c_str());
+    } else if (!_cachedItems.empty()) {
+        items = _cachedItems;
+        DebugLog((L"[FanFolder] OpenFan: using cached, " + std::to_wstring(items.size()) + L" items\n").c_str());
+    } else {
+        // Prewarm from the ctor / previous CloseFan is still in flight.
+        // Do NOT call StartPrewarm() here — it would bump _prewarmGen and
+        // cancel the in-flight worker, causing an infinite cancel loop if the
+        // user keeps clicking rapidly at startup.
+        DebugLog(L"[FanFolder] OpenFan: NO DATA — waiting for in-flight prewarm\n");
+        return;
+    }
 
+    // Drain any stale close messages queued by old (detached) hook threads
+    MSG drain;
+    while (PeekMessageW(&drain, _hwnd, WM_MAIN_CLOSE_FAN, WM_MAIN_CLOSE_FAN, PM_REMOVE)) {}
+
+    DWORD tCtor0 = GetTickCount();
     _fanWindow = std::make_unique<FanWindow>(_hInst, _hwnd, _config, std::move(items));
+    DWORD tCtor = GetTickCount() - tCtor0;
 
     // Inject pre-warmed icons; FanWindow::Show() will skip async loading for them
-    if (prewarm.ready)
-        _fanWindow->AcceptPrewarmIcons(std::move(prewarm.bitmaps),
-                                       std::move(prewarm.icons),
-                                       prewarm.iconSize);
+    if (havePrewarm)
+        _fanWindow->AcceptPrewarmIcons(std::move(prewarmBitmaps),
+                                       std::move(prewarmIcons),
+                                       prewarmIconSize);
 
-    if (_fanWindow->Create()) {
+    DWORD tCreate0 = GetTickCount();
+    bool created = _fanWindow->Create();
+    DWORD tCreate = GetTickCount() - tCreate0;
+
+    if (created) {
+        DWORD tShow0 = GetTickCount();
         _fanWindow->Show();
+        DWORD tShow = GetTickCount() - tShow0;
         _fanOpen     = true;
         _fanOpenTick = GetTickCount();
+        DWORD tIcon0 = GetTickCount();
         SetTaskbarIcon(true);
+        DWORD tIcon = GetTickCount() - tIcon0;
+        DWORD tHook0 = GetTickCount();
         InstallHooks();
+        DWORD tHook = GetTickCount() - tHook0;
+
+        DWORD tTotal = GetTickCount() - tEnter;
+        DebugLog((L"[FanFolder] OpenFan: timing teardown=" + std::to_wstring(tTeardown) +
+                  L" lock=" + std::to_wstring(tLock) +
+                  L" ctor=" + std::to_wstring(tCtor) +
+                  L" create=" + std::to_wstring(tCreate) +
+                  L" show=" + std::to_wstring(tShow) +
+                  L" icon=" + std::to_wstring(tIcon) +
+                  L" hook=" + std::to_wstring(tHook) +
+                  L" TOTAL=" + std::to_wstring(tTotal) + L"ms\n").c_str());
     } else {
         _fanWindow.reset();
+        _fanOpen = false;
     }
 }
 
 void MainWindow::CloseFan() {
+    DebugLog(L"[FanFolder] CloseFan: ENTER\n");
     UninstallHooks();
     if (_fanWindow) {
         _fanWindow->Close();
         _fanWindow.reset();
     }
     _fanOpen = false;
-    _lastToggleTick = GetTickCount();  // prevent SC_RESTORE from immediately reopening
     SetTaskbarIcon(false);
     ShowWindow(_hwnd, SW_SHOWMINNOACTIVE);
     StartPrewarm();  // pre-load icons while idle, ready for next open
 }
 
 // ---------------------------------------------------------------------------
-void MainWindow::SetTaskbarIcon(bool open) {
-    HICON sm = open ? _icoOpenSmall : _icoSmall;
-    HICON lg = open ? _icoOpenBig   : _icoBig;
+void MainWindow::SetTaskbarIcon(bool /*open*/) {
+    // Always use the wide "open" icon — single visual state regardless of
+    // whether the fan menu is currently shown.
+    HICON sm = _icoOpenSmall ? _icoOpenSmall : _icoSmall;
+    HICON lg = _icoOpenBig   ? _icoOpenBig   : _icoBig;
     if (sm) SendMessageW(_hwnd, WM_SETICON, ICON_SMALL, (LPARAM)sm);
     if (lg) SendMessageW(_hwnd, WM_SETICON, ICON_BIG,   (LPARAM)lg);
 }
@@ -484,16 +624,20 @@ void MainWindow::ShowTrayMenu() {
 }
 
 // ---------------------------------------------------------------------------
+static thread_local int t_hookGen = 0;  // each hook thread captures its generation
+
 void MainWindow::InstallHooks() {
     if (_hookThread.joinable()) return;
 
+    int gen  = ++_hookGen;
     HWND hwnd = _hwnd;
-    _hookThread = std::thread([this, hwnd]() {
+    _hookThread = std::thread([this, hwnd, gen]() {
         _hookThreadId = GetCurrentThreadId();
+        t_hookGen     = gen;  // stamp this thread with its generation
 
-        _mouseHook  = SetWindowsHookExW(WH_MOUSE_LL,    MouseHookProc,    nullptr, 0);
-        _kbHook     = SetWindowsHookExW(WH_KEYBOARD_LL, KeyboardHookProc, nullptr, 0);
-        _hWinEvent  = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
+        HHOOK mouseHook = SetWindowsHookExW(WH_MOUSE_LL,    MouseHookProc,    nullptr, 0);
+        HHOOK kbHook    = SetWindowsHookExW(WH_KEYBOARD_LL, KeyboardHookProc, nullptr, 0);
+        HWINEVENTHOOK winEvent = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
                                       nullptr, WinEventProc, 0, 0,
                                       WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
 
@@ -503,9 +647,9 @@ void MainWindow::InstallHooks() {
             DispatchMessageW(&msg);
         }
 
-        if (_mouseHook) { UnhookWindowsHookEx(_mouseHook); _mouseHook = nullptr; }
-        if (_kbHook)    { UnhookWindowsHookEx(_kbHook);    _kbHook    = nullptr; }
-        if (_hWinEvent) { UnhookWinEvent(_hWinEvent);       _hWinEvent = nullptr; }
+        if (mouseHook) UnhookWindowsHookEx(mouseHook);
+        if (kbHook)    UnhookWindowsHookEx(kbHook);
+        if (winEvent)  UnhookWinEvent(winEvent);
     });
 }
 
@@ -513,30 +657,54 @@ void MainWindow::UninstallHooks() {
     if (_hookThread.joinable()) {
         if (_hookThreadId)
             PostThreadMessageW(_hookThreadId, WM_QUIT, 0, 0);
-        _hookThread.join();
+        _hookThread.detach();  // never block the UI thread; hooks will self-cleanup on WM_QUIT
         _hookThreadId = 0;
     }
 }
 
 // ---------------------------------------------------------------------------
 LRESULT CALLBACK MainWindow::MouseHookProc(int nCode, WPARAM wParam, LPARAM lParam) {
-    if (nCode >= 0 && s_instance) {
+    if (nCode >= 0 && s_instance && s_instance->_fanOpen) {
         bool isDown = (wParam == WM_LBUTTONDOWN || wParam == WM_RBUTTONDOWN ||
-                       wParam == WM_MBUTTONDOWN  || wParam == WM_NCLBUTTONDOWN);
+                       wParam == WM_MBUTTONDOWN);
         if (isDown && s_instance->_fanWindow) {
             HWND fanHwnd = s_instance->_fanWindow->Handle();
             if (fanHwnd) {
-                // ms->pt is in virtual-screen (physical) pixels — NOT the same coordinate
-                // space as GetWindowRect for a PerMonitorV2-aware process.
-                // GetCursorPos always matches GetWindowRect: both use the process's
-                // logical DPI coordinate space.
                 POINT pt = {};
                 GetCursorPos(&pt);
                 RECT rc = {};
                 GetWindowRect(fanHwnd, &rc);
-                if (pt.x < rc.left || pt.x >= rc.right ||
-                    pt.y < rc.top  || pt.y >= rc.bottom) {
-                    PostMessageW(s_instance->_hwnd, WM_MAIN_CLOSE_FAN, 0, 0);
+                bool outside = (pt.x < rc.left || pt.x >= rc.right ||
+                                pt.y < rc.top  || pt.y >= rc.bottom);
+                // If the click lands on the taskbar, don't close the fan here.
+                // The taskbar will post SC_RESTORE to our main window, which will
+                // toggle-close the fan cleanly.  Closing here AND then processing
+                // SC_RESTORE causes a restore→minimize roundtrip on the main
+                // window that stalls the next reopen's rendering for ~5s.
+                bool onTaskbar = false;
+                if (outside) {
+                    HWND hit = WindowFromPoint(pt);
+                    for (HWND w = hit; w; w = GetAncestor(w, GA_PARENT)) {
+                        wchar_t cls[64] = {};
+                        GetClassNameW(w, cls, 64);
+                        if (wcscmp(cls, L"Shell_TrayWnd") == 0 ||
+                            wcscmp(cls, L"Shell_SecondaryTrayWnd") == 0 ||
+                            wcscmp(cls, L"WorkerW") == 0) {
+                            onTaskbar = true;
+                            break;
+                        }
+                        if (w == GetDesktopWindow()) break;
+                    }
+                }
+                DWORD elapsed = GetTickCount() - s_instance->_fanOpenTick;
+                DebugLog((L"[FanFolder] MouseHook: wParam=" +
+                    std::to_wstring(wParam) +
+                    L" pt=(" + std::to_wstring(pt.x) + L"," + std::to_wstring(pt.y) + L")" +
+                    L" outside=" + std::to_wstring(outside) +
+                    L" onTaskbar=" + std::to_wstring(onTaskbar) +
+                    L" elapsed=" + std::to_wstring(elapsed) + L"ms\n").c_str());
+                if (outside && !onTaskbar) {
+                    PostMessageW(s_instance->_hwnd, WM_MAIN_CLOSE_FAN, (WPARAM)t_hookGen, 1/*mouse*/);
                 }
             }
         }
@@ -545,10 +713,10 @@ LRESULT CALLBACK MainWindow::MouseHookProc(int nCode, WPARAM wParam, LPARAM lPar
 }
 
 LRESULT CALLBACK MainWindow::KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam) {
-    if (nCode >= 0 && s_instance && wParam == WM_KEYDOWN) {
+    if (nCode >= 0 && s_instance && s_instance->_fanOpen && wParam == WM_KEYDOWN) {
         KBDLLHOOKSTRUCT* kb = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
         if (kb->vkCode == VK_ESCAPE)
-            PostMessageW(s_instance->_hwnd, WM_MAIN_CLOSE_FAN, 0, 0);
+            PostMessageW(s_instance->_hwnd, WM_MAIN_CLOSE_FAN, (WPARAM)t_hookGen, 2/*keyboard*/);
     }
     return CallNextHookEx(nullptr, nCode, wParam, lParam);
 }
@@ -572,7 +740,17 @@ void CALLBACK MainWindow::WinEventProc(HWINEVENTHOOK, DWORD event, HWND hwnd,
         // Don't interrupt an active shell drag — the drop target will foreground naturally
         if (s_instance->_fanWindow && s_instance->_fanWindow->IsDragging())
             return;
-        PostMessageW(s_instance->_hwnd, WM_MAIN_CLOSE_FAN, 0, 0);
+        // If the foregrounded window is the taskbar (the user clicked our own
+        // taskbar icon), don't close here — SC_RESTORE will toggle-close the
+        // fan cleanly.  Closing here forces a redundant restore/minimize roundtrip
+        // on the main window that stalls the next reopen's rendering.
+        wchar_t cls[64] = {};
+        GetClassNameW(hwnd, cls, 64);
+        if (wcscmp(cls, L"Shell_TrayWnd") == 0 ||
+            wcscmp(cls, L"Shell_SecondaryTrayWnd") == 0) {
+            return;
+        }
+        PostMessageW(s_instance->_hwnd, WM_MAIN_CLOSE_FAN, (WPARAM)t_hookGen, 3/*winevent*/);
     }
 }
 
@@ -643,8 +821,28 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     if (!self) return DefWindowProcW(hwnd, msg, wParam, lParam);
 
     switch (msg) {
-    case WM_SYSCOMMAND:
-        if ((wParam & 0xFFF0) == SC_RESTORE) {
+    case WM_SYSCOMMAND: {
+        WPARAM cmd = wParam & 0xFFF0;
+        if (cmd == SC_RESTORE || cmd == SC_MINIMIZE || cmd == SC_MAXIMIZE || cmd == SC_CLOSE) {
+            DebugLog((L"[FanFolder] WM_SYSCOMMAND cmd=0x" + std::to_wstring(cmd) +
+                L" (wParam=" + std::to_wstring(wParam) + L")\n").c_str());
+        }
+        if (cmd == SC_RESTORE) {
+            DebugLog(L"[FanFolder] SC_RESTORE received\n");
+            self->ToggleFan();
+            // Intentionally DO NOT call DefWindowProc here.  Restoring the main
+            // window triggers a cascade of synchronous WM_ACTIVATE /
+            // WM_ACTIVATEAPP / ShowWindow(SW_MINIMIZE) messages that stall the
+            // UI thread for 1-3 seconds while the FanWindow's WM_TIMER is
+            // waiting to fire.  By the time it fires, the entry animation's
+            // elapsed time is already past the duration, so the fan renders
+            // at its final state with no animation.  The main window stays
+            // minimized which is what we want.
+            return 0;
+        }
+        // Same rationale for SC_MINIMIZE: eat it instead of round-tripping.
+        if (cmd == SC_MINIMIZE) {
+            DebugLog(L"[FanFolder] SC_MINIMIZE received — treating as toggle\n");
             self->ToggleFan();
             // Do NOT call DefWindowProc here: it would briefly restore the window,
             // fire WM_ACTIVATE → SW_MINIMIZE, which activates the next Z-order window
@@ -653,6 +851,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return 0;
         }
         break;
+    }
 
     case WM_MAIN_SHOW_MIN:
         ShowWindow(hwnd, SW_SHOWMINNOACTIVE);
@@ -663,17 +862,22 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         return 0;
 
     case WM_ACTIVATEAPP:
+        DebugLog((L"[FanFolder] WM_ACTIVATEAPP wParam=" + std::to_wstring(wParam) +
+            L" fanOpen=" + std::to_wstring((int)(bool)self->_fanOpen) +
+            L" tick=" + std::to_wstring(GetTickCount() - self->_fanOpenTick) + L"\n").c_str());
         if (wParam == 0 && self->_fanOpen) {
-            // Don't close while a drag is in progress — OLE drag activates the drop target
             if (self->_fanWindow && self->_fanWindow->IsDragging())
                 return 0;
             DWORD now = GetTickCount();
             if (now - self->_fanOpenTick > 500)
                 self->CloseFan();
+            else
+                DebugLog(L"[FanFolder] WM_ACTIVATEAPP: suppressed (too soon after open)\n");
         }
         return 0;
 
     case WM_ACTIVATE:
+        DebugLog((L"[FanFolder] WM_ACTIVATE wParam=" + std::to_wstring(wParam) + L"\n").c_str());
         if (wParam != WA_INACTIVE)
             ShowWindow(hwnd, SW_SHOWMINNOACTIVE);  // SW_MINIMIZE would activate the next window → cursor jump
         return 0;
@@ -706,9 +910,19 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         return 0;
     }
 
-    case WM_MAIN_CLOSE_FAN: // WM_USER+4
-        self->CloseFan();
+    case WM_MAIN_CLOSE_FAN: { // WM_USER+4
+        int msgGen = (int)wParam;
+        int curGen = self->_hookGen.load();
+        const wchar_t* src = lParam == 1 ? L"mouse" : lParam == 2 ? L"keyboard" : lParam == 3 ? L"winevent" : L"unknown";
+        DebugLog((L"[FanFolder] WM_MAIN_CLOSE_FAN: fanOpen=" + std::to_wstring((int)(bool)self->_fanOpen) +
+            L" msgGen=" + std::to_wstring(msgGen) + L" curGen=" + std::to_wstring(curGen) +
+            L" src=" + src + L"\n").c_str());
+        if (self->_fanOpen && msgGen == curGen) {
+            self->_hookCloseTick = GetTickCount();
+            self->CloseFan();
+        }
         return 0;
+    }
 
     case WM_TRAYICON:
         // lParam is the mouse/interaction event when using NOTIFYICON_VERSION_4
