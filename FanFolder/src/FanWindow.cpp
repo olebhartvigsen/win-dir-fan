@@ -449,7 +449,11 @@ void FanWindow::CalculateLayout() {
             anchorX = cursor.x;                         // genuine direct click, walk failed
             s_lastTaskbarAnchorX = anchorX;
         } else {
-            anchorX = s_lastTaskbarAnchorX >= 0
+            // Only reuse the cached anchor if it lies within the current monitor's
+            // taskbar — otherwise the cache is stale from a different monitor.
+            bool cacheUsable = s_lastTaskbarAnchorX >= tbRect.left
+                            && s_lastTaskbarAnchorX <= tbRect.right;
+            anchorX = cacheUsable
                     ? s_lastTaskbarAnchorX
                     : (tbRect.left + tbRect.right) / 2;
         }
@@ -463,7 +467,9 @@ void FanWindow::CalculateLayout() {
             anchorY = cursor.y;
             s_lastTaskbarAnchorX = anchorY;
         } else {
-            anchorY = s_lastTaskbarAnchorX >= 0
+            bool cacheUsable = s_lastTaskbarAnchorX >= tbRect.top
+                            && s_lastTaskbarAnchorX <= tbRect.bottom;
+            anchorY = cacheUsable
                     ? s_lastTaskbarAnchorX
                     : (tbRect.top + tbRect.bottom) / 2;
         }
