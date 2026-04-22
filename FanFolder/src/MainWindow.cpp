@@ -158,7 +158,7 @@ bool MainWindow::Create() {
                                        IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
     SetTaskbarIcon(false);
 
-    StartPrewarm();
+    StartPrewarm(/*force*/ true);
     AddTrayIcon();
     return true;
 }
@@ -208,6 +208,7 @@ void MainWindow::OpenFan() {
     std::vector<FileItem> prewarmItems;
     std::vector<HBITMAP>  prewarmBitmaps;
     std::vector<HICON>    prewarmIcons;
+    std::vector<std::shared_ptr<Gdiplus::Bitmap>> prewarmGdiBitmaps;
     int                   prewarmIconSize = 0;
     bool havePrewarm = false;
     {
@@ -223,6 +224,10 @@ void MainWindow::OpenFan() {
             for (auto h : _prewarm.icons) {
                 prewarmIcons.push_back(h ? CopyIcon(h) : nullptr);
             }
+            // shared_ptr copy = cheap refcount bump; FanWindow and _prewarm
+            // now share the same Gdiplus::Bitmap objects, lifetime-safe even
+            // if _prewarm is replaced by a newer post while the fan is open.
+            prewarmGdiBitmaps = _prewarm.gdiBitmaps;
             havePrewarm = true;
             // _prewarm stays ready & intact — next OpenFan can reuse it.
         }
@@ -258,6 +263,7 @@ void MainWindow::OpenFan() {
     if (havePrewarm)
         _fanWindow->AcceptPrewarmIcons(std::move(prewarmBitmaps),
                                        std::move(prewarmIcons),
+                                       std::move(prewarmGdiBitmaps),
                                        prewarmIconSize);
 
     DWORD tCreate0 = GetTickCount();
@@ -302,7 +308,7 @@ void MainWindow::CloseFan() {
     _fanOpen = false;
     SetTaskbarIcon(false);
     ShowWindow(_hwnd, SW_SHOWMINNOACTIVE);
-    StartPrewarm();  // pre-load icons while idle, ready for next open
+    StartPrewarm();  // pre-load icons while idle, ready for next open (debounced)
 }
 
 // ---------------------------------------------------------------------------
@@ -316,7 +322,14 @@ void MainWindow::SetTaskbarIcon(bool /*open*/) {
 }
 
 // ---------------------------------------------------------------------------
-void MainWindow::StartPrewarm() {
+void MainWindow::StartPrewarm(bool force) {
+    // Debounce: if a prewarm worker is already queued/running, skip unless the
+    // caller forces a refresh (e.g. folder/settings actually changed).  Rapid
+    // open/close cycles would otherwise queue a cascade of redundant scan +
+    // icon-extract workers, each spawning 15 shell thumbnail lookups.
+    if (!force && _prewarmInflight.load(std::memory_order_acquire) > 0)
+        return;
+
     ConfigData cfg   = _config;
     HWND       hwnd  = _hwnd;
     int        myGen = ++_prewarmGen;  // invalidates any still-running prewarm thread
@@ -329,7 +342,9 @@ void MainWindow::StartPrewarm() {
     };
     auto* work = new PrewarmWork{this, std::move(cfg), hwnd, myGen};
 
-    TrySubmitThreadpoolCallback([](PTP_CALLBACK_INSTANCE, PVOID ctx) {
+    _prewarmInflight.fetch_add(1, std::memory_order_acq_rel);
+
+    BOOL submitted = TrySubmitThreadpoolCallback([](PTP_CALLBACK_INSTANCE, PVOID ctx) {
         auto* pw = static_cast<PrewarmWork*>(ctx);
         CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
@@ -354,6 +369,7 @@ void MainWindow::StartPrewarm() {
         data->ready     = true;
         data->bitmaps.resize(items.size(), nullptr);
         data->icons.resize(items.size(), nullptr);
+        data->gdiBitmaps.resize(items.size());
 
         for (int i = 0; i < (int)items.size(); i++) {
             const std::wstring& p  = items[i].fullPath;
@@ -386,6 +402,18 @@ void MainWindow::StartPrewarm() {
             } else {
                 data->icons[i] = FileService::GetShellIcon(p);
             }
+
+            // Pre-convert to Gdiplus::Bitmap here (on the worker thread, while
+            // the fan is not drawing).  Cached across fan opens so Show() no
+            // longer pays the ~50ms × 15 = ~750ms HBitmapToGdiBitmap tax on the
+            // UI thread every single open.  shared_ptr lifetime lets FanWindow
+            // borrow these safely even if _prewarm is replaced by a newer
+            // post while an open fan still holds them.
+            if (data->bitmaps[i]) {
+                data->gdiBitmaps[i].reset(FanWindow::HBitmapToGdiBitmap(data->bitmaps[i]));
+            } else if (data->icons[i]) {
+                data->gdiBitmaps[i].reset(Gdiplus::Bitmap::FromHICON(data->icons[i]));
+            }
         }
 
         // Only post if still the current generation; discard stale results
@@ -393,14 +421,26 @@ void MainWindow::StartPrewarm() {
             data->FreeHandles();
             delete data;
             CoUninitialize();
+            pw->self->_prewarmInflight.fetch_sub(1, std::memory_order_acq_rel);
             delete pw;
             return;
         }
         data->gen = pw->myGen;
-        PostMessageW(pw->hwnd, WM_MAIN_PREWARM, 0, (LPARAM)data);
+        if (!PostMessageW(pw->hwnd, WM_MAIN_PREWARM, 0, (LPARAM)data)) {
+            // Window gone — free data ourselves so HBITMAP/HICON/GDI+ bitmaps
+            // don't leak.
+            data->FreeHandles();
+            delete data;
+        }
         CoUninitialize();
+        pw->self->_prewarmInflight.fetch_sub(1, std::memory_order_acq_rel);
         delete pw;
     }, work, nullptr);
+
+    if (!submitted) {
+        _prewarmInflight.fetch_sub(1, std::memory_order_acq_rel);
+        delete work;
+    }
 }
 
 // ─── Tray icon ──────────────────────────────────────────────────────────────
@@ -624,7 +664,7 @@ void MainWindow::ShowTrayMenu() {
         // Keep old prewarm alive — it will be replaced when the new one completes.
         // This ensures the fan still shows something if opened before the new prewarm finishes.
         PostMessageW(_hwnd, WM_MAIN_SHOW_MIN, 0, 0); // ensure minimized
-        StartPrewarm();
+        StartPrewarm(/*force*/ true);
     }
 }
 

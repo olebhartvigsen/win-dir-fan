@@ -21,6 +21,11 @@ public:
         std::vector<FileItem>  items;
         std::vector<HBITMAP>   bitmaps;
         std::vector<HICON>     icons;
+        // Pre-converted GDI+ bitmaps, cached across fan opens so FanWindow::Show()
+        // can skip the ~50ms × 15 = ~750ms HBitmapToGdiBitmap pass on the UI
+        // thread on every open.  shared_ptr keeps them alive for an open fan
+        // even if _prewarm is replaced by a newer post mid-session.
+        std::vector<std::shared_ptr<Gdiplus::Bitmap>> gdiBitmaps;
         int                    iconSize = 0;
         bool                   ready    = false;
         int                    gen      = 0;   // matches _prewarmGen at post time
@@ -30,6 +35,7 @@ public:
             for (auto h : icons)   if (h) DestroyIcon(h);
             bitmaps.clear();
             icons.clear();
+            gdiBitmaps.clear();
             ready = false;
         }
     };
@@ -50,6 +56,7 @@ private:
     std::vector<FileItem> _cachedItems;   // last known-good item list; used when prewarm not yet ready
     std::mutex           _prewarmMutex;
     std::atomic<int>     _prewarmGen{0};  // incremented each StartPrewarm; stale threads self-discard
+    std::atomic<int>     _prewarmInflight{0};  // number of queued/running prewarm workers
 
     // Taskbar icon handles (loaded once, switched on fan open/close)
     HICON  _icoSmall     = nullptr;
@@ -65,7 +72,7 @@ private:
     void ToggleFan();
     void OpenFan();
     void CloseFan();
-    void StartPrewarm();
+    void StartPrewarm(bool force = false);
     void SetTaskbarIcon(bool open);
     void InstallHooks();
     void UninstallHooks();

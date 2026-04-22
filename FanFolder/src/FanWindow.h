@@ -18,6 +18,7 @@ public:
     void Close();
     void AcceptPrewarmIcons(std::vector<HBITMAP>&& bitmaps,
                             std::vector<HICON>&&   icons,
+                            std::vector<std::shared_ptr<Gdiplus::Bitmap>>&& gdiBitmaps,
                             int                    iconSize);
     HWND Handle() const { return _hwnd; }
     bool IsVisible() const;
@@ -26,6 +27,10 @@ public:
 
     static const wchar_t* ClassName() { return L"FanFolderFan"; }
     static void Register(HINSTANCE hInst);
+    // Convert an HBITMAP into a premultiplied-alpha Gdiplus::Bitmap*.  Exposed
+    // so the MainWindow prewarm worker can pre-convert on its thread, avoiding
+    // ~750ms of per-open conversion work on the UI thread.  Thread-safe.
+    static Gdiplus::Bitmap* HBitmapToGdiBitmap(HBITMAP hBmp);
 
     // Message sent to hwndOwner when settings change (lParam = new ConfigData*)
     static constexpr UINT WM_SETTINGS_CHANGED = WM_USER + 10;
@@ -52,7 +57,7 @@ private:
     std::vector<HBITMAP>          _bitmaps;
     std::vector<HICON>            _icons;
     std::vector<bool>             _iconLoaded;
-    std::vector<Gdiplus::Bitmap*> _gdiBitmaps;  // lazily filled; nullptr = not yet converted
+    std::vector<std::shared_ptr<Gdiplus::Bitmap>> _gdiBitmaps;  // prewarm-filled or lazy on UI thread; owns lifetime
     std::mutex                    _iconMutex;
     Gdiplus::ImageAttributes*     _drawIA = nullptr;  // reused per draw call
 
@@ -77,6 +82,7 @@ private:
     // Pre-warmed icons injected before Show()
     std::vector<HBITMAP> _prewarmBitmaps;
     std::vector<HICON>   _prewarmIcons;
+    std::vector<std::shared_ptr<Gdiplus::Bitmap>> _prewarmGdiBitmaps;
     int                  _prewarmIconSize = 0;
 
     // Animation
@@ -146,7 +152,6 @@ private:
     void DrawArrowItem(Gdiplus::Graphics& g, float cx, float cy, float sz, float alpha);
     static void DrawCachedBitmapIA(Gdiplus::Graphics& g, Gdiplus::Bitmap* bmp,
                                    float x, float y, float size, Gdiplus::ImageAttributes* ia);
-    static Gdiplus::Bitmap* HBitmapToGdiBitmap(HBITMAP hBmp);
     void PremultiplyBitmap(Gdiplus::BitmapData& data);
     Gdiplus::Bitmap* RenderShadow(Gdiplus::Bitmap* srcBmp, float drawSz, float hsc);
     void InvalidateShadow();

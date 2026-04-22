@@ -139,7 +139,7 @@ FanWindow::~FanWindow() {
     std::lock_guard<std::mutex> lk(_iconMutex);
     for (auto h : _bitmaps)    if (h) DeleteObject(h);
     for (auto h : _icons)      if (h) DestroyIcon(h);
-    for (auto p : _gdiBitmaps) delete p;
+    // _gdiBitmaps owns via shared_ptr — cleared automatically by vector dtor.
 }
 
 bool FanWindow::Create() {
@@ -164,13 +164,15 @@ bool FanWindow::Create() {
 
 void FanWindow::AcceptPrewarmIcons(std::vector<HBITMAP>&& bitmaps,
                                     std::vector<HICON>&&   icons,
+                                    std::vector<std::shared_ptr<Gdiplus::Bitmap>>&& gdiBitmaps,
                                     int                    iconSize) {
     // Free any previous (shouldn't happen, but be safe)
     for (auto h : _prewarmBitmaps) if (h) DeleteObject(h);
     for (auto h : _prewarmIcons)   if (h) DestroyIcon(h);
-    _prewarmBitmaps  = std::move(bitmaps);
-    _prewarmIcons    = std::move(icons);
-    _prewarmIconSize = iconSize;
+    _prewarmBitmaps    = std::move(bitmaps);
+    _prewarmIcons      = std::move(icons);
+    _prewarmGdiBitmaps = std::move(gdiBitmaps);
+    _prewarmIconSize   = iconSize;
 }
 
 void FanWindow::Show() {
@@ -184,8 +186,7 @@ void FanWindow::Show() {
     _iconLoaded.assign(total, false);
     _bitmaps.assign(total, nullptr);
     _icons.assign(total, nullptr);
-    for (auto p : _gdiBitmaps) delete p;
-    _gdiBitmaps.assign(total, nullptr);
+    _gdiBitmaps.assign(total, nullptr);  // shared_ptr; old cache released
     _entryAlpha   = 0.f;
     _animating    = true;
     if (!_drawIA) _drawIA = new Gdiplus::ImageAttributes();
@@ -208,6 +209,8 @@ void FanWindow::Show() {
         if (usePrewarm) {
             _bitmaps[i]    = _prewarmBitmaps[i];  _prewarmBitmaps[i] = nullptr;
             _icons[i]      = _prewarmIcons[i];    _prewarmIcons[i]   = nullptr;
+            if (i < (int)_prewarmGdiBitmaps.size())
+                _gdiBitmaps[i] = std::move(_prewarmGdiBitmaps[i]);
             _iconLoaded[i] = true;
         } else {
             StartIconLoad(i);
@@ -218,17 +221,18 @@ void FanWindow::Show() {
     for (auto h : _prewarmIcons)   if (h) DestroyIcon(h);
     _prewarmBitmaps.clear();
     _prewarmIcons.clear();
+    _prewarmGdiBitmaps.clear();
     _prewarmIconSize = 0;
 
-    // Eagerly convert all available HBITMAP/HICON → Gdiplus::Bitmap* now,
-    // so the first DrawToLayeredWindow() frame has zero conversion cost and
-    // the animation timer starts with a clean slate.
+    // Convert any HBITMAP/HICON that wasn't pre-converted by prewarm (e.g.
+    // size-mismatch fallback path).  When prewarm supplies a cached
+    // Gdiplus::Bitmap we skip this — it saves ~750ms on the UI thread per open.
     for (int i = 0; i < (int)_items.size(); i++) {
         if (_gdiBitmaps[i]) continue;
         HBITMAP bmp = _bitmaps[i];
         HICON   ico = _icons[i];
-        if (bmp)      _gdiBitmaps[i] = HBitmapToGdiBitmap(bmp);
-        else if (ico) _gdiBitmaps[i] = Gdiplus::Bitmap::FromHICON(ico);
+        if (bmp)      _gdiBitmaps[i].reset(HBitmapToGdiBitmap(bmp));
+        else if (ico) _gdiBitmaps[i].reset(Gdiplus::Bitmap::FromHICON(ico));
     }
 
     DrawToLayeredWindow();
@@ -1036,13 +1040,13 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
     // This eliminates the ~65KB heap allocation that DrawShellBitmapIA did per frame.
     if (idx < (int)_gdiBitmaps.size() && !_gdiBitmaps[idx]) {
         DWORD _cvt0 = GetTickCount();
-        if (bmp)      _gdiBitmaps[idx] = HBitmapToGdiBitmap(bmp);
-        else if (ico) _gdiBitmaps[idx] = Gdiplus::Bitmap::FromHICON(ico);
+        if (bmp)      _gdiBitmaps[idx].reset(HBitmapToGdiBitmap(bmp));
+        else if (ico) _gdiBitmaps[idx].reset(Gdiplus::Bitmap::FromHICON(ico));
         DWORD _cvt = GetTickCount() - _cvt0;
         g_dbgConvertMs  += _cvt;
         g_dbgConvertCnt += 1;
     }
-    Gdiplus::Bitmap* gdiBmp = (idx < (int)_gdiBitmaps.size()) ? _gdiBitmaps[idx] : nullptr;
+    Gdiplus::Bitmap* gdiBmp = (idx < (int)_gdiBitmaps.size()) ? _gdiBitmaps[idx].get() : nullptr;
 
     bool hoverActive = (idx < (int)_hoverScale.size() && _hoverScale[idx] > 1.01f);
     if (!isArrow && hoverActive && gdiBmp != nullptr) {
@@ -1210,11 +1214,10 @@ void FanWindow::HandleFileDrop(IDataObject* pDataObj) {
             std::lock_guard<std::mutex> lk(_iconMutex);
             for (auto h : _bitmaps)    if (h) DeleteObject(h);
             for (auto h : _icons)      if (h) DestroyIcon(h);
-            for (auto p : _gdiBitmaps) delete p;
             _bitmaps.assign(total, nullptr);
             _icons.assign(total, nullptr);
             _iconLoaded.assign(total, false);
-            _gdiBitmaps.assign(total, nullptr);
+            _gdiBitmaps.assign(total, nullptr);  // shared_ptr — releases old cache
         }
         _iconSize = _prewarmIconSize > 0 ? _prewarmIconSize : 64;
 
@@ -1334,7 +1337,15 @@ void FanWindow::StartIconLoad(int idx) {
         // Graphics::Clear / DrawImage calls for hundreds of milliseconds.
         auto postReady = [&](HBITMAP hBmp, HICON hIco) {
             auto* r = new IconReady{ w->idx, hBmp, hIco, nullptr };
-            PostMessageW(w->hwnd, WM_ICON_READY, 0, (LPARAM)r);
+            // If the fan HWND has been destroyed between when this worker was
+            // submitted and now, PostMessage returns FALSE without queuing —
+            // the IconReady allocation and its HBITMAP/HICON would leak.
+            // Free them explicitly on that path.
+            if (!PostMessageW(w->hwnd, WM_ICON_READY, 0, (LPARAM)r)) {
+                if (r->hBmp)  DeleteObject(r->hBmp);
+                if (r->hIcon) DestroyIcon(r->hIcon);
+                delete r;
+            }
         };
 
         if (bmp) {
@@ -1699,11 +1710,10 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 self->_iconLoaded[idx] = true;
         }
         if (idx < (int)self->_gdiBitmaps.size()) {
-            delete self->_gdiBitmaps[idx];
             Gdiplus::Bitmap* bmp = nullptr;
             if (r->hBmp)       bmp = FanWindow::HBitmapToGdiBitmap(r->hBmp);
             else if (r->hIcon) bmp = Gdiplus::Bitmap::FromHICON(r->hIcon);
-            self->_gdiBitmaps[idx] = bmp;
+            self->_gdiBitmaps[idx].reset(bmp);
         }
         self->_iconsDirty.store(true, std::memory_order_release);
         return 0;
