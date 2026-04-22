@@ -211,7 +211,15 @@ void FanWindow::Show() {
             _icons[i]      = _prewarmIcons[i];    _prewarmIcons[i]   = nullptr;
             if (i < (int)_prewarmGdiBitmaps.size())
                 _gdiBitmaps[i] = std::move(_prewarmGdiBitmaps[i]);
-            _iconLoaded[i] = true;
+            // A prewarm slot can be empty if the shell thumbnailer was cold
+            // (typical right after resume-from-sleep).  Kick an async load
+            // instead of marking it "done" — otherwise the fan displays a
+            // permanent blank square for that file.
+            const bool slotHasIcon = _bitmaps[i] || _icons[i] || _gdiBitmaps[i];
+            if (slotHasIcon)
+                _iconLoaded[i] = true;
+            else
+                StartIconLoad(i);
         } else {
             StartIconLoad(i);
         }

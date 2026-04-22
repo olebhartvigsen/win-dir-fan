@@ -958,6 +958,18 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         }
         break;
 
+    case WM_POWERBROADCAST:
+        // On resume from sleep the shell thumbnail service (dllhost.exe) is
+        // cold for a few seconds, and any prewarm data built right before
+        // suspend may contain null slots (→ blank icon squares) or stale
+        // items from a now-modified folder.  Force a fresh prewarm so the
+        // first post-resume fan open is fast and complete.
+        if (wParam == PBT_APMRESUMEAUTOMATIC || wParam == PBT_APMRESUMESUSPEND) {
+            DebugLog(L"[FanFolder] WM_POWERBROADCAST resume — forcing prewarm\n");
+            self->StartPrewarm(/*force*/ true);
+        }
+        return TRUE;
+
     case WM_DWMSENDICONICTHUMBNAIL:
         self->ProvideIconicThumbnail(HIWORD(lParam), LOWORD(lParam));
         return 0;
