@@ -18,7 +18,8 @@ function Get-MsiProductCode($path) {
     $view   = $db.GetType().InvokeMember("OpenView",      "InvokeMethod", $null, $db,        @("SELECT Value FROM Property WHERE Property='ProductCode'"))
     $view.GetType().InvokeMember("Execute", "InvokeMethod", $null, $view, $null)
     $record = $view.GetType().InvokeMember("Fetch",        "InvokeMethod", $null, $view,      $null)
-    return   $record.GetType().InvokeMember("StringData",  "GetProperty",  $null, $record,    @(1))
+    $value  = $record.GetType().InvokeMember("StringData",  "GetProperty",  $null, $record,    @(1))
+    return   $value.Trim()
 }
 
 $pc_x64   = Get-MsiProductCode $X64Msi
@@ -64,6 +65,8 @@ Installers:
     InstallerUrl: $baseUrl/FanFolderSetup-x64.msi
     InstallerSha256: $sha256_x64
     ProductCode: '$pc_x64'
+    Scope: user
+    ElevationRequirement: elevationProhibited
     InstallerSwitches:
       Silent: /quiet /norestart
       SilentWithProgress: /passive /norestart
@@ -71,6 +74,8 @@ Installers:
     InstallerUrl: $baseUrl/FanFolderSetup-arm64.msi
     InstallerSha256: $sha256_arm64
     ProductCode: '$pc_arm64'
+    Scope: user
+    ElevationRequirement: elevationProhibited
     InstallerSwitches:
       Silent: /quiet /norestart
       SilentWithProgress: /passive /norestart
