@@ -1,4 +1,4 @@
-# FanFolder v1.1.6
+# FanFolder v1.1.7
 
 Date: 2026-04-22
 

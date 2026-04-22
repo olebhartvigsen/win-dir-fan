@@ -149,14 +149,29 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add installer/winget/*.yaml
-          if ! git diff --cached --quiet; then
-            git commit -m "Sync winget manifest templates for ${{ github.ref_name }}"
-            # Push to the branch the tag was created from (default: master/main).
-            DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
-            git push origin "HEAD:${DEFAULT_BRANCH}"
-          else
+          if git diff --cached --quiet; then
             echo "Templates already in sync."
+            exit 0
           fi
+          git commit -m "Sync winget manifest templates for ${{ github.ref_name }}"
+          # Push to the branch the tag was created from (default: master/main).
+          DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
+          # Rebase onto the latest default branch in case master moved between
+          # checkout and now; retry a few times to survive concurrent pushes.
+          for attempt in 1 2 3; do
+            git fetch origin "$DEFAULT_BRANCH"
+            if git rebase "origin/$DEFAULT_BRANCH"; then
+              if git push origin "HEAD:${DEFAULT_BRANCH}"; then
+                echo "Synced winget templates on attempt $attempt."
+                exit 0
+              fi
+            else
+              git rebase --abort || true
+            fi
+            echo "Sync attempt $attempt failed; retrying..."
+            sleep $((attempt * 5))
+          done
+          echo "::warning::Could not sync winget templates back to master after 3 attempts. Continuing so the release still publishes; templates will be regenerated on the next release."
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
