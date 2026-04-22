@@ -69,6 +69,14 @@ private:
     DWORD            _hookThreadId = 0;
     std::atomic<int> _hookGen{0};  // incremented on each InstallHooks; stale hooks self-ignore
 
+    // Virtual-desktop awareness.  Our hidden taskbar-button window is created
+    // once on the user's current desktop.  Without this, clicking the taskbar
+    // icon from a different virtual desktop causes Windows to switch back to
+    // the desktop our window lives on (and the fan opens there).  We poll
+    // periodically and, whenever we notice our window is on a different
+    // desktop than the user, move it to the current one.
+    IVirtualDesktopManager* _vdm = nullptr;
+
     void ToggleFan();
     void OpenFan();
     void CloseFan();
@@ -80,6 +88,7 @@ private:
     void AddTrayIcon();
     void RemoveTrayIcon();
     void ShowTrayMenu();
+    void ReconcileVirtualDesktop();
 
     static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
     static MainWindow* FromHWND(HWND hwnd);

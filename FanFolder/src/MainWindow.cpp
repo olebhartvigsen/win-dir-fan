@@ -93,6 +93,10 @@ static constexpr UINT WM_MAIN_CLOSE_FAN    = WM_USER + 4;
 static constexpr UINT WM_TRAYICON          = WM_USER + 5;   // tray icon messages
 static constexpr int  TOGGLE_COOLDOWN_MS   = 250;
 
+// Timer id for periodic virtual-desktop reconciliation (see ReconcileVirtualDesktop).
+static constexpr UINT_PTR TIMER_ID_VDM_RECONCILE = 1;
+static constexpr UINT     TIMER_VDM_INTERVAL_MS  = 400;
+
 MainWindow* MainWindow::s_instance = nullptr;
 
 // ---------------------------------------------------------------------------
@@ -122,6 +126,13 @@ MainWindow::~MainWindow() {
         if (_hookThreadId)
             PostThreadMessageW(_hookThreadId, WM_QUIT, 0, 0);
         _hookThread.join();
+    }
+    if (_hwnd) {
+        KillTimer(_hwnd, TIMER_ID_VDM_RECONCILE);
+    }
+    if (_vdm) {
+        _vdm->Release();
+        _vdm = nullptr;
     }
     s_instance = nullptr;
 }
@@ -160,7 +171,45 @@ bool MainWindow::Create() {
 
     StartPrewarm(/*force*/ true);
     AddTrayIcon();
+
+    // Virtual-desktop reconciliation.  The hidden main window is bound to
+    // whatever virtual desktop was active at creation time.  Clicking the
+    // taskbar icon from any other desktop would otherwise cause Windows to
+    // switch desktops (to bring our window into view) before we can show the
+    // fan — the user's click appears to "teleport" them away.  We can't react
+    // inside SC_RESTORE because the desktop switch has already happened by
+    // then, so we poll on a short timer and keep the window on whichever
+    // desktop the user is currently looking at.
+    if (SUCCEEDED(CoCreateInstance(CLSID_VirtualDesktopManager, nullptr,
+                                   CLSCTX_ALL, IID_PPV_ARGS(&_vdm)))) {
+        SetTimer(_hwnd, TIMER_ID_VDM_RECONCILE, TIMER_VDM_INTERVAL_MS, nullptr);
+    }
+
     return true;
+}
+
+// Move our hidden main window to the user's current virtual desktop if it's
+// not already there.  Called from a WM_TIMER tick (~400 ms).  Cheap when the
+// window is already on the current desktop (a single IsWindowOnCurrent… call).
+void MainWindow::ReconcileVirtualDesktop() {
+    if (!_vdm || !_hwnd) return;
+
+    BOOL onCurrent = FALSE;
+    if (FAILED(_vdm->IsWindowOnCurrentVirtualDesktop(_hwnd, &onCurrent))) return;
+    if (onCurrent) return;
+
+    // We're on a different desktop than the user.  We need the current
+    // desktop's GUID, which the public API only exposes via an existing
+    // window.  The foreground window — whatever the user is actually looking
+    // at — is always on the current desktop by definition.
+    HWND fg = GetForegroundWindow();
+    if (!fg || fg == _hwnd) return;
+
+    GUID currentId = {};
+    if (FAILED(_vdm->GetWindowDesktopId(fg, &currentId))) return;
+    if (IsEqualGUID(currentId, GUID{})) return;
+
+    _vdm->MoveWindowToDesktop(_hwnd, currentId);
 }
 
 // ---------------------------------------------------------------------------
@@ -901,6 +950,13 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     case WM_MAIN_SHOW_MIN:
         ShowWindow(hwnd, SW_SHOWMINNOACTIVE);
         return 0;
+
+    case WM_TIMER:
+        if (wParam == TIMER_ID_VDM_RECONCILE) {
+            self->ReconcileVirtualDesktop();
+            return 0;
+        }
+        break;
 
     case WM_DWMSENDICONICTHUMBNAIL:
         self->ProvideIconicThumbnail(HIWORD(lParam), LOWORD(lParam));
