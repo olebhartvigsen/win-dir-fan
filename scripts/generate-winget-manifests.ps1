@@ -66,7 +66,6 @@ Installers:
     InstallerSha256: $sha256_x64
     ProductCode: '$pc_x64'
     Scope: user
-    ElevationRequirement: elevationProhibited
     InstallerSwitches:
       Silent: /quiet /norestart
       SilentWithProgress: /passive /norestart
@@ -75,7 +74,6 @@ Installers:
     InstallerSha256: $sha256_arm64
     ProductCode: '$pc_arm64'
     Scope: user
-    ElevationRequirement: elevationProhibited
     InstallerSwitches:
       Silent: /quiet /norestart
       SilentWithProgress: /passive /norestart
