@@ -1,28 +1,69 @@
 # FanFolder – Copilot Instructions
 
-## ⚠️ Git & Release Policy — ABSOLUTE RULE: NEVER commit, push, merge, tag, or release without explicit user instruction
+## 🚫 CRITICAL: Git & Release Policy — NEVER commit, push, merge, tag, or release without explicit user instruction
 
-**This is non-negotiable. ALWAYS wait for explicit user instruction before any of these actions.**
+**THIS IS ABSOLUTE AND NON-NEGOTIABLE. VIOLATION OF THIS RULE IS A FAILURE.**
 
-**FORBIDDEN without explicit user ask (e.g., "commit", "push", "commit and push", "merge", "tag", "release"):**
-- `git commit` — never auto-commit
-- `git push` — never auto-push
-- `git merge`, `git rebase`, `git pull` — never auto-merge or rebase
-- `git tag` — never auto-tag
-- `gh release create`, `gh release upload` — never auto-release
-- Any `gh` action that mutates the remote state
-- Anything that triggers a CI build or online build (pushing tags, publishing releases, dispatching workflows)
-- Any action affecting remote repositories
+**DECISION TREE — FOLLOW THIS EVERY TIME:**
+1. Before running ANY git command (`commit`, `push`, `merge`, `rebase`, `tag`, `pull`) or `gh` command
+2. Look at the user's CURRENT message
+3. Does it contain one of these exact words: "commit", "push", "merge", "tag", "release", "pull"?
+   - **YES** → You may proceed with that action
+   - **NO** → STOP IMMEDIATELY. Do NOT run the command. Edit the file if needed and WAIT
 
-**If the user's current message does NOT include words like "commit", "push", "merge", "tag", "release", or "pull", then DO NOT perform that action.** This is absolute.
+**FORBIDDEN ACTIONS (unless user explicitly asks in current message):**
+- `git commit` — NEVER auto-commit, even after fixing code
+- `git push` — NEVER auto-push, even after committing
+- `git merge`, `git rebase`, `git pull` — NEVER auto-merge or rebase
+- `git tag` — NEVER auto-tag
+- `gh release create`, `gh release upload`, `gh` commands that mutate remote
+- Any action affecting remote repositories or CI/CD
 
-**If unsure whether something will affect the remote, STOP and ask the user first. Never guess or assume.**
+**WHAT YOU HAVE DONE WRONG (DO NOT REPEAT):**
+- ❌ Fixed code, tested it locally, then committed and pushed WITHOUT user saying "commit and push"
+- ❌ Updated copilot-instructions.md, then committed and pushed WITHOUT user saying "commit and push"
 
-**Local builds ARE fine** — `cmake --build`, running `FanFolder.exe`, local test runs DO NOT require permission. Build freely to verify changes.
+**THE CORRECT BEHAVIOR:**
+- ✅ Fix code → test locally → STOP and wait for "commit and push" instruction
+- ✅ Update a file → STOP and wait for "commit and push" instruction
+- ✅ Only run `git commit` or `git push` when user explicitly types those words
 
-**Example of what NOT to do:** After fixing code and testing it locally, do NOT commit or push on your own. Wait for the user to say "commit" or "commit and push" explicitly.
+**LOCAL BUILDS ARE FINE** — `cmake --build`, running executables, local tests do NOT need permission. Build to verify.
 
-## ⚠️ Winget Policy — NEVER submit a winget release without explicit user instruction
+**DEFAULT ACTION: When unsure, do NOT run git commands. Ask the user or wait.**
+
+## 🚫 CRITICAL: GitHub Build Policy — NEVER trigger a GitHub build without explicit user instruction
+
+**THIS IS ABSOLUTE AND NON-NEGOTIABLE. VIOLATION OF THIS RULE IS A FAILURE.**
+
+**GitHub Actions builds are triggered when you:**
+- Push a tag (e.g., `git tag v1.0.0` then `git push --tags`)
+- Trigger a workflow dispatch via `gh workflow run` or similar
+- Push commits to branches that have CI/CD pipelines enabled
+- Create a release on GitHub
+
+**FORBIDDEN ACTIONS (unless user explicitly asks in current message):**
+- Do NOT push tags to GitHub (this triggers release builds and CI)
+- Do NOT run `gh workflow run` or dispatch GitHub Actions workflows
+- Do NOT create GitHub releases via `gh release create`
+- Do NOT trigger any remote build, compile, or CI pipeline
+
+**DECISION TREE — FOLLOW THIS EVERY TIME:**
+1. Before pushing a tag or triggering any GitHub build
+2. Look at the user's CURRENT message
+3. Does it contain words like "tag", "release", "build", "deploy", "trigger workflow", or explicitly ask for a GitHub action?
+   - **YES** → You may proceed
+   - **NO** → STOP IMMEDIATELY. Do NOT push tags or trigger workflows. WAIT for explicit instruction
+
+**LOCAL BUILDS ARE FINE** — `cmake --build FanFolder\build --config Release` on this machine does NOT trigger GitHub and does NOT need permission.
+
+**WHAT TRIGGERS GITHUB (FORBIDDEN WITHOUT USER ASK):**
+- ❌ Pushing a tag (`git push --tags`)
+- ❌ Running `gh release create`
+- ❌ Dispatching workflows via `gh workflow run`
+- ❌ Creating releases or artifacts on the remote
+
+**DEFAULT ACTION: Do not push tags or trigger any GitHub build. Wait for explicit user instruction.**
 
 **Never** submit, create, or trigger a winget package update/PR unless the user explicitly asks (e.g. "submit to winget", "do a winget push"). The user always initiates winget submissions.
 
