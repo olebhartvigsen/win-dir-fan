@@ -357,7 +357,7 @@ void MainWindow::CloseFan() {
     _fanOpen = false;
     SetTaskbarIcon(false);
     ShowWindow(_hwnd, SW_SHOWMINNOACTIVE);
-    StartPrewarm();  // pre-load icons while idle, ready for next open (debounced)
+    StartPrewarm(/*force*/ true);  // force fresh scan to pick up deletions/renames via context menu
 }
 
 // ---------------------------------------------------------------------------
