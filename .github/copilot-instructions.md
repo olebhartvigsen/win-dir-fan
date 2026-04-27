@@ -1,17 +1,26 @@
 # FanFolder – Copilot Instructions
 
-## ⚠️ Git & Release Policy — NEVER commit, push, merge, tag, or release without explicit user instruction
+## ⚠️ Git & Release Policy — ABSOLUTE RULE: NEVER commit, push, merge, tag, or release without explicit user instruction
 
-**Never** run any of the following unless the user explicitly asks for it in the current message (e.g. "commit", "push", "tag", "release"):
-- `git commit`, `git push`, `git merge`, `git rebase`, `git tag`, `git pull`
-- `gh release create`, `gh release upload`, any `gh` action that mutates the remote
+**This is non-negotiable. ALWAYS wait for explicit user instruction before any of these actions.**
+
+**FORBIDDEN without explicit user ask (e.g., "commit", "push", "commit and push", "merge", "tag", "release"):**
+- `git commit` — never auto-commit
+- `git push` — never auto-push
+- `git merge`, `git rebase`, `git pull` — never auto-merge or rebase
+- `git tag` — never auto-tag
+- `gh release create`, `gh release upload` — never auto-release
+- Any `gh` action that mutates the remote state
 - Anything that triggers a CI build or online build (pushing tags, publishing releases, dispatching workflows)
+- Any action affecting remote repositories
 
-**Local builds are fine** — `cmake --build` on this machine, running `FanFolder.exe` locally, and local test runs do NOT require explicit authorization. Build freely when it helps verify your changes.
+**If the user's current message does NOT include words like "commit", "push", "merge", "tag", "release", or "pull", then DO NOT perform that action.** This is absolute.
 
-**Online builds and releases are NOT fine without an explicit order.** Do not push tags, publish releases, or dispatch CI workflows on your own initiative.
+**If unsure whether something will affect the remote, STOP and ask the user first. Never guess or assume.**
 
-If you are unsure whether an action will trigger an online build or release, **stop and ask** — do not guess.
+**Local builds ARE fine** — `cmake --build`, running `FanFolder.exe`, local test runs DO NOT require permission. Build freely to verify changes.
+
+**Example of what NOT to do:** After fixing code and testing it locally, do NOT commit or push on your own. Wait for the user to say "commit" or "commit and push" explicitly.
 
 ## ⚠️ Winget Policy — NEVER submit a winget release without explicit user instruction
 
