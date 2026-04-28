@@ -679,6 +679,11 @@ void FanWindow::DrawToLayeredWindow() {
         // Wrap DIB memory directly — GDI+ renders into the DIB, no extra copy needed
         _backBmp = new Gdiplus::Bitmap(_winWidth, _winHeight, _winWidth * 4,
                                        PixelFormat32bppARGB, (BYTE*)_pBackBits);
+        if (_backBmp->GetLastStatus() != Gdiplus::Ok) {
+            delete _backBmp; _backBmp = nullptr;
+            FreeBackBuffer();
+            return;
+        }
         _backW   = _winWidth;
         _backH   = _winHeight;
     }
@@ -690,54 +695,61 @@ void FanWindow::DrawToLayeredWindow() {
     DWORD _dbg_t_convert = 0, _dbg_t_drawImage = 0, _dbg_t_labels = 0;
     DWORD _dbg_t_gctor = 0, _dbg_t_gset = 0, _dbg_t_gclear = 0, _dbg_t_gloop = 0, _dbg_t_gdtor = 0;
     {
+        // Always clear DIB to transparent first — valid baseline even when
+        // GDI+ Graphics construction fails (headless/sandboxed environments).
+        if (_pBackBits)
+            std::memset(_pBackBits, 0, (size_t)_winWidth * _winHeight * 4);
+
         DWORD _gt0 = GetTickCount();
         Gdiplus::Graphics g(_backBmp);
         _dbg_t_gctor = GetTickCount() - _gt0;
+        const bool gdiOk = (g.GetLastStatus() == Gdiplus::Ok);
+
         DWORD _gt1 = GetTickCount();
-        g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-        g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-        _dbg_t_gset = GetTickCount() - _gt1;
-        DWORD _gt2 = GetTickCount();
-        // Bypass GDI+ Clear (which acquires a global GDI+ lock contended by
-        // worker-thread icon conversions) with a direct memset on DIB bits.
-        if (_pBackBits) {
-            std::memset(_pBackBits, 0, (size_t)_winWidth * _winHeight * 4);
-        } else {
-            g.Clear(Gdiplus::Color(0, 0, 0, 0));
+        if (gdiOk) {
+            g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+            g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
         }
-        _dbg_t_gclear = GetTickCount() - _gt2;
+        _dbg_t_gset = GetTickCount() - _gt1;
+        _dbg_t_gclear = 0;
         DWORD _gt3 = GetTickCount();
 
-        int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
-        auto getItemAlpha = [&](int i) -> float {
-            switch (_config.animStyle) {
-            case ConfigData::AnimStyle::Spring: {
-                float ip = (i < (int)_itemProgress.size()) ? _itemProgress[i] : 0.f;
-                return std::clamp(ip, 0.f, 1.f) * _entryAlpha;
-            }
-            case ConfigData::AnimStyle::Fan:
-            case ConfigData::AnimStyle::Glide:
-                // Per-item alpha tied to entryProgress (no separate window fade)
-                return (i < (int)_entryProgress.size()) ? _entryProgress[i] : 0.f;
-            case ConfigData::AnimStyle::Fade:
-                return (i < (int)_entryProgress.size()) ? _entryProgress[i] * _entryAlpha : 0.f;
-            case ConfigData::AnimStyle::None:
+        if (gdiOk) {
+            int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
+            auto getItemAlpha = [&](int i) -> float {
+                switch (_config.animStyle) {
+                case ConfigData::AnimStyle::Spring: {
+                    float ip = (i < (int)_itemProgress.size()) ? _itemProgress[i] : 0.f;
+                    return std::clamp(ip, 0.f, 1.f) * _entryAlpha;
+                }
+                case ConfigData::AnimStyle::Fan:
+                case ConfigData::AnimStyle::Glide:
+                    // Per-item alpha tied to entryProgress (no separate window fade)
+                    return (i < (int)_entryProgress.size()) ? _entryProgress[i] : 0.f;
+                case ConfigData::AnimStyle::Fade:
+                    return (i < (int)_entryProgress.size()) ? _entryProgress[i] * _entryAlpha : 0.f;
+                case ConfigData::AnimStyle::None:
+                    return 1.f;
+                }
                 return 1.f;
+            };
+
+            for (int i = 0; i < total; i++) {
+                if (i == _hoverIdx) continue;
+                DrawItem(g, i, getItemAlpha(i));
             }
-            return 1.f;
-        };
+            if (_hoverIdx >= 0 && _hoverIdx < total)
+                DrawItem(g, _hoverIdx, getItemAlpha(_hoverIdx));
 
-        for (int i = 0; i < total; i++) {
-            if (i == _hoverIdx) continue;
-            DrawItem(g, i, getItemAlpha(i));
-        }
-        if (_hoverIdx >= 0 && _hoverIdx < total)
-            DrawItem(g, _hoverIdx, getItemAlpha(_hoverIdx));
-
-        // Drop-hover: blue tinted overlay signals the fan accepts incoming files
-        if (_dropHovering) {
-            Gdiplus::SolidBrush overlay(Gdiplus::Color(55, 80, 160, 255));
-            g.FillRectangle(&overlay, 0, 0, _winWidth, _winHeight);
+            // Drop-hover: blue tinted overlay signals the fan accepts incoming files
+            if (_dropHovering) {
+                Gdiplus::SolidBrush overlay(Gdiplus::Color(55, 80, 160, 255));
+                g.FillRectangle(&overlay, 0, 0, _winWidth, _winHeight);
+            }
+        } else {
+            // GDI+ unavailable — request a redraw on the next animation tick
+            // so the frame is retried once the graphics subsystem recovers.
+            _iconsDirty.store(true, std::memory_order_relaxed);
         }
         _dbg_t_gloop = GetTickCount() - _gt3;
     }
@@ -746,7 +758,7 @@ void FanWindow::DrawToLayeredWindow() {
     DWORD _dbg_t2 = GetTickCount();
 
     // Premultiply alpha in-place on the DIB bits (no LockBits/memcpy needed)
-    {
+    if (_pBackBits) {
         BYTE* px = static_cast<BYTE*>(_pBackBits);
         int stride = _winWidth * 4;
         for (int y = 0; y < _winHeight; y++) {
@@ -771,7 +783,14 @@ void FanWindow::DrawToLayeredWindow() {
     SIZE  szWin = {_winWidth, _winHeight};
     POINT ptDst = {_winX, _winY};
     BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
-    UpdateLayeredWindow(_hwnd, hdcScreen, &ptDst, &szWin, _hdcBack, &ptSrc, 0, &blend, ULW_ALPHA);
+    // Retry once on failure — the screen DC can be briefly invalid during
+    // desktop switches, session locks, or RDP reconnects.
+    BOOL ulwOk = UpdateLayeredWindow(_hwnd, hdcScreen, &ptDst, &szWin, _hdcBack, &ptSrc, 0, &blend, ULW_ALPHA);
+    if (!ulwOk) {
+        ReleaseDC(nullptr, hdcScreen);
+        hdcScreen = GetDC(nullptr);
+        UpdateLayeredWindow(_hwnd, hdcScreen, &ptDst, &szWin, _hdcBack, &ptSrc, 0, &blend, ULW_ALPHA);
+    }
     ReleaseDC(nullptr, hdcScreen);
     _dbg_t_ulw = GetTickCount() - _dbg_t3;
 

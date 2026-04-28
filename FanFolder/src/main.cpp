@@ -32,6 +32,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     ULONG_PTR gdiplusToken;
     Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusInput, nullptr);
 
+    // Force GDI+ to fully initialise its internal caches (font enumeration,
+    // codec registration, thread-local state).  Without this, the very first
+    // user-visible render can stall or produce a blank frame in sandboxed or
+    // headless environments where GDI+ lazy-init races with the compositor.
+    {
+        Gdiplus::Bitmap warmBmp(1, 1, PixelFormat32bppARGB);
+        Gdiplus::Graphics warmG(&warmBmp);
+        warmG.Clear(Gdiplus::Color(0, 0, 0, 0));
+        Gdiplus::SolidBrush br(Gdiplus::Color(255, 255, 255));
+        warmG.FillRectangle(&br, 0, 0, 1, 1);
+    }
+
     // OleInitialize initializes COM *and* the OLE drag-drop/clipboard subsystem.
     // CoInitializeEx alone is not sufficient — DoDragDrop requires OleInitialize.
     OleInitialize(nullptr);

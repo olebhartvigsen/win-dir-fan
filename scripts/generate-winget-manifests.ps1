@@ -66,6 +66,7 @@ Installers:
     InstallerSha256: $sha256_x64
     ProductCode: '$pc_x64'
     Scope: user
+    ElevationRequirement: elevationProhibited
     InstallerSwitches:
       Silent: /quiet /norestart
       SilentWithProgress: /passive /norestart
@@ -74,6 +75,7 @@ Installers:
     InstallerSha256: $sha256_arm64
     ProductCode: '$pc_arm64'
     Scope: user
+    ElevationRequirement: elevationProhibited
     InstallerSwitches:
       Silent: /quiet /norestart
       SilentWithProgress: /passive /norestart
@@ -125,7 +127,7 @@ Tags:
 - utility
 - shell
 - files
-${releaseNotesBlock}ReleaseNotesUrl: https://github.com/olebhartvigsen/FanFolder/releases/tag/v$Version
+`${releaseNotesBlock}ReleaseNotesUrl: https://github.com/olebhartvigsen/FanFolder/releases/tag/v$Version
 ManifestType: defaultLocale
 ManifestVersion: 1.9.0
 "@ | Set-Content "$OutDir/OleBhartvigsen.FanFolder.locale.en-US.yaml" -Encoding UTF8
