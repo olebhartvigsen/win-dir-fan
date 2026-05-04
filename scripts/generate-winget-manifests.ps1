@@ -36,6 +36,12 @@ if (Test-Path $ReleaseNotesPath) {
 
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 
+# Winget requires CRLF line endings regardless of which OS generates the manifests.
+function Write-ManifestFile($Path, $Content) {
+    $normalized = ($Content -replace "`r`n", "`n") -replace "`n", "`r`n"
+    [System.IO.File]::WriteAllText($Path, $normalized, [System.Text.UTF8Encoding]::new($false))
+}
+
 # ── version manifest ──────────────────────────────────────────────────────────
 @"
 # yaml-language-server: `$schema=https://aka.ms/winget-manifest.version.1.9.0.schema.json
@@ -44,7 +50,7 @@ PackageVersion: $Version
 DefaultLocale: en-US
 ManifestType: version
 ManifestVersion: 1.9.0
-"@ | Set-Content "$OutDir/OleBhartvigsen.FanFolder.yaml" -Encoding UTF8
+"@ | Out-String | ForEach-Object { Write-ManifestFile "$OutDir/OleBhartvigsen.FanFolder.yaml" $_ }
 
 # ── installer manifest ────────────────────────────────────────────────────────
 @"
@@ -66,7 +72,6 @@ Installers:
     InstallerSha256: $sha256_x64
     ProductCode: '$pc_x64'
     Scope: user
-    ElevationRequirement: elevationProhibited
     InstallerSwitches:
       Silent: /quiet /norestart
       SilentWithProgress: /passive /norestart
@@ -75,13 +80,12 @@ Installers:
     InstallerSha256: $sha256_arm64
     ProductCode: '$pc_arm64'
     Scope: user
-    ElevationRequirement: elevationProhibited
     InstallerSwitches:
       Silent: /quiet /norestart
       SilentWithProgress: /passive /norestart
 ManifestType: installer
 ManifestVersion: 1.9.0
-"@ | Set-Content "$OutDir/OleBhartvigsen.FanFolder.installer.yaml" -Encoding UTF8
+"@ | Out-String | ForEach-Object { Write-ManifestFile "$OutDir/OleBhartvigsen.FanFolder.installer.yaml" $_ }
 
 # ── locale manifest ───────────────────────────────────────────────────────────
 @"
@@ -127,10 +131,10 @@ Tags:
 - utility
 - shell
 - files
-`${releaseNotesBlock}ReleaseNotesUrl: https://github.com/olebhartvigsen/FanFolder/releases/tag/v$Version
+${releaseNotesBlock}ReleaseNotesUrl: https://github.com/olebhartvigsen/FanFolder/releases/tag/v$Version
 ManifestType: defaultLocale
 ManifestVersion: 1.9.0
-"@ | Set-Content "$OutDir/OleBhartvigsen.FanFolder.locale.en-US.yaml" -Encoding UTF8
+"@ | Out-String | ForEach-Object { Write-ManifestFile "$OutDir/OleBhartvigsen.FanFolder.locale.en-US.yaml" $_ }
 
 Write-Host "Winget manifests written to $OutDir"
 Write-Host "  x64   SHA256: $sha256_x64"
