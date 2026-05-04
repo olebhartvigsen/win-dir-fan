@@ -33,15 +33,42 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusInput, nullptr);
 
     // Force GDI+ to fully initialise its internal caches (font enumeration,
-    // codec registration, thread-local state).  Without this, the very first
-    // user-visible render can stall or produce a blank frame in sandboxed or
-    // headless environments where GDI+ lazy-init races with the compositor.
+    // codec registration, codec instantiation, thread-local state).  Without
+    // this, the very first user-visible render can stall or produce a blank
+    // frame in sandboxed or headless environments.  We exercise diverse drawing
+    // operations to warm multiple code paths, not just basic bitmap creation.
     {
-        Gdiplus::Bitmap warmBmp(1, 1, PixelFormat32bppARGB);
+        Gdiplus::Bitmap warmBmp(32, 32, PixelFormat32bppARGB);
         Gdiplus::Graphics warmG(&warmBmp);
-        warmG.Clear(Gdiplus::Color(0, 0, 0, 0));
-        Gdiplus::SolidBrush br(Gdiplus::Color(255, 255, 255));
-        warmG.FillRectangle(&br, 0, 0, 1, 1);
+        warmG.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+
+        // Solid brushes and pens
+        Gdiplus::SolidBrush brBlack(Gdiplus::Color(255, 0, 0, 0));
+        Gdiplus::SolidBrush brWhite(Gdiplus::Color(255, 255, 255, 255));
+        Gdiplus::SolidBrush brBlue(Gdiplus::Color(255, 0, 0, 255));
+        Gdiplus::Pen penRed(Gdiplus::Color(255, 255, 0, 0), 2.0f);
+
+        // Draw rectangles (fill + stroke)
+        warmG.FillRectangle(&brBlack, 0, 0, 32, 32);
+        warmG.FillRectangle(&brBlue, 4, 4, 24, 24);
+        warmG.DrawRectangle(&penRed, 2, 2, 28, 28);
+
+        // Draw circles/arcs (exercise bezier curves, antialiasing)
+        warmG.DrawEllipse(&penRed, 8, 8, 16, 16);
+        warmG.FillEllipse(&brWhite, 12, 12, 8, 8);
+
+        // Draw lines (exercise pen rendering)
+        warmG.DrawLine(&penRed, 0, 16, 32, 16);
+        warmG.DrawLine(&penRed, 16, 0, 16, 32);
+
+        // Font rendering (exercising text rendering path and font cache)
+        Gdiplus::FontFamily fontFamily(L"Arial");
+        Gdiplus::Font font(&fontFamily, 12.0f);
+        Gdiplus::StringFormat strFormat;
+        strFormat.SetAlignment(Gdiplus::StringAlignmentCenter);
+        strFormat.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+        Gdiplus::RectF textRect(0.0f, 0.0f, 32.0f, 32.0f);
+        warmG.DrawString(L"A", 1, &font, textRect, &strFormat, &brWhite);
     }
 
     // OleInitialize initializes COM *and* the OLE drag-drop/clipboard subsystem.

@@ -304,6 +304,26 @@ void MainWindow::OpenFan() {
     MSG drain;
     while (PeekMessageW(&drain, _hwnd, WM_MAIN_CLOSE_FAN, WM_MAIN_CLOSE_FAN, PM_REMOVE)) {}
 
+    // Second-pass GDI+ warm-up on first fan open of this session:
+    // Convert 2-3 real icon items to GDI+ bitmaps to warm up the icon conversion
+    // pipeline. This reduces stutter/slowness on the very first open after wake/reboot.
+    if (!_gdiPlusFullyWarmed.load(std::memory_order_acquire) && !prewarmBitmaps.empty()) {
+        int numToWarmup = std::min(3, (int)prewarmBitmaps.size());
+        for (int i = 0; i < numToWarmup; ++i) {
+            if (prewarmBitmaps[i]) {
+                // Convert HBITMAP → Gdiplus::Bitmap to warm the conversion path.
+                // FanWindow::HBitmapToGdiBitmap() will be called again during Show(),
+                // but the GDI+ codecs/device contexts will now be fully warmed.
+                if (auto gdiBmp = FanWindow::HBitmapToGdiBitmap(prewarmBitmaps[i])) {
+                    // Bitmap is now converted; let it go. We're just warming the pipeline.
+                    // FanWindow::Show() will do this conversion again (fast because warm).
+                }
+            }
+        }
+        _gdiPlusFullyWarmed.store(true, std::memory_order_release);
+        DebugLog(L"[FanFolder] OpenFan: second-pass GDI+ warm-up complete\n");
+    }
+
     DWORD tCtor0 = GetTickCount();
     _fanWindow = std::make_unique<FanWindow>(_hInst, _hwnd, _config, std::move(items));
     DWORD tCtor = GetTickCount() - tCtor0;

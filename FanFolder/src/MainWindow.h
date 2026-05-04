@@ -57,6 +57,7 @@ private:
     std::mutex           _prewarmMutex;
     std::atomic<int>     _prewarmGen{0};  // incremented each StartPrewarm; stale threads self-discard
     std::atomic<int>     _prewarmInflight{0};  // number of queued/running prewarm workers
+    std::atomic<bool>    _gdiPlusFullyWarmed{false};  // true after first fan open (second-pass warmup done)
 
     // Taskbar icon handles (loaded once, switched on fan open/close)
     HICON  _icoSmall     = nullptr;
