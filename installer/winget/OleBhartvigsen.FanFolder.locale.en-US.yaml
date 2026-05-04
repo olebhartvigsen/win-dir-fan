@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
 PackageIdentifier: OleBhartvigsen.FanFolder
-PackageVersion: 1.2.0
+PackageVersion: 1.2.1
 PackageLocale: en-US
 Publisher: Ole Bhartvigsen
 PublisherUrl: https://github.com/olebhartvigsen
@@ -40,6 +40,6 @@ Tags:
 - utility
 - shell
 - files
-${releaseNotesBlock}ReleaseNotesUrl: https://github.com/olebhartvigsen/FanFolder/releases/tag/v1.2.0
+${releaseNotesBlock}ReleaseNotesUrl: https://github.com/olebhartvigsen/FanFolder/releases/tag/v1.2.1
 ManifestType: defaultLocale
 ManifestVersion: 1.9.0
