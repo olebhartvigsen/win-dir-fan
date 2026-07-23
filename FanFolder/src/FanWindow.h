@@ -93,6 +93,8 @@ private:
     bool  _entryDone  = false;
     int   _hoverIdx   = -1;
     bool  _hasExplorerButton = true;  // false for ::GraphRecent:: mode
+    bool  _isPlaceholder = false;     // true when the folder is empty: _items[0]
+                                      // is a non-interactive "folder is empty" item
     bool  _animating  = true;
     DWORD _createTick = 0;
     int _arcOriginX = 0;

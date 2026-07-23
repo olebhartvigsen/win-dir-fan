@@ -20,8 +20,7 @@ public:
         bool includeDirs = true,
         const std::wstring& filterRegex = L"",
         ConfigData::SortMode sortMode = ConfigData::SortMode::DateModifiedDesc,
-        bool resolveLnk = true,
-        HWND hwndForAuth = nullptr);
+        bool resolveLnk = true);
 
     // Resolves a .lnk shortcut file to its target path.
     // Returns the target path, or empty if resolution fails or target doesn't exist.

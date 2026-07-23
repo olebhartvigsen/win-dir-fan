@@ -83,9 +83,16 @@ All settings live under `HKEY_CURRENT_USER\SOFTWARE\FanFolder` and can be change
 
 ### FolderPath
 
-**Type:** `REG_SZ` | **Default:** `%USERPROFILE%\Downloads`
+**Type:** `REG_SZ` | **Default:** `::RecentDocs::`
 
-The folder whose contents are displayed in the fan menu.
+The folder whose contents are displayed in the fan menu. In addition to a normal
+filesystem path, three special virtual values are supported:
+
+| Value | Shows |
+|---|---|
+| `::RecentDocs::` | Recently used documents aggregated from the Windows Jump Lists **(default)** |
+| `::RecentFiles::` | Explorer's "Recent" list (`%APPDATA%\Microsoft\Windows\Recent`) |
+| `::GraphRecent::` | Recent Office/M365 documents only, ordered by last-opened time |
 
 ```powershell
 Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "FolderPath" -Value "C:\Users\You\Documents"
@@ -114,9 +121,10 @@ Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "SortMode" -Value "DateM
 
 ### MaxItems
 
-**Type:** `REG_DWORD` | **Default:** `15` | **Range:** 5 – 25
+**Type:** `REG_DWORD` | **Default:** `15` | **Range:** 1 – 50 (tray menu offers 5 / 10 / 15 / 20 / 25)
 
-Maximum number of items shown. Selectable in steps of 5 via the tray menu.
+Maximum number of items shown. The tray menu selects it in steps of 5; any value
+from 1 to 50 can be set directly in the registry.
 
 ```powershell
 Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "MaxItems" -Value 10
@@ -166,7 +174,7 @@ Remove-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "FilterRegex" -ErrorA
 
 ### AnimationStyle
 
-**Type:** `REG_SZ` | **Default:** `Spring`
+**Type:** `REG_SZ` | **Default:** `Glide`
 
 | Value | Effect |
 |-------|--------|

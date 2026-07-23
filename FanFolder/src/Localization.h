@@ -47,3 +47,9 @@ struct Strings {
 // Returns a reference to the Strings for the current Windows UI language,
 // falling back to English if the language is not supported.
 const Strings& GetStrings();
+
+// Returns the localized "this folder is empty" placeholder shown in the fan
+// when the configured folder / recent-documents list yields no items. Kept
+// separate from the positional Strings tables so the 29 locale initializers
+// don't all need editing.
+const wchar_t* EmptyFolderLabel();

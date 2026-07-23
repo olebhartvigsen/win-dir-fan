@@ -1,7 +1,6 @@
 // Copyright (c) 2026 Ole Bülow Hartvigsen. All rights reserved.
 #include "pch.h"
 #include "FileService.h"
-#include "GraphService.h"
 #include <lunasvg.h>
 #include <regex>
 #include <shlobj.h>
@@ -960,7 +959,7 @@ static std::vector<FileItem> ScanRecentFiles(int maxItems, ConfigData::SortMode 
     return out;
 }
 
-std::vector<FileItem> FileService::ScanFolder(const std::wstring& folderPath, int maxItems, bool includeDirs, const std::wstring& filterRegex, ConfigData::SortMode sortMode, bool resolveLnk, HWND hwndForAuth) {
+std::vector<FileItem> FileService::ScanFolder(const std::wstring& folderPath, int maxItems, bool includeDirs, const std::wstring& filterRegex, ConfigData::SortMode sortMode, bool resolveLnk) {
     std::vector<FileItem> items;
     if (folderPath.empty()) return items;
 

@@ -12,16 +12,7 @@ FetchContent_Declare(
     GIT_TAG        v3.2.1
 )
 
-# nlohmann/json — header-only, used by GraphService for Graph API responses
-set(JSON_BuildTests OFF CACHE INTERNAL "")
-set(JSON_Install    OFF CACHE INTERNAL "")
-FetchContent_Declare(
-    nlohmann_json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG        v3.11.3
-    GIT_SHALLOW    TRUE
-)
-FetchContent_MakeAvailable(lunasvg nlohmann_json)
+FetchContent_MakeAvailable(lunasvg)
 
 add_executable(FanFolder WIN32
     src/main.cpp
@@ -30,7 +21,6 @@ add_executable(FanFolder WIN32
     src/FanWindow.cpp
     src/MainWindow.cpp
     src/ShellDrag.cpp
-    src/GraphService.cpp
     src/Localization.cpp
     resources/app.rc
 )
@@ -42,8 +32,8 @@ target_precompile_headers(FanFolder PRIVATE src/pch.h)
 
 target_link_libraries(FanFolder PRIVATE
     shell32 user32 gdi32 ole32 oleaut32 comctl32 dwmapi shlwapi
-    uxtheme comdlg32 gdiplus winhttp advapi32 runtimeobject
-    lunasvg::lunasvg nlohmann_json::nlohmann_json
+    uxtheme comdlg32 gdiplus advapi32 runtimeobject
+    lunasvg::lunasvg
 )
 
 target_compile_definitions(FanFolder PRIVATE

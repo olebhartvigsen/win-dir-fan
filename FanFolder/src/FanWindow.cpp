@@ -120,7 +120,19 @@ FanWindow::FanWindow(HINSTANCE hInst, HWND hwndOwner,
     : _hInst(hInst), _hwndOwner(hwndOwner),
       _config(config),
       _items(std::move(items))
-{}
+{
+    // Empty folder / empty recent-documents list: inject a single
+    // non-interactive placeholder so the fan renders a normal window with a
+    // "folder is empty" message instead of a degenerate zero-item window
+    // (blank frame + perpetual spinner). This also avoids the FLT_MAX layout
+    // sentinels in CalculateLayout when total == 0.
+    if (_items.empty()) {
+        FileItem ph;
+        ph.name = EmptyFolderLabel();
+        _items.push_back(std::move(ph));
+        _isPlaceholder = true;
+    }
+}
 
 FanWindow::~FanWindow() {
     StopAnimTimer();
@@ -205,6 +217,10 @@ void FanWindow::Show() {
 
     // Arrow item doesn't need async load (only present when explorer button is shown)
     if (_hasExplorerButton) _iconLoaded[total - 1] = true;
+    // Placeholder ("folder is empty") has no file to load an icon for.
+    if (_isPlaceholder) {
+        for (int i = 0; i < (int)_items.size(); i++) _iconLoaded[i] = true;
+    } else
     for (int i = 0; i < (int)_items.size(); i++) {
         if (usePrewarm) {
             _bitmaps[i]    = _prewarmBitmaps[i];  _prewarmBitmaps[i] = nullptr;
@@ -974,6 +990,7 @@ void FanWindow::DrawArrowItem(Gdiplus::Graphics& g, float cx, float cy, float sz
 std::wstring FanWindow::ItemLabel(int idx) const {
     if (idx < 0 || idx >= (int)_items.size()) return {};
     const auto& item = _items[idx];
+    if (_isPlaceholder) return item.name;  // "folder is empty" — show verbatim
     if (item.isDirectory) return item.name;
 
     // For .lnk shortcuts strip the .lnk suffix first so the real filename is shown
@@ -1101,8 +1118,9 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
         _drawIA->SetColorMatrix(&cm, Gdiplus::ColorMatrixFlagsDefault,
                                 Gdiplus::ColorAdjustTypeBitmap);
         DrawCachedBitmapIA(g, gdiBmp, iconX, iconY, drawSz, _drawIA);
-    } else {
-        // Placeholder while icon loads
+    } else if (!_isPlaceholder) {
+        // Placeholder while icon loads (the empty-folder message item has no
+        // icon at all — draw just its label pill, no grey box).
         Gdiplus::SolidBrush ph(Gdiplus::Color((BYTE)(80.f * itemAlpha), 150, 150, 150));
         g.FillRectangle(&ph, Gdiplus::RectF(iconX, iconY, drawSz, drawSz));
     }
@@ -1120,6 +1138,9 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
 
 // ---------------------------------------------------------------------------
 int FanWindow::HitTest(int x, int y) const {
+    // The empty-folder placeholder is non-interactive: no hover, click, drag,
+    // or context menu. Reporting no hit everywhere keeps it purely informational.
+    if (_isPlaceholder) return -1;
     for (int i = (int)_hitRects.size() - 1; i >= 0; i--) {
         if (x >= _hitRects[i].left  && x < _hitRects[i].right &&
             y >= _hitRects[i].top   && y < _hitRects[i].bottom)
@@ -1234,6 +1255,15 @@ void FanWindow::HandleFileDrop(IDataObject* pDataObj) {
                                          _config.includeDirs, _config.filterRegex,
                                          _config.sortMode);
         _hasExplorerButton = (_config.folderPath != L"::GraphRecent::" && _config.folderPath != L"::RecentDocs::");
+        // A drop only happens in a real (non-virtual) folder and after a
+        // successful copy, so _items now has real content — clear any prior
+        // empty-folder placeholder state.
+        _isPlaceholder = false;
+        if (_items.empty()) {
+            FileItem ph; ph.name = EmptyFolderLabel();
+            _items.push_back(std::move(ph));
+            _isPlaceholder = true;
+        }
         int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
 
         // Reset icon arrays to the new size; start async loads for all items
@@ -1250,8 +1280,11 @@ void FanWindow::HandleFileDrop(IDataObject* pDataObj) {
 
         RebuildLabelCache();
         CalculateLayout();
-        for (int i = 0; i < (int)_items.size(); i++)
-            StartIconLoad(i);
+        if (!_isPlaceholder)
+            for (int i = 0; i < (int)_items.size(); i++)
+                StartIconLoad(i);
+        else if (!_iconLoaded.empty())
+            _iconLoaded[0] = true;
         DrawToLayeredWindow();
     }
 }

@@ -1025,3 +1025,41 @@ const Strings& GetStrings() {
     default:   return kEn;   // English (fallback)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Empty-folder placeholder label (see Localization.h)
+// ---------------------------------------------------------------------------
+const wchar_t* EmptyFolderLabel() {
+    const LANGID lang = PRIMARYLANGID(GetUserDefaultUILanguage());
+    switch (lang) {
+    case 0x06: return L"Mappen er tom";   // da
+    case 0x1D: return L"Mappen \u00e4r tom";   // sv
+    case 0x14: return L"Mappen er tom";   // no
+    case 0x07: return L"Dieser Ordner ist leer";   // de
+    case 0x13: return L"Deze map is leeg";   // nl
+    case 0x15: return L"Ten folder jest pusty";   // pl
+    case 0x01: return L"\u0647\u0630\u0627 \u0627\u0644\u0645\u062c\u0644\u062f \u0641\u0627\u0631\u063a";   // ar
+    case 0x04: return L"\u6b64\u6587\u4ef6\u5939\u4e3a\u7a7a";   // zh
+    case 0x11: return L"\u3053\u306e\u30d5\u30a9\u30eb\u30c0\u30fc\u306f\u7a7a\u3067\u3059";   // ja
+    case 0x12: return L"\uc774 \ud3f4\ub354\ub294 \ube44\uc5b4 \uc788\uc2b5\ub2c8\ub2e4";   // ko
+    case 0x41: return L"Folda hii ni tupu";   // sw
+    case 0x0C: return L"Ce dossier est vide";   // fr
+    case 0x10: return L"Questa cartella \u00e8 vuota";   // it
+    case 0x0A: return L"Esta carpeta est\u00e1 vac\u00eda";   // es
+    case 0x16: return L"Esta pasta est\u00e1 vazia";   // pt
+    case 0x19: return L"\u042d\u0442\u0430 \u043f\u0430\u043f\u043a\u0430 \u043f\u0443\u0441\u0442\u0430";   // ru
+    case 0x39: return L"\u092f\u0939 \u092b\u093c\u094b\u0932\u094d\u0921\u0930 \u0916\u093e\u0932\u0940 \u0939\u0948";   // hi
+    case 0x1F: return L"Bu klas\u00f6r bo\u015f";   // tr
+    case 0x0D: return L"\u05ea\u05d9\u05e7\u05d9\u05d9\u05d4 \u05d6\u05d5 \u05e8\u05d9\u05e7\u05d4";   // he
+    case 0x05: return L"Tato slo\u017eka je pr\u00e1zdn\u00e1";   // cs
+    case 0x0B: return L"T\u00e4m\u00e4 kansio on tyhj\u00e4";   // fi
+    case 0x0E: return L"Ez a mappa \u00fcres";   // hu
+    case 0x08: return L"\u0391\u03c5\u03c4\u03cc\u03c2 \u03bf \u03c6\u03ac\u03ba\u03b5\u03bb\u03bf\u03c2 \u03b5\u03af\u03bd\u03b1\u03b9 \u03ac\u03b4\u03b5\u03b9\u03bf\u03c2";   // el
+    case 0x2A: return L"Th\u01b0 m\u1ee5c n\u00e0y tr\u1ed1ng";   // vi
+    case 0x21: return L"Folder ini kosong";   // id
+    case 0x22: return L"\u0426\u044f \u043f\u0430\u043f\u043a\u0430 \u043f\u043e\u0440\u043e\u0436\u043d\u044f";   // uk
+    case 0x18: return L"Acest folder este gol";   // ro
+    case 0x1E: return L"\u0e42\u0e1f\u0e25\u0e40\u0e14\u0e2d\u0e23\u0e4c\u0e19\u0e35\u0e49\u0e27\u0e48\u0e32\u0e07\u0e40\u0e1b\u0e25\u0e48\u0e32";   // th
+    default:   return L"This folder is empty";   // en
+    }
+}
