@@ -1,8 +1,8 @@
-# FanFolder v1.2.1
+# FanFolder v1.2.2
 
-Date: 2026-05-04
+Date: 2026-07-23
 
-Changelog since v1.2.0:
-- Optimized first fan opening after system wake or reboot: extended GDI+ warm-up at startup and added session-level warm-up on first fan open to ensure the rendering and icon conversion pipelines are fully initialized.
-- On first fan open of each session, the app now preemptively converts a small batch of real folder icons to improve perceived startup responsiveness.
-- The combined warm-up strategy eliminates multi-second delays on first-open in slow environments while keeping subsequent opens lightning-fast via the existing prewarm cache.
+Changelog since v1.2.1:
+- Fixed a blank fan window on machines where the configured folder (or the default recent-documents list) is empty: the fan now shows a "This folder is empty" message instead of an empty frame with a loading spinner.
+- Removed the unused Microsoft Graph integration and its winhttp / nlohmann_json dependencies, shrinking the build and keeping the app free of runtime network dependencies.
+- Documentation fixes: corrected the default animation style, the MaxItems range and the default folder path in the README.
