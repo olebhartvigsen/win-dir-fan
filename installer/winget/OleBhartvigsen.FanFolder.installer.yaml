@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.9.0.schema.json
 PackageIdentifier: OleBhartvigsen.FanFolder
-PackageVersion: 1.2.1
+PackageVersion: 1.2.2
 InstallerLocale: en-US
 Platform:
   - Windows.Desktop
@@ -12,17 +12,17 @@ InstallModes:
 UpgradeBehavior: install
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/olebhartvigsen/FanFolder/releases/download/v1.2.1/FanFolderSetup-x64.msi
-    InstallerSha256: EF4597EC2657C37BD47CD9A874EF5675BA13B25178A405B28D1917C76EC642D3
-    ProductCode: ' {376B3ABD-9466-470D-A5DF-3CA3758BC7D1}'
+    InstallerUrl: https://github.com/olebhartvigsen/FanFolder/releases/download/v1.2.2/FanFolderSetup-x64.msi
+    InstallerSha256: 07927AE287D7A388129E9D5556416F6417A8BFDF29430D204C3610C5B41262A4
+    ProductCode: ' {CA7D8D62-85B7-4115-9B21-30EF82B8F5AE}'
     Scope: user
     InstallerSwitches:
       Silent: /quiet /norestart
       SilentWithProgress: /passive /norestart
   - Architecture: arm64
-    InstallerUrl: https://github.com/olebhartvigsen/FanFolder/releases/download/v1.2.1/FanFolderSetup-arm64.msi
-    InstallerSha256: A4F2FF1B6FE9423CEFBACDD9F452D996F6AB46FF5919D83550AEBE1BD8D3D21F
-    ProductCode: ' {9EB34A1A-1536-43F2-BE2D-E4E8C46E9B2B}'
+    InstallerUrl: https://github.com/olebhartvigsen/FanFolder/releases/download/v1.2.2/FanFolderSetup-arm64.msi
+    InstallerSha256: E2EFE5B515737D796DAD4CA2EB87415C3B889FE822509FC6861679BC5328DA61
+    ProductCode: ' {E7CFD0EC-D761-40B3-AB9D-6897AD353ABF}'
     Scope: user
     InstallerSwitches:
       Silent: /quiet /norestart

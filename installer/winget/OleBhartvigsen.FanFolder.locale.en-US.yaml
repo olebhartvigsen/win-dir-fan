@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
 PackageIdentifier: OleBhartvigsen.FanFolder
-PackageVersion: 1.2.1
+PackageVersion: 1.2.2
 PackageLocale: en-US
 Publisher: Ole Bhartvigsen
 PublisherUrl: https://github.com/olebhartvigsen
@@ -40,6 +40,11 @@ Tags:
 - utility
 - shell
 - files
-${releaseNotesBlock}ReleaseNotesUrl: https://github.com/olebhartvigsen/FanFolder/releases/tag/v1.2.1
+ReleaseNotes: |-
+  Highlights in 1.2.2:
+  - Fixed a blank fan window on machines where the configured folder (or the default recent-documents list) is empty: the fan now shows a "This folder is empty" message instead of an empty frame with a loading spinner.
+  - Removed the unused Microsoft Graph integration and its winhttp / nlohmann_json dependencies, shrinking the build and keeping the app free of runtime network dependencies.
+  - Documentation fixes: corrected the default animation style, the MaxItems range and the default folder path in the README.
+ReleaseNotesUrl: https://github.com/olebhartvigsen/FanFolder/releases/tag/v1.2.2
 ManifestType: defaultLocale
 ManifestVersion: 1.9.0
