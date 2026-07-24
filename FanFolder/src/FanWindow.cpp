@@ -505,13 +505,11 @@ void FanWindow::CalculateLayout() {
     // slots, the items get crowded vertically and the topmost icon overlaps
     // the one below it. Scale the icon size down so the arc height is
     // dominated by spacing, not by icon diameter. Target: icon diameter
-    // < ~90% of itemSpacing * sin(arcAngle) so adjacent icons have a small
-    // visual gap.
+    // ~70% of the computed spacing so adjacent icons have a clear gap
+    // (including room for the label pill which extends to the left).
     if (total > BaselineItems) {
-        // itemSpacing ≈ (_maxStackHeight - StartDistance) / (total - 1)
-        // We want iconSize < itemSpacing * 0.9, so:
         float maxSpacing = (_maxStackHeight - StartDistance) / (float)(total - 1);
-        int adjusted = std::clamp((int)(maxSpacing * 0.9f), 36, _iconSize);
+        int adjusted = std::clamp((int)(maxSpacing * 0.7f), 32, _iconSize);
         if (adjusted < _iconSize) {
             _iconSize = adjusted;
             if (_iconSize * 0.22f != _cachedFontSize || !_labelFont)
