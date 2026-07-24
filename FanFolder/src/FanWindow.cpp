@@ -621,13 +621,20 @@ void FanWindow::CalculateLayout() {
         ? std::min((float)total * ArcSpreadPerItem, MaxArcSpreadDeg)
         : 0.f;
 
-    // Polar arc: compute each item centre relative to the arc hinge
+    // Polar arc: compute each item centre relative to the arc hinge.
+    // The arrow (last slot, when shown) gets 1.5x extra distance so it's
+    // visually separated from the last regular item — like Explorer's
+    // separator between "This PC" and drives.
+    bool hasArrow = _hasExplorerButton && !_noMatchesActive && total > 1;
     std::vector<float> relX(total), relY(total);
     for (int i = 0; i < total; i++) {
         float t        = (total > 1) ? (float)i / (float)(total - 1) : 0.f;
         float angleDeg = 90.f - (t - 0.5f) * arcSpread;  // centred on 90°
         float angleRad = angleDeg * kPI / 180.f;
         float dist     = StartDistance + itemSpacing * i;
+        // Add a 0.5x itemSpacing gap before the arrow (last slot).
+        if (hasArrow && i == total - 1)
+            dist += itemSpacing * 0.5f;
 
         if (taskbarAtBottom) {
             relX[i] =  dist * std::cos(angleRad);
