@@ -864,9 +864,9 @@ LRESULT CALLBACK MainWindow::KeyboardHookProc(int nCode, WPARAM wParam, LPARAM l
             BYTE kbState[256] = {};
             GetKeyboardState(kbState);
             // LL hook can fire before the async key-state table is updated, so
-            // force the modifier bits from multiple sources: the hook's own
-            // flags field AND GetAsyncKeyState as a fallback.
-            if ((kb->flags & LLKHF_SHIFT) || (GetAsyncKeyState(VK_SHIFT) & 0x8000))
+            // force the modifier bits from GetAsyncKeyState as a reliable source.
+            // (LLKHF_SHIFT is not available under WIN32_LEAN_AND_MEAN.)
+            if (GetAsyncKeyState(VK_SHIFT) & 0x8000)
                 kbState[VK_SHIFT] = 0x80;
             if (GetKeyState(VK_CAPITAL) & 1) kbState[VK_CAPITAL] = 0x01;
             // Ctrl/Alt suppress printable translation (shortcuts stay with the app)
