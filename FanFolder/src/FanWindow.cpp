@@ -500,6 +500,24 @@ void FanWindow::CalculateLayout() {
     // Phase 1: layout is driven by visible slots (filtered items + arrow),
     // not by the full _items list. The arc tightens to matches.
     int total = TotalSlots();
+
+    // Icon-size correction: when the arc has more than BaselineItems (15)
+    // slots, the items get crowded vertically and the topmost icon overlaps
+    // the one below it. Scale the icon size down so the arc height is
+    // dominated by spacing, not by icon diameter. Target: icon diameter
+    // < ~90% of itemSpacing * sin(arcAngle) so adjacent icons have a small
+    // visual gap.
+    if (total > BaselineItems) {
+        // itemSpacing ≈ (_maxStackHeight - StartDistance) / (total - 1)
+        // We want iconSize < itemSpacing * 0.9, so:
+        float maxSpacing = (_maxStackHeight - StartDistance) / (float)(total - 1);
+        int adjusted = std::clamp((int)(maxSpacing * 0.9f), 36, _iconSize);
+        if (adjusted < _iconSize) {
+            _iconSize = adjusted;
+            if (_iconSize * 0.22f != _cachedFontSize || !_labelFont)
+                RebuildFontCache();
+        }
+    }
     _labelWidths.resize(total);
     float maxLabelW = 0.f;
 
