@@ -489,10 +489,7 @@ void FanWindow::CalculateLayout() {
     HWND hTaskbar = FindTaskbarOnMonitor(hCursorMon, tbRect);
     int screenH = mi.rcMonitor.bottom - mi.rcMonitor.top;
 
-    // Arc height: 85% of screen height (was 75%) so 15+arrow = 16 slots fit
-    // without the topmost icon overlapping the one below it. 75% left a
-    // ~6px overlap between the arrow and slot 14 on 1080p; 85% gives ~1px gap.
-    _maxStackHeight = (int)(screenH * 0.85f);
+    _maxStackHeight = (int)(screenH * 0.75f);
     _iconSize = std::clamp(screenH / 19, 48, 128);
 
     // Measure label widths with GDI+ (reuse persistent _measureBmp to avoid allocation)
@@ -621,20 +618,13 @@ void FanWindow::CalculateLayout() {
         ? std::min((float)total * ArcSpreadPerItem, MaxArcSpreadDeg)
         : 0.f;
 
-    // Polar arc: compute each item centre relative to the arc hinge.
-    // The arrow (last slot, when shown) gets 1.5x extra distance so it's
-    // visually separated from the last regular item — like Explorer's
-    // separator between "This PC" and drives.
-    bool hasArrow = _hasExplorerButton && !_noMatchesActive && total > 1;
+    // Polar arc: compute each item centre relative to the arc hinge
     std::vector<float> relX(total), relY(total);
     for (int i = 0; i < total; i++) {
         float t        = (total > 1) ? (float)i / (float)(total - 1) : 0.f;
         float angleDeg = 90.f - (t - 0.5f) * arcSpread;  // centred on 90°
         float angleRad = angleDeg * kPI / 180.f;
         float dist     = StartDistance + itemSpacing * i;
-        // Add a 0.5x itemSpacing gap before the arrow (last slot).
-        if (hasArrow && i == total - 1)
-            dist += itemSpacing * 0.5f;
 
         if (taskbarAtBottom) {
             relX[i] =  dist * std::cos(angleRad);
