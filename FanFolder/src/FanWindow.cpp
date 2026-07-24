@@ -259,7 +259,7 @@ void FanWindow::Show() {
 
     // Convert any HBITMAP/HICON that wasn't pre-converted by prewarm (e.g.
     // size-mismatch fallback path).  When prewarm supplies a cached
-    // Gdiplus::Bitmap we skip this — it saves ~750ms on the UI thread per open.
+    // GDI+ Bitmap we skip this — it saves ~750ms on the UI thread per open.
     for (int i = 0; i < (int)_items.size(); i++) {
         if (_gdiBitmaps[i]) continue;
         HBITMAP bmp = _bitmaps[i];
@@ -267,6 +267,13 @@ void FanWindow::Show() {
         if (bmp)      _gdiBitmaps[i].reset(HBitmapToGdiBitmap(bmp));
         else if (ico) _gdiBitmaps[i].reset(Gdiplus::Bitmap::FromHICON(ico));
     }
+
+    // Phase 1: CalculateLayout() was already called in Create(), but at that
+    // point _visible was still empty (it's populated above) — so the layout's
+    // slot count was wrong. Recompute it now that _visible + _hasExplorerButton
+    // are final. Without this, _iconPos/_hitRects are too short and every
+    // item draws at (0,0), producing a stacked mess.
+    CalculateLayout();
 
     DrawToLayeredWindow();
     ShowWindow(_hwnd, SW_SHOWNOACTIVATE);
