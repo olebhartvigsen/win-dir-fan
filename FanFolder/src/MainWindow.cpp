@@ -869,9 +869,11 @@ LRESULT CALLBACK MainWindow::KeyboardHookProc(int nCode, WPARAM wParam, LPARAM l
             if (GetAsyncKeyState(VK_SHIFT) & 0x8000)
                 kbState[VK_SHIFT] = 0x80;
             if (GetKeyState(VK_CAPITAL) & 1) kbState[VK_CAPITAL] = 0x01;
-            // Ctrl/Alt suppress printable translation (shortcuts stay with the app)
-            bool hasCtrl  = (kbState[VK_CONTROL]  & 0x80) != 0;
-            bool hasAlt   = (kbState[VK_MENU]     & 0x80) != 0;
+            // Ctrl/Alt suppress printable translation (shortcuts stay with the app).
+            // Must use GetAsyncKeyState here too — GetKeyboardState lags behind the
+            // hook, so a Ctrl+C would see 'c' without Ctrl and get swallowed.
+            bool hasCtrl  = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+            bool hasAlt   = (GetAsyncKeyState(VK_MENU)    & 0x8000) != 0;
             if (hasCtrl || hasAlt)
                 return CallNextHookEx(nullptr, nCode, wParam, lParam);
 
