@@ -500,20 +500,6 @@ void FanWindow::CalculateLayout() {
     // Phase 1: layout is driven by visible slots (filtered items + arrow),
     // not by the full _items list. The arc tightens to matches.
     int total = TotalSlots();
-
-    // Icon-size correction: when the arc has more than BaselineItems (15)
-    // slots, the items get crowded vertically and the topmost icon overlaps
-    // the one below it. Scale the icon size down so adjacent icons have a
-    // visible gap. 0.85x spacing gives ~6px gap for a 16-slot arc at 1080p.
-    if (total > BaselineItems) {
-        float maxSpacing = (_maxStackHeight - StartDistance) / (float)(total - 1);
-        int adjusted = std::clamp((int)(maxSpacing * 0.85f), 36, _iconSize);
-        if (adjusted < _iconSize) {
-            _iconSize = adjusted;
-            if (_iconSize * 0.22f != _cachedFontSize || !_labelFont)
-                RebuildFontCache();
-        }
-    }
     _labelWidths.resize(total);
     float maxLabelW = 0.f;
 
@@ -891,17 +877,6 @@ void FanWindow::DrawToLayeredWindow() {
             if (_dropHovering) {
                 Gdiplus::SolidBrush overlay(Gdiplus::Color(55, 80, 160, 255));
                 g.FillRectangle(&overlay, 0, 0, _winWidth, _winHeight);
-            }
-
-            // Filter-as-you-type debug overlay (Phase 0): render the captured
-            // keystrokes as a pill so we can confirm the keyboard-hook → fan
-            // input path works before wiring up real filtering.
-            if (!_filterText.empty()) {
-                std::wstring probe = L"\u2328 " + _filterText;  // keyboard glyph + text
-                float pillH = _iconSize * 0.5f;
-                float pillW = std::min((float)_winWidth - 16.f,
-                                       32.f + (float)probe.size() * _iconSize * 0.18f);
-                DrawLabelPill(g, 8.f, 8.f, pillW, pillH, pillH / 2.f, probe, 1.f);
             }
         } else {
             // GDI+ unavailable — request a redraw on the next animation tick
