@@ -503,13 +503,11 @@ void FanWindow::CalculateLayout() {
 
     // Icon-size correction: when the arc has more than BaselineItems (15)
     // slots, the items get crowded vertically and the topmost icon overlaps
-    // the one below it. Scale the icon size down so the arc height is
-    // dominated by spacing, not by icon diameter. Target: icon diameter
-    // ~70% of the computed spacing so adjacent icons have a clear gap
-    // (including room for the label pill which extends to the left).
+    // the one below it. Scale the icon size down so adjacent icons have a
+    // visible gap. 0.85x spacing gives ~6px gap for a 16-slot arc at 1080p.
     if (total > BaselineItems) {
         float maxSpacing = (_maxStackHeight - StartDistance) / (float)(total - 1);
-        int adjusted = std::clamp((int)(maxSpacing * 0.7f), 32, _iconSize);
+        int adjusted = std::clamp((int)(maxSpacing * 0.85f), 36, _iconSize);
         if (adjusted < _iconSize) {
             _iconSize = adjusted;
             if (_iconSize * 0.22f != _cachedFontSize || !_labelFont)
