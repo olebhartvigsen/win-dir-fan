@@ -35,6 +35,15 @@ public:
     // Message sent to hwndOwner when settings change (lParam = new ConfigData*)
     static constexpr UINT WM_SETTINGS_CHANGED = WM_USER + 10;
 
+    // Posted to the fan window by MainWindow's low-level keyboard hook while the
+    // fan is open (the fan is WS_EX_NOACTIVATE and never has focus, so it can't
+    // receive WM_CHAR directly).  The hook translates the keystroke to a
+    // character (layout/modifier aware) and posts it as wParam.  VK_BACK is
+    // forwarded as-is (sentinel).  Phase 0: used only to capture typed text into
+    // _filterText for the overlay proof; live filtering / Enter-launch semantics
+    // come in later phases.
+    static constexpr UINT WM_FAN_FILTER_KEY = WM_USER + 11;
+
 private:
     HINSTANCE _hInst;
     HWND      _hwndOwner;
@@ -99,6 +108,11 @@ private:
     DWORD _createTick = 0;
     int _arcOriginX = 0;
     int _arcOriginY = 0;
+
+    // Filter-as-you-type. Phase 0 only captures the typed text (no filtering of
+    // the item list yet — that is Phase 1). Rendered as a debug overlay pill so
+    // we can confirm the keyboard-hook → fan input path works end to end.
+    std::wstring _filterText;
 
     // Set by async icon-load handlers (WM_USER + 1 / + 2) to request a single
     // coalesced redraw on the next animation tick.  BEFORE this coalescing,

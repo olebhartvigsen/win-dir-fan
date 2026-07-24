@@ -190,6 +190,9 @@ void FanWindow::AcceptPrewarmIcons(std::vector<HBITMAP>&& bitmaps,
 void FanWindow::Show() {
     if (!_hwnd) return;
 
+    // Fresh open starts unfiltered (Phase 0: just the captured-text overlay).
+    _filterText.clear();
+
     _hasExplorerButton = (_config.folderPath != L"::GraphRecent::" && _config.folderPath != L"::RecentDocs::");
     int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
     _itemProgress.assign(total, 0.f);
@@ -761,6 +764,17 @@ void FanWindow::DrawToLayeredWindow() {
             if (_dropHovering) {
                 Gdiplus::SolidBrush overlay(Gdiplus::Color(55, 80, 160, 255));
                 g.FillRectangle(&overlay, 0, 0, _winWidth, _winHeight);
+            }
+
+            // Filter-as-you-type debug overlay (Phase 0): render the captured
+            // keystrokes as a pill so we can confirm the keyboard-hook → fan
+            // input path works before wiring up real filtering.
+            if (!_filterText.empty()) {
+                std::wstring probe = L"\u2328 " + _filterText;  // keyboard glyph + text
+                float pillH = _iconSize * 0.5f;
+                float pillW = std::min((float)_winWidth - 16.f,
+                                       32.f + (float)probe.size() * _iconSize * 0.18f);
+                DrawLabelPill(g, 8.f, 8.f, pillW, pillH, pillH / 2.f, probe, 1.f);
             }
         } else {
             // GDI+ unavailable — request a redraw on the next animation tick
@@ -1776,6 +1790,28 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             self->_gdiBitmaps[idx].reset(bmp);
         }
         self->_iconsDirty.store(true, std::memory_order_release);
+        return 0;
+    }
+
+    // ── Filter-as-you-type key capture (Phase 0) ───────────────────────────
+    // Posted by MainWindow's LL keyboard hook while the fan is open. The hook
+    // has already translated the keystroke to a character (layout/modifier
+    // aware), so wParam is either the VK_BACK sentinel or a literal wchar_t to
+    // append. No item filtering yet — this only proves the hook→fan input path
+    // and key-swallowing work end to end.
+    case WM_FAN_FILTER_KEY: {
+        wchar_t ch = (wchar_t)wParam;
+        if (ch == VK_BACK) {
+            if (!self->_filterText.empty()) {
+                self->_filterText.pop_back();
+                self->DrawToLayeredWindow();
+            }
+        } else if (ch == VK_RETURN) {
+            // Phase 3 will launch the top match here.  Phase 0: no-op.
+        } else if (ch >= L' ') {
+            self->_filterText.push_back(ch);
+            self->DrawToLayeredWindow();
+        }
         return 0;
     }
 
