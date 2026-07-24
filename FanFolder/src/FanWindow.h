@@ -16,6 +16,10 @@ public:
     bool Create();
     void Show();
     void Close();
+    // Rebuild the visible-item view from _items using _filterText (case-insensitive
+    // substring match against ItemLabel). Then re-layout and redraw. Safe to call
+    // from the UI thread at any time after Show().
+    void ApplyFilter();
     void AcceptPrewarmIcons(std::vector<HBITMAP>&& bitmaps,
                             std::vector<HICON>&&   icons,
                             std::vector<std::shared_ptr<Gdiplus::Bitmap>>&& gdiBitmaps,
@@ -113,6 +117,35 @@ private:
     // the item list yet — that is Phase 1). Rendered as a debug overlay pill so
     // we can confirm the keyboard-hook → fan input path works end to end.
     std::wstring _filterText;
+
+    // Filter-as-you-type view (Phase 1). Slot→real-index mapping.
+    std::vector<int> _visible;
+    // True when the filter is active and finds nothing. The fan renders a
+    // single "no matches" slot in place of items + arrow. Layout/draw use
+    // this to branch to the text-only rendering path.
+    bool _noMatchesActive = false;
+
+    // Helpers used by layout/draw/hit-test to iterate the fan's slots.
+    // Returns the number of slots to render.
+    //   - non-empty visible: visible items + arrow (if shown)
+    //   - no matches placeholder: 1
+    //   - empty folder placeholder: _items.size() (= 1) + arrow (if shown)
+    int TotalSlots() const {
+        if (_noMatchesActive) return 1;
+        return (int)_visible.size() + (_hasExplorerButton ? 1 : 0);
+    }
+    // Returns the real index for a slot, or -1 if the slot is the arrow,
+    // the no-matches synthetic slot, or out of range.
+    int RealIndexForSlot(int slot) const {
+        if (slot < 0 || slot >= (int)_visible.size()) return -1;
+        return _visible[slot];
+    }
+    // True for the arrow slot (last slot, only if explorer button is shown
+    // AND no-matches placeholder is not active).
+    bool IsArrowSlot(int slot) const {
+        return _hasExplorerButton && !_noMatchesActive
+            && slot == TotalSlots() - 1;
+    }
 
     // Set by async icon-load handlers (WM_USER + 1 / + 2) to request a single
     // coalesced redraw on the next animation tick.  BEFORE this coalescing,
