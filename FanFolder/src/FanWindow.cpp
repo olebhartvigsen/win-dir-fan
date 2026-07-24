@@ -489,7 +489,10 @@ void FanWindow::CalculateLayout() {
     HWND hTaskbar = FindTaskbarOnMonitor(hCursorMon, tbRect);
     int screenH = mi.rcMonitor.bottom - mi.rcMonitor.top;
 
-    _maxStackHeight = (int)(screenH * 0.75f);
+    // Arc height: 85% of screen height (was 75%) so 15+arrow = 16 slots fit
+    // without the topmost icon overlapping the one below it. 75% left a
+    // ~6px overlap between the arrow and slot 14 on 1080p; 85% gives ~1px gap.
+    _maxStackHeight = (int)(screenH * 0.85f);
     _iconSize = std::clamp(screenH / 19, 48, 128);
 
     // Measure label widths with GDI+ (reuse persistent _measureBmp to avoid allocation)
