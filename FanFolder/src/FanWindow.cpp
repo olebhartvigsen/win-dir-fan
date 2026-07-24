@@ -1164,15 +1164,24 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int slot, float itemAlpha) {
         return;
     }
 
-    float hsc    = (realIdx < (int)_hoverScale.size()) ? _hoverScale[realIdx] : 1.f;
+    float hsc    = isArrow
+        ? ((int)_hoverScale.size() > 0 ? _hoverScale.back() : 1.f)
+        : ((realIdx < (int)_hoverScale.size()) ? _hoverScale[realIdx] : 1.f);
     float cx     = (slot < (int)_iconPos.size()) ? (float)_iconPos[slot].x : 0.f;
     float cy     = (slot < (int)_iconPos.size()) ? (float)_iconPos[slot].y : 0.f;
     float drawSz = (float)_iconSize * hsc;
-    float entryP = (realIdx < (int)_entryProgress.size()) ? _entryProgress[realIdx] : 1.f;
+    // For the arrow, realIdx is -1 (RealIndexForSlot returns -1 for the arrow
+    // slot). Indexing _entryProgress[-1] is undefined behavior — use the
+    // arrow's reserved slot at the back of the array instead.
+    float entryP = isArrow
+        ? ((int)_entryProgress.size() > 0 ? _entryProgress.back() : 1.f)
+        : ((realIdx < (int)_entryProgress.size()) ? _entryProgress[realIdx] : 1.f);
 
     switch (_config.animStyle) {
     case ConfigData::AnimStyle::Spring: {
-        float ip = (realIdx < (int)_itemProgress.size()) ? _itemProgress[realIdx] : 1.f;
+        float ip = isArrow
+            ? ((int)_itemProgress.size() > 0 ? _itemProgress.back() : 1.f)
+            : ((realIdx < (int)_itemProgress.size()) ? _itemProgress[realIdx] : 1.f);
         float scale = std::max(ip, 0.01f);
         drawSz = _iconSize * scale * hsc;
         break;
