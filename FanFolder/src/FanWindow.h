@@ -54,6 +54,9 @@ private:
     HWND      _hwnd = nullptr;
     ConfigData _config;
     std::vector<FileItem> _items;
+    // Phase 2: original items before any full-folder-scan extension. Saved
+    // on Show() so we can restore _items when the filter is cleared.
+    std::vector<FileItem> _originalItems;
 
     // Layout
     int   _winWidth  = 0, _winHeight  = 0;

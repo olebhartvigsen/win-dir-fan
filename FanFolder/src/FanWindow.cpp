@@ -198,6 +198,9 @@ void FanWindow::Show() {
     _noMatchesActive = false;
     _visible.reserve(_items.size());
     for (int i = 0; i < (int)_items.size(); i++) _visible.push_back(i);
+    // Phase 2: save the original items so we can restore when the filter
+    // is cleared after a full-folder-scan extension.
+    _originalItems = _items;
 
     _hasExplorerButton = (_config.folderPath != L"::GraphRecent::" && _config.folderPath != L"::RecentDocs::");
     int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
@@ -311,17 +314,44 @@ void FanWindow::Close() {
 void FanWindow::ApplyFilter() {
     if (!_hwnd) return;
 
+    // Phase 2: when the filter is cleared, restore _items from _originalItems
+    // (which may have been extended by a full-folder scan).
+    if (_filterText.empty()) {
+        _items = _originalItems;
+        // Resize icon arrays to match the restored item count + arrow slot.
+        int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
+        {
+            std::lock_guard<std::mutex> lk(_iconMutex);
+            _bitmaps.assign(total, nullptr);
+            _icons.assign(total, nullptr);
+            _gdiBitmaps.assign(total, nullptr);
+            _iconLoaded.assign(total, false);
+        }
+        _itemProgress.assign(total, 0.f);
+        _hoverScale.assign(total, 1.f);
+        _entryProgress.assign(total, 0.f);
+        _labelCache.resize(_items.size());
+        RebuildLabelCache();
+        // Arrow doesn't need an icon load.
+        if (_hasExplorerButton) _iconLoaded[total - 1] = true;
+        // Re-start async icon loads for the original items (their bitmap
+        // handles were cleared by the full-scan's assign(nullptr, ...)).
+        for (int i = 0; i < (int)_items.size(); i++) {
+            if (!_isPlaceholder) StartIconLoad(i);
+        }
+        if (_isPlaceholder && !_iconLoaded.empty()) _iconLoaded[0] = true;
+    }
+
     // Lowercase copy of the filter text (case-insensitive substring match).
     std::wstring needle = _filterText;
     for (auto& c : needle) c = (wchar_t)towlower(c);
 
+    // First pass: in-memory match against the current _items.
     _visible.clear();
     _noMatchesActive = false;
     if (!_filterText.empty() && !needle.empty()) {
-        // Filter active: include only matching items.
         _visible.reserve(_items.size());
         for (int i = 0; i < (int)_items.size(); i++) {
-            // The placeholder (empty-folder) item never matches a filter.
             if (_isPlaceholder && i == 0) continue;
             std::wstring label = (i < (int)_labelCache.size()) ? _labelCache[i]
                                                               : ItemLabel(i);
@@ -330,13 +360,84 @@ void FanWindow::ApplyFilter() {
             if (lower.find(needle) != std::wstring::npos)
                 _visible.push_back(i);
         }
-        // No matches + filter active + folder has items → no-matches placeholder
-        // (an empty folder on its own is already the placeholder item, not this).
-        if (_visible.empty() && !_items.empty()) _noMatchesActive = true;
     } else {
-        // No filter: include all items.
         _visible.reserve(_items.size());
         for (int i = 0; i < (int)_items.size(); i++) _visible.push_back(i);
+    }
+
+    // Phase 2: cheap full-folder search. If the in-memory match set is small
+    // (<= 3) AND we hit the maxItems cap, do a full-folder scan so matches
+    // beyond the cap are findable. This is the "cheap fix" — works for small
+    // folders; large folders will be slow. Skip for virtual folder sentinels.
+    bool isVirtual = (_config.folderPath == L"::RecentDocs::" ||
+                      _config.folderPath == L"::RecentFiles::" ||
+                      _config.folderPath == L"::GraphRecent::");
+    const int kFullScanThreshold = 3;
+    bool needFullScan = !_filterText.empty() && !isVirtual
+        && (int)_items.size() >= _config.maxItems
+        && (int)_originalItems.size() >= _config.maxItems
+        && (int)_visible.size() <= kFullScanThreshold;
+
+    if (needFullScan) {
+        // Full-folder scan (cap = 10000). Includes the original items plus
+        // any beyond the cap.
+        std::vector<FileItem> fullScan = FileService::ScanFolder(
+            _config.folderPath, 10000, _config.includeDirs,
+            _config.filterRegex, _config.sortMode);
+        _items = std::move(fullScan);
+        // Resize icon arrays to match the new item count + arrow slot.
+        int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
+        {
+            std::lock_guard<std::mutex> lk(_iconMutex);
+            _bitmaps.assign(total, nullptr);
+            _icons.assign(total, nullptr);
+            _gdiBitmaps.assign(total, nullptr);
+        }
+        _itemProgress.assign(total, 0.f);
+        _hoverScale.assign(total, 1.f);
+        _entryProgress.assign(total, 0.f);
+        _iconLoaded.assign(total, false);
+        _labelCache.resize(_items.size());
+        RebuildLabelCache();
+        // Kick off async icon loads for the new items beyond the cap.
+        for (int i = 0; i < (int)_items.size(); i++) {
+            if (i >= _config.maxItems) StartIconLoad(i);
+        }
+        // Convert any pre-loaded icons for the first maxItems items (should
+        // already be done in Show, but re-check in case the bitmap was null).
+        for (int i = 0; i < std::min((int)_items.size(), _config.maxItems); i++) {
+            if (i < (int)_gdiBitmaps.size() && !_gdiBitmaps[i]) {
+                HBITMAP bmp = _bitmaps[i];
+                HICON   ico = _icons[i];
+                if (bmp)      _gdiBitmaps[i].reset(HBitmapToGdiBitmap(bmp));
+                else if (ico) _gdiBitmaps[i].reset(Gdiplus::Bitmap::FromHICON(ico));
+            }
+        }
+        // Re-match against the full scan.
+        _visible.clear();
+        _visible.reserve(_items.size());
+        for (int i = 0; i < (int)_items.size(); i++) {
+            if (_isPlaceholder && i == 0) continue;
+            std::wstring label = (i < (int)_labelCache.size()) ? _labelCache[i]
+                                                              : ItemLabel(i);
+            std::wstring lower = label;
+            for (auto& c : lower) c = (wchar_t)towlower(c);
+            if (lower.find(needle) != std::wstring::npos)
+                _visible.push_back(i);
+        }
+    }
+
+    // No matches + filter active + folder has items → no-matches placeholder
+    if (_visible.empty() && !_filterText.empty() && !_items.empty())
+        _noMatchesActive = true;
+
+    // Phase 2: highlight the top match (slot 0) when a filter is active and
+    // there are matches. This is the Enter target. When the filter is cleared,
+    // reset hover so the previous top-match highlight doesn't linger.
+    if (!_filterText.empty() && !_noMatchesActive && !_visible.empty()) {
+        _hoverIdx = 0;
+    } else if (_filterText.empty()) {
+        _hoverIdx = -1;
     }
 
     // Reset hover/drag state when the slot under the pointer is no longer visible.
@@ -877,6 +978,24 @@ void FanWindow::DrawToLayeredWindow() {
             if (_dropHovering) {
                 Gdiplus::SolidBrush overlay(Gdiplus::Color(55, 80, 160, 255));
                 g.FillRectangle(&overlay, 0, 0, _winWidth, _winHeight);
+            }
+
+            // Phase 2: filter text-capture overlay. Shows the typed text near
+            // the arc hinge so it doesn't overlap items. Drawn last so it
+            // sits on top of everything.
+            if (!_filterText.empty()) {
+                std::wstring overlay_text = L"\u2328 " + _filterText + L"_";  // keyboard + text + caret
+                float pillH = _iconSize * 0.5f;
+                float pillW = std::min((float)_winWidth - 16.f,
+                                       32.f + (float)overlay_text.size() * _iconSize * 0.18f);
+                // Position at the bottom of the fan (near the hinge for a
+                // bottom taskbar). Use _arcOriginY/Y to find the hinge.
+                float ox = 8.f;
+                float oy = (float)_winHeight - pillH - 8.f;
+                // Keep on-screen if the fan is very small.
+                if (oy < 0) oy = 8.f;
+                DrawLabelPill(g, ox, oy, pillW, pillH, pillH / 2.f,
+                              overlay_text, 1.f);
             }
         } else {
             // GDI+ unavailable — request a redraw on the next animation tick
@@ -1438,6 +1557,9 @@ void FanWindow::HandleFileDrop(IDataObject* pDataObj) {
         _noMatchesActive = false;
         _visible.reserve(_items.size());
         for (int i = 0; i < (int)_items.size(); i++) _visible.push_back(i);
+        // Phase 2: update _originalItems so future filter clears restore
+        // the new item list, not the pre-drop list.
+        _originalItems = _items;
 
         RebuildLabelCache();
         CalculateLayout();
