@@ -78,6 +78,15 @@ ConfigData Config::Load() {
                     cfg.showExtensions = (val != 0);
                 }
             }
+            // FilterAsYouType (default: true)
+            {
+                DWORD val = 1;
+                DWORD size = sizeof(val);
+                DWORD type = REG_DWORD;
+                if (RegQueryValueExW(hKey, L"FilterAsYouType", nullptr, &type, (LPBYTE)&val, &size) == ERROR_SUCCESS && type == REG_DWORD) {
+                    cfg.filterAsYouType = (val != 0);
+                }
+            }
             // AnimationStyle
             {
                 wchar_t buf[64] = {};
@@ -177,6 +186,10 @@ void Config::Save(const ConfigData& cfg) {
     // ShowExtensions
     DWORD showExt = cfg.showExtensions ? 1 : 0;
     RegSetValueExW(hKey, L"ShowExtensions", 0, REG_DWORD, (const BYTE*)&showExt, sizeof(showExt));
+
+    // FilterAsYouType
+    DWORD filterFAYT = cfg.filterAsYouType ? 1 : 0;
+    RegSetValueExW(hKey, L"FilterAsYouType", 0, REG_DWORD, (const BYTE*)&filterFAYT, sizeof(filterFAYT));
 
     // FilterRegex
     RegSetValueExW(hKey, L"FilterRegex", 0, REG_SZ,

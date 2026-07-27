@@ -843,6 +843,12 @@ LRESULT CALLBACK MainWindow::KeyboardHookProc(int nCode, WPARAM wParam, LPARAM l
             return CallNextHookEx(nullptr, nCode, wParam, lParam);
         }
 
+        // Phase 4: when filterAsYouType is disabled, don't forward any
+        // printable/Backspace/Enter keys — the fan behaves as it did before
+        // the feature (all keystrokes pass through to the app underneath).
+        if (!s_instance->_config.filterAsYouType)
+            return CallNextHookEx(nullptr, nCode, wParam, lParam);
+
         // Only forward when the fan window exists and is visible.
         HWND fanHwnd = (s_instance->_fanWindow) ? s_instance->_fanWindow->Handle() : nullptr;
         if (fanHwnd && IsWindow(fanHwnd) && IsWindowVisible(fanHwnd)) {
