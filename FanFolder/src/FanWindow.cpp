@@ -427,6 +427,12 @@ void FanWindow::ApplyFilter() {
         }
     }
 
+    // Phase 2: cap the visible set to maxItems so the arc layout (designed for
+    // ~15 items) never gets an unbounded match set. Without this, filtering
+    // into a large folder can produce dozens of icons crammed into the arc.
+    if ((int)_visible.size() > _config.maxItems)
+        _visible.resize(_config.maxItems);
+
     // No matches + filter active + folder has items → no-matches placeholder
     if (_visible.empty() && !_filterText.empty() && !_items.empty())
         _noMatchesActive = true;
