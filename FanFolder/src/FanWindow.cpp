@@ -94,6 +94,7 @@ struct IconReady {
     HBITMAP          hBmp;    // may be null (then hIcon is used)
     HICON            hIcon;   // may be null
     Gdiplus::Bitmap* gdiBmp;  // pre-converted on worker thread; may be null
+    int              gen;     // icon generation — stale loads are dropped
 };
 static const UINT WM_ANIM_TICK   = WM_USER + 3;
 
@@ -317,15 +318,24 @@ void FanWindow::ApplyFilter() {
     // Phase 2: when the filter is cleared, restore _items from _originalItems
     // (which may have been extended by a full-folder scan).
     if (_filterText.empty()) {
+        // Bump the icon generation so any in-flight loads from the full scan
+        // are dropped by WM_ICON_READY (their gen won't match).
+        _iconGen.fetch_add(1, std::memory_order_release);
+
         _items = _originalItems;
-        // Resize icon arrays to match the restored item count + arrow slot.
+        // Resize (don't nullify) icon arrays back to the original size.
+        // The first _originalItems.size() entries are still valid — their
+        // icons were loaded in Show() and survived the full-scan extension
+        // (the extension only appended beyond the original count). resize()
+        // truncates the extra entries from the full scan; it does NOT touch
+        // the valid original entries.
         int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
         {
             std::lock_guard<std::mutex> lk(_iconMutex);
-            _bitmaps.assign(total, nullptr);
-            _icons.assign(total, nullptr);
-            _gdiBitmaps.assign(total, nullptr);
-            _iconLoaded.assign(total, false);
+            _bitmaps.resize(total, nullptr);
+            _icons.resize(total, nullptr);
+            _gdiBitmaps.resize(total, nullptr);
+            _iconLoaded.resize(total, false);
         }
         _itemProgress.assign(total, 0.f);
         _hoverScale.assign(total, 1.f);
@@ -333,11 +343,12 @@ void FanWindow::ApplyFilter() {
         _labelCache.resize(_items.size());
         RebuildLabelCache();
         // Arrow doesn't need an icon load.
-        if (_hasExplorerButton) _iconLoaded[total - 1] = true;
-        // Re-start async icon loads for the original items (their bitmap
-        // handles were cleared by the full-scan's assign(nullptr, ...)).
+        if (_hasExplorerButton && total > 0) _iconLoaded[total - 1] = true;
+        // Only re-start icon loads for items that are actually missing icons
+        // (shouldn't happen if the original icons survived, but defensive).
         for (int i = 0; i < (int)_items.size(); i++) {
-            if (!_isPlaceholder) StartIconLoad(i);
+            if (!_isPlaceholder && i < (int)_iconLoaded.size() && !_iconLoaded[i])
+                StartIconLoad(i);
         }
         if (_isPlaceholder && !_iconLoaded.empty()) _iconLoaded[0] = true;
     }
@@ -379,6 +390,10 @@ void FanWindow::ApplyFilter() {
         && (int)_visible.size() <= kFullScanThreshold;
 
     if (needFullScan) {
+        // Bump the icon generation so in-flight loads from the original
+        // Show() are dropped — they'd write into the wrong-sized arrays.
+        _iconGen.fetch_add(1, std::memory_order_release);
+
         // Full-folder scan (cap = 10000). Includes the original items plus
         // any beyond the cap.
         std::vector<FileItem> fullScan = FileService::ScanFolder(
@@ -1640,9 +1655,10 @@ void FanWindow::StartIconLoad(int idx) {
     std::wstring p  = _items[idx].fullPath;
     std::wstring tp = _items[idx].targetPath; // may be empty if fast-scan was used
     int       sz   = _iconSize;
+    int       gen  = _iconGen.load();  // stamp so WM_ICON_READY can drop stale loads
 
-    struct IconWork { HWND hwnd; int idx; std::wstring p, tp; int sz; };
-    auto* work = new IconWork{hwnd, idx, std::move(p), std::move(tp), sz};
+    struct IconWork { HWND hwnd; int idx; std::wstring p, tp; int sz; int gen; };
+    auto* work = new IconWork{hwnd, idx, std::move(p), std::move(tp), sz, gen};
 
     TrySubmitThreadpoolCallback([](PTP_CALLBACK_INSTANCE, PVOID ctx) {
         auto* w = static_cast<IconWork*>(ctx);
@@ -1694,7 +1710,7 @@ void FanWindow::StartIconLoad(int idx) {
         // lock and concurrent worker conversions stall the UI thread's
         // Graphics::Clear / DrawImage calls for hundreds of milliseconds.
         auto postReady = [&](HBITMAP hBmp, HICON hIco) {
-            auto* r = new IconReady{ w->idx, hBmp, hIco, nullptr };
+            auto* r = new IconReady{ w->idx, hBmp, hIco, nullptr, w->gen };
             // If the fan HWND has been destroyed between when this worker was
             // submitted and now, PostMessage returns FALSE without queuing —
             // the IconReady allocation and its HBITMAP/HICON would leak.
@@ -2090,6 +2106,14 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     case WM_ICON_READY: {
         std::unique_ptr<IconReady> r(reinterpret_cast<IconReady*>(lParam));
         if (!r) return 0;
+        // Phase 2: drop stale icon loads from a previous _items generation
+        // (e.g. a full-folder scan that was superseded by a filter-clear
+        // restore). The gen won't match, so we free the handles and return.
+        if (r->gen != self->_iconGen.load(std::memory_order_acquire)) {
+            if (r->hBmp)  DeleteObject(r->hBmp);
+            if (r->hIcon) DestroyIcon(r->hIcon);
+            return 0;
+        }
         int idx = r->idx;
         {
             std::lock_guard<std::mutex> lk(self->_iconMutex);

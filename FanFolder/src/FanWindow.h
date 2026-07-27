@@ -79,6 +79,11 @@ private:
     std::vector<bool>             _iconLoaded;
     std::vector<std::shared_ptr<Gdiplus::Bitmap>> _gdiBitmaps;  // prewarm-filled or lazy on UI thread; owns lifetime
     std::mutex                    _iconMutex;
+    // Phase 2: bumped whenever _items is replaced (full-folder scan or
+    // restore on filter-clear). In-flight icon loads carry the gen they
+    // were started with; WM_ICON_READY drops messages whose gen doesn't
+    // match, preventing stale loads from writing into resized arrays.
+    std::atomic<int>              _iconGen{0};
     Gdiplus::ImageAttributes*     _drawIA = nullptr;  // reused per draw call
 
     // Pre-rendered shadow cache — rebuilt only when hover target or scale changes
