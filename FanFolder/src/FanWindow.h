@@ -48,6 +48,10 @@ public:
     // come in later phases.
     static constexpr UINT WM_FAN_FILTER_KEY = WM_USER + 11;
 
+    // Phase 3: lets the keyboard hook decide whether Escape should clear the
+    // filter (if active) or close the fan (existing behavior).
+    bool IsFilterActive() const { return !_filterText.empty(); }
+
 private:
     HINSTANCE _hInst;
     HWND      _hwndOwner;

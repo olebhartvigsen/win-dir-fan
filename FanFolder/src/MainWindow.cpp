@@ -831,9 +831,14 @@ LRESULT CALLBACK MainWindow::KeyboardHookProc(int nCode, WPARAM wParam, LPARAM l
         KBDLLHOOKSTRUCT* kb = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
         UINT vk = kb->vkCode;
 
-        // Escape — existing behavior: close the fan.  Do NOT swallow (let it
-        // fall through so the close path stays exactly as before).
+        // Escape — if a filter is active, forward to the fan to clear it
+        // (fan stays open).  If no filter, close the fan (existing behavior).
         if (vk == VK_ESCAPE) {
+            HWND fanHwnd = (s_instance->_fanWindow) ? s_instance->_fanWindow->Handle() : nullptr;
+            if (fanHwnd && s_instance->_fanWindow->IsFilterActive()) {
+                PostMessageW(fanHwnd, FanWindow::WM_FAN_FILTER_KEY, (WPARAM)VK_ESCAPE, 0);
+                return 1;  // swallow — don't leak to the app underneath
+            }
             PostMessageW(s_instance->_hwnd, WM_MAIN_CLOSE_FAN, (WPARAM)t_hookGen, 2/*keyboard*/);
             return CallNextHookEx(nullptr, nCode, wParam, lParam);
         }

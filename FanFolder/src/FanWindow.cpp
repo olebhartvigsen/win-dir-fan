@@ -2122,13 +2122,27 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     // re-filters the visible view and tightens the arc to matches.
     case WM_FAN_FILTER_KEY: {
         wchar_t ch = (wchar_t)wParam;
-        if (ch == VK_BACK) {
+        if (ch == VK_ESCAPE) {
+            // Phase 3: Escape clears the filter (fan stays open).
+            // The hook only forwards Escape here when the filter is active;
+            // if the filter is empty, the hook closes the fan directly.
+            if (!self->_filterText.empty()) {
+                self->_filterText.clear();
+                self->ApplyFilter();
+            }
+        } else if (ch == VK_BACK) {
             if (!self->_filterText.empty()) {
                 self->_filterText.pop_back();
                 self->ApplyFilter();
             }
         } else if (ch == VK_RETURN) {
-            // Phase 3 will launch the top match here.  Phase 1: no-op.
+            // Phase 3: launch the top match (slot 0).  Only when a filter is
+            // active and there are matches — guards against _noMatchesActive
+            // and empty _visible.
+            if (!self->_filterText.empty() && !self->_noMatchesActive
+                && !self->_visible.empty()) {
+                self->LaunchItem(0);
+            }
         } else if (ch >= L' ') {
             self->_filterText.push_back(ch);
             self->ApplyFilter();
