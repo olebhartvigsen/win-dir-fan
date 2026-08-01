@@ -1,8 +1,12 @@
 # FanFolder
 
-A Windows taskbar app with an animated **fan folder** popup — click the taskbar icon to reveal an arc menu showing the most recently modified files in a configured folder. Items can be opened, dragged, and managed via the standard Windows shell context menu.
+**Your latest files, one click away from the Windows taskbar.**
 
-Native Win32/C++ application. No .NET runtime required. ~161 KB executable.
+Stop digging through File Explorer for files you just used. FanFolder puts your recent documents or any folder you choose directly on the taskbar. Click its icon to open an animated fan of files, then open, drag, copy, rename, or delete them using familiar Windows shell actions.
+
+Use it for recent documents, an active project folder, Downloads, or any folder you open often.
+
+FanFolder is a small native Win32/C++ application. It has no .NET runtime dependency and the executable is about 161 KB.
 
 ---
 
@@ -74,6 +78,38 @@ cmake --build FanFolder\build --config Release
 ```
 
 Output: `FanFolder\build\Release\FanFolder.exe`
+
+---
+
+## Anonymous installation telemetry
+
+After FanFolder has successfully created its main window, it sends one anonymous
+`app_installed` event to the FanFolder Aptabase project in the EU. The request uses
+the Windows WinHTTP API, runs in the background, has a short timeout, and is
+ignored when the network is unavailable. It never affects normal operation. This
+telemetry is sent by both release and debug builds unless disabled in the registry.
+
+The event contains a random per-user installation identifier, application version,
+CPU architecture, and the platform identifier `Windows`. Aptabase may also derive
+coarse region information from the network request. FanFolder does not send
+usernames, folder paths, filenames, account information, or file activity. Aptabase
+can receive normal network metadata associated with the HTTPS request. The
+identifier is stored under `HKEY_CURRENT_USER\SOFTWARE\FanFolder`; the event is
+marked as sent only after a successful response, so failed delivery is retried on a
+later launch.
+
+To opt out before launching FanFolder, run:
+
+```powershell
+New-Item -Path "HKCU:\SOFTWARE\FanFolder" -Force | Out-Null
+Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "TelemetryEnabled" -Type DWord -Value 0
+```
+
+To re-enable it:
+
+```powershell
+Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "TelemetryEnabled" -Type DWord -Value 1
+```
 
 ---
 

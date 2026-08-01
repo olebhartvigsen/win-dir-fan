@@ -3,6 +3,7 @@
 #include "Config.h"
 #include "MainWindow.h"
 #include "FanWindow.h"
+#include "Telemetry.h"
 #include <gdiplus.h>
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
@@ -85,6 +86,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
     MainWindow mainWnd(hInstance, config);
     if (!mainWnd.Create()) return 1;
+
+    // Report only after the application has successfully created its main
+    // window. The request is best-effort and runs independently of startup;
+    // FanFolder remains fully usable when the network is unavailable.
+    Telemetry::ReportFirstRun();
 
     MSG msg;
     while (GetMessage(&msg, nullptr, 0, 0)) {
