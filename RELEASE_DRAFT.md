@@ -1,8 +1,8 @@
-# FanFolder v1.2.2
+# FanFolder v1.3.0
 
-Date: 2026-07-23
+Date: 2026-08-03
 
-Changelog since v1.2.1:
-- Fixed a blank fan window on machines where the configured folder (or the default recent-documents list) is empty: the fan now shows a "This folder is empty" message instead of an empty frame with a loading spinner.
-- Removed the unused Microsoft Graph integration and its winhttp / nlohmann_json dependencies, shrinking the build and keeping the app free of runtime network dependencies.
-- Documentation fixes: corrected the default animation style, the MaxItems range and the default folder path in the README.
+Changelog since v1.2.2:
+- Added "Open FanFolder homepage" to the tray icon's right-click menu, opening the project homepage in the default browser.
+- Added anonymous first-run install reporting through Aptabase (EU-hosted, privacy-friendly). A single `app_installed` event is sent once per installation with no personal data, file paths, or usage details. Opt out via `TelemetryEnabled=0` (REG_DWORD) in `HKCU\SOFTWARE\FanFolder`; see PRIVACY.md for full details.
+- Added privacy documentation (PRIVACY.md) describing the telemetry data flow, retention, and opt-out instructions.
