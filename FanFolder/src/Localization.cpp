@@ -34,6 +34,7 @@ static constexpr Strings kEn = {
     L"Recent Office 365 documents",
     L"Browse\u2026",
     L"Open in Explorer",
+    L"Open FanFolder homepage",
 };
 
 // ---------------------------------------------------------------------------
@@ -68,6 +69,7 @@ static constexpr Strings kDa = {
     L"Seneste Office 365 dokumenter",
     L"Gennemse\u2026",
     L"\u00c5bn i Stifinder",
+    L"\u00c5bn FanFolder-hjemmeside",
 };
 
 // ---------------------------------------------------------------------------
@@ -102,6 +104,7 @@ static constexpr Strings kSv = {
     L"Senaste Office 365-dokument",
     L"Bl\u00e4ddra\u2026",
     L"\u00d6ppna i Utforskaren",
+    L"\u00d6ppna FanFolder-hemsida",
 };
 
 // ---------------------------------------------------------------------------
@@ -136,6 +139,7 @@ static constexpr Strings kNo = {
     L"Siste Office 365-dokumenter",
     L"Bla gjennom\u2026",
     L"\u00c5pne i Utforsker",
+    L"\u00c5pne FanFolder-hjemmeside",
 };
 
 // ---------------------------------------------------------------------------
@@ -170,6 +174,7 @@ static constexpr Strings kDe = {
     L"Zuletzt ge\u00f6ffnete Office 365-Dokumente",
     L"Durchsuchen\u2026",
     L"Im Explorer \u00f6ffnen",
+    L"FanFolder-Homepage \u00f6ffnen",
 };
 
 // ---------------------------------------------------------------------------
@@ -204,6 +209,7 @@ static constexpr Strings kNl = {
     L"Recente Office 365-documenten",
     L"Bladeren\u2026",
     L"Openen in Verkenner",
+    L"FanFolder-website openen",
 };
 
 // ---------------------------------------------------------------------------
@@ -238,6 +244,7 @@ static constexpr Strings kPl = {
     L"Ostatnie dokumenty Office 365",
     L"Przegl\u0105daj\u2026",
     L"Otw\u00f3rz w Eksploratorze",
+    L"Otw\u00f3rz stron\u0119 g\u0142\u00f3wn\u0105 FanFolder",
 };
 
 // ---------------------------------------------------------------------------
@@ -272,6 +279,7 @@ static constexpr Strings kAr = {
     L"\u0645\u0633\u062a\u0646\u062f\u0627\u062a Office 365 \u0627\u0644\u0623\u062e\u064a\u0631\u0629",
     L"\u0627\u0633\u062a\u0639\u0631\u0627\u0636\u2026",
     L"\u0641\u062a\u062d \u0641\u064a \u0627\u0644\u0645\u0633\u062a\u0643\u0634\u0641",
+    L"\u0627\u0641\u062a\u062d \u0635\u0641\u062d\u0629 FanFolder",
 };
 
 // ---------------------------------------------------------------------------
@@ -306,6 +314,7 @@ static constexpr Strings kZh = {
     L"\u6700\u8fd1\u7684 Office 365 \u6587\u6863",
     L"\u6d4f\u89c8\u2026",
     L"\u5728\u6587\u4ef6\u8d44\u6e90\u7ba1\u7406\u5668\u4e2d\u6253\u5f00",
+    L"\u6253\u5f00 FanFolder \u4e3b\u9875",
 };
 
 // ---------------------------------------------------------------------------
@@ -340,6 +349,7 @@ static constexpr Strings kJa = {
     L"\u6700\u8fd1\u306e Office 365 \u30c9\u30ad\u30e5\u30e1\u30f3\u30c8",
     L"\u53c2\u7167\u2026",
     L"\u30a8\u30af\u30b9\u30d7\u30ed\u30fc\u30e9\u30fc\u3067\u958b\u304f",
+    L"FanFolder \u30db\u30fc\u30e0\u30da\u30fc\u30b8\u3092\u958b\u304f",
 };
 
 // ---------------------------------------------------------------------------
@@ -374,6 +384,7 @@ static constexpr Strings kKo = {
     L"\ucd5c\uadfc Office 365 \ubb38\uc11c",
     L"\ucc3e\uc544\ubcf4\uae30\u2026",
     L"\ud0d0\uc0c9\uae30\uc5d0\uc11c \uc5f4\uae30",
+    L"FanFolder \ud648\ud398\uc774\uc9c0 \uc5f4\uae30",
 };
 
 // ---------------------------------------------------------------------------
@@ -408,6 +419,7 @@ static constexpr Strings kSw = {
     L"Hati za hivi karibuni za Office 365",
     L"Vinjari\u2026",
     L"Fungua katika Kichunguzi",
+    L"Fungua tovuti ya FanFolder",
 };
 
 // ---------------------------------------------------------------------------
@@ -442,6 +454,7 @@ static constexpr Strings kFr = {
     L"Documents r\u00e9cents Office 365",
     L"Parcourir\u2026",
     L"Ouvrir dans l\u2019Explorateur",
+    L"Ouvrir la page d\u2019accueil de FanFolder",
 };
 
 // ---------------------------------------------------------------------------
@@ -476,6 +489,7 @@ static constexpr Strings kIt = {
     L"Documenti recenti di Office 365",
     L"Sfoglia\u2026",
     L"Apri in Esplora risorse",
+    L"Apri la homepage di FanFolder",
 };
 
 // ---------------------------------------------------------------------------
@@ -510,6 +524,7 @@ static constexpr Strings kEs = {
     L"Documentos recientes de Office 365",
     L"Examinar\u2026",
     L"Abrir en el Explorador",
+    L"Abrir la p\u00e1gina principal de FanFolder",
 };
 
 // ---------------------------------------------------------------------------
@@ -544,6 +559,7 @@ static constexpr Strings kPt = {
     L"Documentos recentes do Office 365",
     L"Procurar\u2026",
     L"Abrir no Explorador",
+    L"Abrir a p\u00e1gina inicial do FanFolder",
 };
 
 // ---------------------------------------------------------------------------
@@ -578,6 +594,7 @@ static constexpr Strings kRu = {
     L"\u041d\u0435\u0434\u0430\u0432\u043d\u0438\u0435 \u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u044b Office 365",
     L"\u041e\u0431\u0437\u043e\u0440\u2026",
     L"\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0432 \u041f\u0440\u043e\u0432\u043e\u0434\u043d\u0438\u043a\u0435",
+    L"\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0434\u043e\u043c\u0430\u0448\u043d\u044e\u044e \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0443 FanFolder",
 };
 
 // ---------------------------------------------------------------------------
@@ -612,6 +629,7 @@ static constexpr Strings kHi = {
     L"\u0939\u093e\u0932 \u0915\u0947 Office 365 \u0926\u0938\u094d\u0924\u093e\u0935\u0947\u095b\u093c",
     L"\u092c\u094d\u0930\u093e\u0909\u095b\u093c\u2026",
     L"Explorer \u092e\u0947\u0902 \u0916\u094b\u0932\u0947\u0902",
+    L"FanFolder \u0939\u094b\u092e\u092a\u0947\u091c \u0916\u094b\u0932\u0947\u0902",
 };
 
 // ---------------------------------------------------------------------------
@@ -646,6 +664,7 @@ static constexpr Strings kTr = {
     L"Son kullan\u0131lan Office 365 belgeleri",
     L"G\u00f6zat\u2026",
     L"Gezgin\u2019de a\u00e7",
+    L"FanFolder ana sayfas\u0131n\u0131 a\u00e7",
 };
 
 // ---------------------------------------------------------------------------
@@ -680,6 +699,7 @@ static constexpr Strings kHe = {
     L"\u05de\u05e1\u05de\u05db\u05d9 Office 365 \u05d0\u05d7\u05e8\u05d5\u05e0\u05d9\u05dd",
     L"\u05e2\u05d9\u05d5\u05df\u2026",
     L"\u05e4\u05ea\u05d7 \u05d1\u05e1\u05d9\u05d9\u05e8",
+    L"\u05e4\u05ea\u05d7 \u05d0\u05ea \u05d3\u05e3 \u05d4\u05d1\u05d9\u05ea \u05e9\u05dc FanFolder",
 };
 
 // ---------------------------------------------------------------------------
@@ -714,6 +734,7 @@ static constexpr Strings kCs = {
     L"Ned\u00e1vn\u00e9 dokumenty Office 365",
     L"Proch\u00e1zet\u2026",
     L"Otev\u0159\u00edt v Pr\u016fzkumn\u00edku",
+    L"Otev\u0159\u00edt domovskou str\u00e1nku FanFolder",
 };
 
 // ---------------------------------------------------------------------------
@@ -748,6 +769,7 @@ static constexpr Strings kFi = {
     L"Viimeisimm\u00e4t Office 365 -asiakirjat",
     L"Selaa\u2026",
     L"Avaa Resurssienhallinnassa",
+    L"Avaa FanFolder-kotisivu",
 };
 
 // ---------------------------------------------------------------------------
@@ -782,6 +804,7 @@ static constexpr Strings kHu = {
     L"Legut\u00f3bbi Office 365 dokumentumok",
     L"Tall\u00f3z\u00e1s\u2026",
     L"Megnyit\u00e1s Int\u00e9z\u0151ben",
+    L"FanFolder f\u0151oldal megnyit\u00e1sa",
 };
 
 // ---------------------------------------------------------------------------
@@ -816,6 +839,7 @@ static constexpr Strings kEl = {
     L"\u03a0\u03c1\u03cc\u03c3\u03c6\u03b1\u03c4\u03b1 \u03ad\u03b3\u03b3\u03c1\u03b1\u03c6\u03b1 Office 365",
     L"\u0391\u03bd\u03b1\u03b6\u03ae\u03c4\u03b7\u03c3\u03b7\u2026",
     L"\u0386\u03bd\u03bf\u03b9\u03b3\u03bc\u03b1 \u03c3\u03c4\u03b7\u03bd \u0395\u03be\u03b5\u03c1\u03b5\u03cd\u03bd\u03b7\u03c3\u03b7",
+    L"\u0386\u03bd\u03bf\u03b9\u03b3\u03bc\u03b1 \u03b1\u03c1\u03c7\u03b9\u03ba\u03ae\u03c2 \u03c3\u03b5\u03bb\u03af\u03b4\u03b1\u03c2 FanFolder",
 };
 
 // ---------------------------------------------------------------------------
@@ -850,6 +874,7 @@ static constexpr Strings kVi = {
     L"T\u00e0i li\u1ec7u Office 365 g\u1ea7n \u0111\u00e2y",
     L"Duy\u1ec7t\u2026",
     L"M\u1edf trong Explorer",
+    L"M\u1edf trang ch\u1ee7 FanFolder",
 };
 
 // ---------------------------------------------------------------------------
@@ -884,6 +909,7 @@ static constexpr Strings kId = {
     L"Dokumen Office 365 terbaru",
     L"Telusuri\u2026",
     L"Buka di Explorer",
+    L"Buka beranda FanFolder",
 };
 
 // ---------------------------------------------------------------------------
@@ -918,6 +944,7 @@ static constexpr Strings kUk = {
     L"\u041e\u0441\u0442\u0430\u043d\u043d\u0456 \u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u0438 Office 365",
     L"\u041e\u0433\u043b\u044f\u0434\u2026",
     L"\u0412\u0456\u0434\u043a\u0440\u0438\u0442\u0438 \u0432 \u041f\u0440\u043e\u0432\u0456\u0434\u043d\u0438\u043a\u0443",
+    L"\u0412\u0456\u0434\u043a\u0440\u0438\u0442\u0438 \u0434\u043e\u043c\u0430\u0448\u043d\u044e \u0441\u0442\u043e\u0440\u0456\u043d\u043a\u0443 FanFolder",
 };
 
 // ---------------------------------------------------------------------------
@@ -952,6 +979,7 @@ static constexpr Strings kRo = {
     L"Documente Office 365 recente",
     L"R\u0103sfoire\u2026",
     L"Deschidere \u00een Explorer",
+    L"Deschide pagina principal\u0103 FanFolder",
 };
 
 // ---------------------------------------------------------------------------
@@ -986,6 +1014,7 @@ static constexpr Strings kTh = {
     L"\u0e40\u0e2d\u0e01\u0e2a\u0e32\u0e23 Office 365 \u0e25\u0e48\u0e32\u0e2a\u0e38\u0e14",
     L"\u0e40\u0e23\u0e35\u0e22\u0e01\u0e14\u0e39\u2026",
     L"\u0e40\u0e1b\u0e34\u0e14\u0e43\u0e19 Explorer",
+    L"\u0e40\u0e1b\u0e34\u0e14\u0e2b\u0e19\u0e49\u0e32\u0e2b\u0e25\u0e31\u0e01 FanFolder",
 };
 
 // ---------------------------------------------------------------------------

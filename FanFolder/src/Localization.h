@@ -42,6 +42,7 @@ struct Strings {
     const wchar_t* folderGraphRecent;   // "Recent Office 365 documents"
     const wchar_t* folderBrowse;        // "Browse…"
     const wchar_t* openInExplorer;      // "Open in Explorer" label on fan arrow button
+    const wchar_t* openHomepage;        // "Open FanFolder homepage" tray-menu item
 };
 
 // Returns a reference to the Strings for the current Windows UI language,
