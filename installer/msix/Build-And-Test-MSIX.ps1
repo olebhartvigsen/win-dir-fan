@@ -1,6 +1,6 @@
 # Build-And-Test-MSIX.ps1
 # ============================================================================
-# Complete one-shot script: build FanFolder.exe → package MSIX → sign → install
+# Complete one-shot script: build FanFolder.exe -> package MSIX -> sign -> install
 #
 # Usage (on Windows, from the win-dir-fan repo root):
 #   .\installer\msix\Build-And-Test-MSIX.ps1
@@ -10,7 +10,7 @@
 # Prerequisites (the script checks for these):
 #   - Visual Studio 2022 Build Tools (CMake + MSVC)
 #   - Windows 10 SDK 10.0.26100.0 (MakeAppx, SignTool)
-#   - .NET SDK 9+ (for WiX — only needed for MSI, not MSIX)
+#   - .NET SDK 9+ (for WiX -- only needed for MSI, not MSIX)
 # ============================================================================
 
 param(
@@ -46,9 +46,9 @@ function Write-Info($msg)  { Write-Host "  ..  $msg" -ForegroundColor Gray }
 function Write-Warn($msg)  { Write-Host "  !!  $msg" -ForegroundColor Yellow }
 function Write-Err($msg)   { Write-Host "  [ERROR] $msg" -ForegroundColor Red }
 
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 # 0. Uninstall previous MSIX if requested
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 if ($UninstallFirst) {
     Write-Section "Uninstalling previous FanFolder MSIX"
     $pkg = Get-AppxPackage -Name "*FanFolder*" -ErrorAction SilentlyContinue
@@ -61,12 +61,12 @@ if ($UninstallFirst) {
     }
 }
 
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 # 1. Locate build tools
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 Write-Section "Checking prerequisites"
 
-# CMake — prefer VS's bundled one, fall back to PATH
+# CMake -- prefer VS's bundled one, fall back to PATH
 $cmake = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
 if (-not (Test-Path $cmake)) {
     $cmake = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
@@ -80,7 +80,7 @@ if (-not $cmake -or -not (Test-Path $cmake)) {
 }
 Write-OK "CMake: $cmake"
 
-# Windows SDK — MakeAppx + SignTool
+# Windows SDK -- MakeAppx + SignTool
 $sdkBinRoot = "C:\Program Files (x86)\Windows Kits\10\bin"
 $sdkVersion = (Get-ChildItem $sdkBinRoot -Directory | Where-Object Name -like "10.0.*" | Sort-Object Name -Descending | Select-Object -First).Name
 if (-not $sdkVersion) {
@@ -111,9 +111,9 @@ if (-not (Test-Path $iconPath)) {
 }
 Write-OK "Icon: $iconPath"
 
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 # 2. Build FanFolder.exe with CMake
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 $exePath = Join-Path $root "FanFolder\build-$Arch\Release\FanFolder.exe"
 
 if ($SkipBuild -and (Test-Path $exePath)) {
@@ -141,9 +141,9 @@ if (-not (Test-Path $exePath)) {
     exit 1
 }
 
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 # 3. Prepare MSIX staging directory
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 Write-Section "Preparing MSIX package"
 
 $staging = Join-Path $msixDir "staging-$Arch"
@@ -170,9 +170,9 @@ Write-OK "Version set to $Version"
 Copy-Item $exePath (Join-Path $staging "FanFolder.exe") -Force
 Write-OK "FanFolder.exe copied"
 
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 # 4. Generate Store logo PNGs from app.ico
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 Write-Section "Generating MSIX asset PNGs from app.ico"
 
 $assetsDir = Join-Path $staging "assets"
@@ -221,9 +221,9 @@ foreach ($name in $requiredAssets.Keys) {
 $ico.Dispose()
 Write-OK "All assets ready"
 
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 # 5. Pack MSIX
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 Write-Section "Packing MSIX"
 
 Write-Info "makeappx pack -d $staging -p $msixFile"
@@ -233,9 +233,9 @@ if ($LASTEXITCODE -ne 0) { Write-Err "MakeAppx pack failed"; exit 1 }
 $msixSize = [math]::Round((Get-Item $msixFile).Length / 1KB)
 Write-OK "MSIX: $msixFile ($msixSize KB)"
 
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 # 6. Self-sign for local testing
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 Write-Section "Self-signing MSIX (for local test only)"
 
 $certSubject = "CN=FanFolder Test Signing"
@@ -283,9 +283,9 @@ $store.Add($cert)
 $store.Close()
 Write-OK "Cert installed to Trusted People (CurrentUser)"
 
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 # 7. Install MSIX
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 Write-Section "Installing MSIX"
 
 # Remove old installation if present
@@ -302,14 +302,14 @@ if ($?) {
     Write-OK "Installed successfully"
 } else {
     Write-Err "Installation failed"
-    Write-Warn "Try enabling Developer Mode: Settings → For developers → Developer Mode"
+    Write-Warn "Try enabling Developer Mode: Settings -> For developers -> Developer Mode"
     exit 1
 }
 
-# ──────────────────────────────────────────────────────────────
+# --------------------------------------------------------------
 # 8. Summary
-# ──────────────────────────────────────────────────────────────
-Write-Section "Done — FanFolder MSIX installed"
+# --------------------------------------------------------------
+Write-Section "Done -- FanFolder MSIX installed"
 
 $pkg = Get-AppxPackage -Name "*FanFolder*"
 Write-Host ""
@@ -322,5 +322,5 @@ Write-Host "  FanFolder should now be in your Start Menu." -ForegroundColor Gree
 Write-Host "  Launch it to test." -ForegroundColor Green
 Write-Host ""
 $pkgName = $pkg.PackageFullName
-Write-Host "  Uninstall:  Remove-AppxPackage -Package '$pkgName'" -ForegroundColor Gray
+Write-Host "  Uninstall:  Remove-AppxPackage -Package $pkgName" -ForegroundColor Gray
 Write-Host ""
