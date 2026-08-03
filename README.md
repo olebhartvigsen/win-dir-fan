@@ -8,6 +8,8 @@ Use it for recent documents, an active project folder, Downloads, or any folder 
 
 FanFolder is a small native Win32/C++ application. It has no .NET runtime dependency and the executable is about 161 KB.
 
+🌐 **Homepage:** <https://olebhartvigsen.github.io/FanFolder/>
+
 ---
 
 ## License
