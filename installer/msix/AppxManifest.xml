@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+  xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
+  IgnorableNamespaces="uap uap3 rescap com desktop4 desktop5">
+
+  <Identity Name="OleBhartvigsen.FanFolder"
+            Publisher="CN=Ole Bhartvigsen, O=Ole Bhartvigsen, C=DK"
+            Version="1.3.1.0" />
+
+  <Properties>
+    <DisplayName>FanFolder</DisplayName>
+    <PublisherDisplayName>Ole Bhartvigsen</PublisherDisplayName>
+    <Logo>assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Resources>
+    <Resource Language="en-US"/>
+  </Resources>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Applications>
+    <Application Id="FanFolder"
+                 Executable="FanFolder.exe"
+                 EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        AppListEntry="default"
+        DisplayName="FanFolder"
+        Description="Animated fan folder popup for the Windows taskbar"
+        BackgroundColor="transparent"
+        Square150x150Logo="assets\Logo150.png"
+        Square44x44Logo="assets\Logo44.png">
+        <uap:DefaultTile Wide310x150Logo="assets\Wide310x150.png"
+                         Square310x310Logo="assets\Logo310.png"
+                         Square71x71Logo="assets\Logo71.png" />
+        <uap:SplashScreen Image="assets\SplashScreen.png" />
+      </uap:VisualElements>
+
+      <Extensions>
+        <!-- Allow the app to run at startup (autostart) -->
+        <desktop4:Extension Category="Windows.StartupTask"
+                           Executable="FanFolder.exe"
+                           EntryPoint="Windows.FullTrustApplication">
+          <desktop4:StartupTask TaskId="FanFolder"
+                                TaskEnabled="true"
+                                DisplayName="FanFolder" />
+        </desktop4:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <!-- File system access for reading folder contents and recent files -->
+    <rescap:Capability Name="broadFileSystemSystem" />
+  </Capabilities>
+
+</Package>

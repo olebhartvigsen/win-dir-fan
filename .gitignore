@@ -33,3 +33,8 @@ Desktop.ini
 ## Local bundle build output
 installer/*.exe
 
+## MSIX build output (local testing)
+installer/msix/staging-*/
+installer/msix/output/
+installer/msix/FanFolderTestCert.pfx
+
