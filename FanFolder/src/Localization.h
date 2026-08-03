@@ -39,6 +39,7 @@ struct Strings {
     const wchar_t* folderDesktop;
     const wchar_t* folderDocuments;
     const wchar_t* folderRecentDocs;    // "Recent files" (Windows shell:recent)
+    const wchar_t* folderRecentFiles;   // "Recent Explorer files" (shell:Recent)
     const wchar_t* folderGraphRecent;   // "Recent Office 365 documents"
     const wchar_t* folderBrowse;        // "Browse…"
     const wchar_t* openInExplorer;      // "Open in Explorer" label on fan arrow button

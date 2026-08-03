@@ -565,6 +565,7 @@ void MainWindow::ShowTrayMenu() {
 
     HMENU hSort = CreatePopupMenu();
     const bool isRecentMode = (_config.folderPath == L"::RecentDocs::" ||
+                                _config.folderPath == L"::RecentFiles::" ||
                                 _config.folderPath == L"::GraphRecent::");
     AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateModifiedDesc ? MF_CHECKED : 0), ID_SORT_DATE_DESC,    s.sortDateModDesc);
     AppendMenuW(hSort, MF_STRING | (_config.sortMode == ConfigData::SortMode::DateModifiedAsc  ? MF_CHECKED : 0), ID_SORT_DATE_ASC,     s.sortDateModAsc);
@@ -604,6 +605,7 @@ void MainWindow::ShowTrayMenu() {
     AppendMenuW(hFolder, MF_STRING | (pathEq(_config.folderPath, docPath) ? MF_CHECKED : 0), ID_FOLDER_DOCUMENTS,  s.folderDocuments);
     AppendMenuW(hFolder, MF_STRING | (pathEq(_config.folderPath, dlPath)  ? MF_CHECKED : 0), ID_FOLDER_DOWNLOADS,  s.folderDownloads);
     AppendMenuW(hFolder, MF_STRING | (_config.folderPath == L"::RecentDocs::"   ? MF_CHECKED : 0), ID_FOLDER_RECENTDOCS,  s.folderRecentDocs);
+    AppendMenuW(hFolder, MF_STRING | (_config.folderPath == L"::RecentFiles::"  ? MF_CHECKED : 0), ID_FOLDER_RECENTFILES, s.folderRecentFiles);
     AppendMenuW(hFolder, MF_STRING | (_config.folderPath == L"::GraphRecent::" ? MF_CHECKED : 0), ID_FOLDER_GRAPHRECENT, s.folderGraphRecent);
     AppendMenuW(hFolder, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(hFolder, MF_STRING, ID_FOLDER_BROWSE, s.folderBrowse);
@@ -612,6 +614,8 @@ void MainWindow::ShowTrayMenu() {
     std::wstring folderLabel = s.openPrefix;
     if (_config.folderPath == L"::RecentDocs::") {
         folderLabel += s.folderRecentDocs;
+    } else if (_config.folderPath == L"::RecentFiles::") {
+        folderLabel += s.folderRecentFiles;
     } else if (_config.folderPath == L"::GraphRecent::") {
         folderLabel += s.folderGraphRecent;
     } else if (_config.folderPath.size() > 40) {
@@ -686,6 +690,9 @@ void MainWindow::ShowTrayMenu() {
     }
     case ID_FOLDER_RECENTDOCS:
         _config.folderPath = L"::RecentDocs::";
+        break;
+    case ID_FOLDER_RECENTFILES:
+        _config.folderPath = L"::RecentFiles::";
         break;
     case ID_FOLDER_GRAPHRECENT:
         _config.folderPath = L"::GraphRecent::";
