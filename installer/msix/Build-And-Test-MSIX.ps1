@@ -321,5 +321,6 @@ Write-Host ""
 Write-Host "  FanFolder should now be in your Start Menu." -ForegroundColor Green
 Write-Host "  Launch it to test." -ForegroundColor Green
 Write-Host ""
-Write-Host "  Uninstall:  Remove-AppxPackage -Package '$($pkg.PackageFullName)'" -ForegroundColor Gray
+$pkgName = $pkg.PackageFullName
+Write-Host "  Uninstall:  Remove-AppxPackage -Package '$pkgName'" -ForegroundColor Gray
 Write-Host ""
