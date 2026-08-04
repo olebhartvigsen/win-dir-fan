@@ -3,11 +3,9 @@
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
-  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
-  xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
-  IgnorableNamespaces="uap uap3 rescap com desktop4 desktop5">
+  IgnorableNamespaces="uap uap3 uap5 rescap">
 
   <Identity Name="OleBhartvigsen.FanFolder"
             Publisher="CN=Ole Bhartvigsen, O=Ole Bhartvigsen, C=DK"
@@ -46,13 +44,13 @@
 
       <Extensions>
         <!-- Allow the app to run at startup (autostart) -->
-        <desktop4:Extension Category="Windows.StartupTask"
-                           Executable="FanFolder.exe"
-                           EntryPoint="Windows.FullTrustApplication">
-          <desktop4:StartupTask TaskId="FanFolder"
-                                TaskEnabled="true"
-                                DisplayName="FanFolder" />
-        </desktop4:Extension>
+        <uap5:Extension Category="windows.startupTask"
+                        Executable="FanFolder.exe"
+                        EntryPoint="Windows.FullTrustApplication">
+          <uap5:StartupTask TaskId="FanFolder"
+                            Enabled="false"
+                            DisplayName="FanFolder" />
+        </uap5:Extension>
       </Extensions>
     </Application>
   </Applications>
@@ -60,7 +58,7 @@
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
     <!-- File system access for reading folder contents and recent files -->
-    <rescap:Capability Name="broadFileSystemSystem" />
+    <rescap:Capability Name="broadFileSystemAccess" />
   </Capabilities>
 
 </Package>
