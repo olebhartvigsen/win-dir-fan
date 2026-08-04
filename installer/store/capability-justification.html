@@ -1,0 +1,8 @@
+<strong>runFullTrust</strong><br/>
+FanFolder is a system tray utility that provides a fan-shaped popup for quick access to recent folders and user-defined root directories. It requires <code>runFullTrust</code> because it is a native Win32 application that runs in the Windows notification area (system tray) and must operate outside the UWP sandbox to function correctly. It is not a UWP app and cannot be converted to one without losing its core tray utility functionality.
+<br/><br/>
+<strong>broadFileSystemAccess</strong><br/>  
+Required to scan the user-configured "stammapper" (root folder paths) for recent file changes. These paths are explicitly selected by the user in the app settings. The app only reads file metadata (names, paths, timestamps) to populate the recent files list. No file contents are read, and no data is transmitted externally. All processing happens locally on the device.
+<br/><br/>
+<strong>windows.startupTask</strong><br/>
+As a tray utility, FanFolder should be available immediately after Windows login so the fan popup and global hotkey are accessible at all times. This capability is declared with the <code>uap5:Extension Category="windows.startupTask"</code> element in the manifest.
