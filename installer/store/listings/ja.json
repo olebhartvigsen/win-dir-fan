@@ -1,0 +1,132 @@
+{
+  "Listings": {
+    "Language": "ja",
+    "Description": "FanFolderは、Windowsタスクバーから最新のファイルをワンクリックでアクセスできるようにします。使ったばかりのファイルをエクスプローラーで探すのはやめましょう。FanFolderアイコンをクリックしてアニメーションするファイルの扇を開き、使い慣れたWindowsシェルアクションで開く、ドラッグ、コピー、名前変更、削除ができます。\n\n最近使ったドキュメント、アクティブなプロジェクトフォルダー、ダウンロード、デスクトップ、ドキュメント、またはよく開くフォルダーに使用できます。\n\nFanFolderは小さなネイティブWin32/C++アプリケーションで、.NETランタイムの依存関係はありません。実行ファイルは約161 KBです。すべての設定はWindowsレジストリに保存され、タスクバーメニューからアクセスできます。",
+    "WhatsNew": "エクスプローラーの最近使ったファイルリスト(::RecentFiles::)が、::RecentDocs::および::GraphRecent::と共にタスクバーのフォルダーサブメニューで利用できるようになりました。",
+    "ProductFeatures": [
+      "タスクバーに固定されたアニメーションする扇/アーチのポップアップ",
+      "複数のアニメーションスタイル：扇、スライド、スプリング、フェード、なし",
+      "シェルアイコンとファイルサムネイルによる適応型アイコンサイズ",
+      "構成可能なフォルダー、並べ替え順序、項目数、ファイル名フィルター",
+      "更新日時、作成日時、または名前で並べ替え",
+      "右クリックでシェルコンテキストメニュー（開く、コピー、削除、名前変更）",
+      "メニューから他のアプリへドラッグ＆ドロップ",
+      "エクスプローラーから扇メニューにファイルをドロップして監視フォルダーに移動",
+      "ファイル拡張子の表示/非表示",
+      "すべての設定はWindowsレジストリに保存 — タスクバーメニューからアクセス可能"
+    ],
+    "ShortDescription": "最新ファイルをWindowsタスクバーからワンクリックで。任意のフォルダーからアニメーションするファイルの扇を開きます。",
+    "SearchTerms": [
+      "タスクバー",
+      "最近使ったファイル",
+      "ファイルフォルダー",
+      "クイックアクセス",
+      "ファイルランチャー"
+    ],
+    "AdditionalLicenseTerms": "",
+    "Copyright": "© 2026 Ole Bülow Hartvigsen. All rights reserved.",
+    "DevelopedBy": "Ole Bülow Hartvigsen",
+    "Requirements": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ],
+    "SortTitle": "FanFolder",
+    "ContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues"
+  },
+  "Properties": {
+    "IsPrivacyPolicyRequired": true,
+    "PrivacyPolicyUrl": "https://olebhartvigsen.github.io/FanFolder/privacy",
+    "WebSite": "https://olebhartvigsen.github.io/FanFolder/",
+    "SupportContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues",
+    "CertificationNotes": "FanFolderはネイティブWin32タスクバーユーティリティです。MSIインストーラーは%LOCALAPPDATA%にインストールします（管理者権限不要）。サイレントインストール：msiexec /i FanFolderSetup-x64.msi /quiet /norestart。アプリはHKCU Runキーでログイン時に起動します。システムサービス、ドライバー、カーネルコンポーネントはありません。テレメトリ：Aptabase（EUホスト、プライバシーフレンドリー）を介して、インストールごとに1回、匿名のapp_installedイベントが送信されます。個人データ、ファイルパス、使用状況の詳細は収集されません。HKCU\\SOFTWARE\\FanFolderのTelemetryEnabled=0でオプトアウト。プライバシーポリシー：https://olebhartvigsen.github.io/FanFolder/privacy",
+    "Category": "Productivity",
+    "SubCategory": "",
+    "ProductDeclarations": {
+      "DependsOnDriversOrNT": false,
+      "AccessibilitySupport": false,
+      "PenAndInkSupport": false
+    },
+    "IsSystemFeatureRequired": [],
+    "SystemRequirementDetails": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ]
+  },
+  "Availability": {
+    "Markets": [
+      "AT",
+      "BE",
+      "BG",
+      "CH",
+      "CY",
+      "CZ",
+      "DE",
+      "DK",
+      "EE",
+      "ES",
+      "FI",
+      "FR",
+      "GB",
+      "GR",
+      "HR",
+      "HU",
+      "IE",
+      "IS",
+      "IT",
+      "LI",
+      "LT",
+      "LU",
+      "LV",
+      "MT",
+      "NL",
+      "NO",
+      "PL",
+      "PT",
+      "RO",
+      "SE",
+      "SI",
+      "SK",
+      "US",
+      "CA",
+      "AU",
+      "NZ",
+      "JP",
+      "KR",
+      "CN",
+      "TW",
+      "HK",
+      "SG",
+      "MY",
+      "TH",
+      "ID",
+      "VN",
+      "PH",
+      "IN",
+      "SA",
+      "AE",
+      "EG",
+      "ZA",
+      "BR",
+      "MX",
+      "AR",
+      "CL",
+      "CO",
+      "PE",
+      "VE",
+      "TR",
+      "IL",
+      "UA",
+      "RU"
+    ],
+    "Discoverability": "Public",
+    "EnableInFutureMarkets": true,
+    "Pricing": "Free",
+    "FreeTrial": "None"
+  }
+}

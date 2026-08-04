@@ -1,0 +1,132 @@
+{
+  "Listings": {
+    "Language": "fi",
+    "Description": "FanFolder asettaa viimeisimmät tiedostosi yhden napsauksen päähän Windowsin tehtäväpalkista. Lopeta tiedostojen etsiminen Resurssienhallinnasta — napsauta FanFolder-kuvaketta avataksesi animoidun tiedostojen viuhkan, ja avaa, raahaa, kopioi, nimeä uudelleen tai poista ne tutuilla Windowsin shell-toimenpiteillä.\n\nKäytä sitä viimeisimmille asiakirjoille, aktiiviselle projektille, Lataukset-työpöydälle, Asiakirjoille tai mille tahansa kansiolle, jonka avaat usein.\n\nFanFolder on pieni natiivi Win32/C++ sovellus ilman .NET-riippuvuutta. Suoritettava tiedosto on noin 161 KB. Kaikki asetukset tallennetaan Windowsin rekisteriin ja ovat käytettävissä tehtäväpalkin valikosta.",
+    "WhatsNew": "Resurssienhallinnan viimeisimmät tiedostot -lista (::RecentFiles::) on nyt saatavilla tehtäväpalkin Kansio-alivalikossa yhdessä ::RecentDocs:: ja ::GraphRecent:: kanssa.",
+    "ProductFeatures": [
+      "Tehtäväpalkkiin ankkuroitu animoitu kaari/vihuka-ponnahdusikkuna",
+      "Useita animaatiotyylejä: Viuhka, Liuku, Jousi, Hälveneminen, Ei mitään",
+      "Mukautuva kuvakekoko shell-kuvakkeilla ja tiedostojen pikkukuvilla",
+      "Määritettävä kansio, lajittelujärjestys, kohteiden määrä ja tiedostonimisuodatin",
+      "Lajittele muokkauspäivän, luontipäivän tai nimen mukaan",
+      "Shell-pikavalikko (avaa, kopioi, poista, nimeä uudelleen) hiiren kakkospainikkeella",
+      "Raahaa kohteita valikosta muihin sovelluksiin",
+      "Pudota tiedostoja Resurssienhallinnasta viuhkavalikkoon siirtääksesi ne valvottavaan kansioon",
+      "Näytä tai piilota tiedostotunnisteet",
+      "Kaikki asetukset tallennetaan Windowsin rekisteriin — käytettävissä tehtäväpalkin valikosta"
+    ],
+    "ShortDescription": "Viimeisimmät tiedostosi, yhden napsauksen päässä Windowsin tehtäväpalkista. Avaa animoitu tiedostovihuka mistä tahansa kansiosta.",
+    "SearchTerms": [
+      "tehtäväpalkki",
+      "viimeisimmät tiedostot",
+      "tiedostokansio",
+      "pikalinkki",
+      "tiedostokäynnistys"
+    ],
+    "AdditionalLicenseTerms": "",
+    "Copyright": "© 2026 Ole Bülow Hartvigsen. Kaikki oikeudet pidätetään.",
+    "DevelopedBy": "Ole Bülow Hartvigsen",
+    "Requirements": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ],
+    "SortTitle": "FanFolder",
+    "ContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues"
+  },
+  "Properties": {
+    "IsPrivacyPolicyRequired": true,
+    "PrivacyPolicyUrl": "https://olebhartvigsen.github.io/FanFolder/privacy",
+    "WebSite": "https://olebhartvigsen.github.io/FanFolder/",
+    "SupportContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues",
+    "CertificationNotes": "FanFolder on natiivi Win32-tehtäväpalkki-työkalu. MSI-asennusohjelma asentaa %LOCALAPPDATA%-kansioon (ei vaadi järjestelmänvalvojan oikeuksia). Hiljainen asennus: msiexec /i FanFolderSetup-x64.msi /quiet /norestart. Sovellus käynnistyy kirjautuessa HKCU Run-avaimen kautta. Ei järjestelmäpalveluita, ei ajureita, ei ydin komponentteja. Telemetria: yksi anonyymi app_installed-tapahtuma lähetetään kerran asennusta kohti Aptabasen kautta (EU-isännöity, yksityisyyttä kunnioittava). Henkilötietoja, tiedostopolkuja tai käyttötietoja ei kerätä. Peruminen TelemetryEnabled=0 HKCU\\SOFTWARE\\FanFolder. Tietosuojakäytäntö: https://olebhartvigsen.github.io/FanFolder/privacy",
+    "Category": "Productivity",
+    "SubCategory": "",
+    "ProductDeclarations": {
+      "DependsOnDriversOrNT": false,
+      "AccessibilitySupport": false,
+      "PenAndInkSupport": false
+    },
+    "IsSystemFeatureRequired": [],
+    "SystemRequirementDetails": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ]
+  },
+  "Availability": {
+    "Markets": [
+      "AT",
+      "BE",
+      "BG",
+      "CH",
+      "CY",
+      "CZ",
+      "DE",
+      "DK",
+      "EE",
+      "ES",
+      "FI",
+      "FR",
+      "GB",
+      "GR",
+      "HR",
+      "HU",
+      "IE",
+      "IS",
+      "IT",
+      "LI",
+      "LT",
+      "LU",
+      "LV",
+      "MT",
+      "NL",
+      "NO",
+      "PL",
+      "PT",
+      "RO",
+      "SE",
+      "SI",
+      "SK",
+      "US",
+      "CA",
+      "AU",
+      "NZ",
+      "JP",
+      "KR",
+      "CN",
+      "TW",
+      "HK",
+      "SG",
+      "MY",
+      "TH",
+      "ID",
+      "VN",
+      "PH",
+      "IN",
+      "SA",
+      "AE",
+      "EG",
+      "ZA",
+      "BR",
+      "MX",
+      "AR",
+      "CL",
+      "CO",
+      "PE",
+      "VE",
+      "TR",
+      "IL",
+      "UA",
+      "RU"
+    ],
+    "Discoverability": "Public",
+    "EnableInFutureMarkets": true,
+    "Pricing": "Free",
+    "FreeTrial": "None"
+  }
+}

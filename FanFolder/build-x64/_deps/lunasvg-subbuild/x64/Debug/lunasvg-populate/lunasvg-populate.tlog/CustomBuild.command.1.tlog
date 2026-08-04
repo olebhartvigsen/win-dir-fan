@@ -1,0 +1,138 @@
+^\\WSL.LOCALHOST\UBUNTU\HOME\AU19277\PROJEKTER\WIN-DIR-FAN\FANFOLDER\BUILD-X64\_DEPS\LUNASVG-SUBBUILD\CMAKEFILES\733B8BAA2F162A5792BEFB1FA4F81704\LUNASVG-POPULATE-MKDIR.RULE
+setlocal
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -Dcfgdir=/Debug -P //wsl.localhost/Ubuntu/home/au19277/projekter/win-dir-fan/FanFolder/build-x64/_deps/lunasvg-subbuild/lunasvg-populate-prefix/tmp/lunasvg-populate-mkdirs.cmake
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch //wsl.localhost/Ubuntu/home/au19277/projekter/win-dir-fan/FanFolder/build-x64/_deps/lunasvg-subbuild/lunasvg-populate-prefix/src/lunasvg-populate-stamp/Debug/lunasvg-populate-mkdir
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^\\WSL.LOCALHOST\UBUNTU\HOME\AU19277\PROJEKTER\WIN-DIR-FAN\FANFOLDER\BUILD-X64\_DEPS\LUNASVG-SUBBUILD\CMAKEFILES\733B8BAA2F162A5792BEFB1FA4F81704\LUNASVG-POPULATE-DOWNLOAD.RULE
+setlocal
+cd \\wsl.localhost\Ubuntu\home\au19277\projekter\win-dir-fan\FanFolder\build-x64\_deps
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P //wsl.localhost/Ubuntu/home/au19277/projekter/win-dir-fan/FanFolder/build-x64/_deps/lunasvg-subbuild/lunasvg-populate-prefix/tmp/lunasvg-populate-gitclone.cmake
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch //wsl.localhost/Ubuntu/home/au19277/projekter/win-dir-fan/FanFolder/build-x64/_deps/lunasvg-subbuild/lunasvg-populate-prefix/src/lunasvg-populate-stamp/Debug/lunasvg-populate-download
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^\\WSL.LOCALHOST\UBUNTU\HOME\AU19277\PROJEKTER\WIN-DIR-FAN\FANFOLDER\BUILD-X64\_DEPS\LUNASVG-SUBBUILD\CMAKEFILES\733B8BAA2F162A5792BEFB1FA4F81704\LUNASVG-POPULATE-UPDATE.RULE
+setlocal
+cd \\wsl.localhost\Ubuntu\home\au19277\projekter\win-dir-fan\FanFolder\build-x64\_deps\lunasvg-src
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -Dcan_fetch=YES -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P //wsl.localhost/Ubuntu/home/au19277/projekter/win-dir-fan/FanFolder/build-x64/_deps/lunasvg-subbuild/lunasvg-populate-prefix/tmp/lunasvg-populate-gitupdate.cmake
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^\\WSL.LOCALHOST\UBUNTU\HOME\AU19277\PROJEKTER\WIN-DIR-FAN\FANFOLDER\BUILD-X64\_DEPS\LUNASVG-SUBBUILD\CMAKEFILES\733B8BAA2F162A5792BEFB1FA4F81704\LUNASVG-POPULATE-PATCH.RULE
+setlocal
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch //wsl.localhost/Ubuntu/home/au19277/projekter/win-dir-fan/FanFolder/build-x64/_deps/lunasvg-subbuild/lunasvg-populate-prefix/src/lunasvg-populate-stamp/Debug/lunasvg-populate-patch
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^\\WSL.LOCALHOST\UBUNTU\HOME\AU19277\PROJEKTER\WIN-DIR-FAN\FANFOLDER\BUILD-X64\_DEPS\LUNASVG-SUBBUILD\CMAKEFILES\733B8BAA2F162A5792BEFB1FA4F81704\LUNASVG-POPULATE-CONFIGURE.RULE
+setlocal
+cd \\wsl.localhost\Ubuntu\home\au19277\projekter\win-dir-fan\FanFolder\build-x64\_deps\lunasvg-build
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch //wsl.localhost/Ubuntu/home/au19277/projekter/win-dir-fan/FanFolder/build-x64/_deps/lunasvg-subbuild/lunasvg-populate-prefix/src/lunasvg-populate-stamp/Debug/lunasvg-populate-configure
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^\\WSL.LOCALHOST\UBUNTU\HOME\AU19277\PROJEKTER\WIN-DIR-FAN\FANFOLDER\BUILD-X64\_DEPS\LUNASVG-SUBBUILD\CMAKEFILES\733B8BAA2F162A5792BEFB1FA4F81704\LUNASVG-POPULATE-BUILD.RULE
+setlocal
+cd \\wsl.localhost\Ubuntu\home\au19277\projekter\win-dir-fan\FanFolder\build-x64\_deps\lunasvg-build
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch //wsl.localhost/Ubuntu/home/au19277/projekter/win-dir-fan/FanFolder/build-x64/_deps/lunasvg-subbuild/lunasvg-populate-prefix/src/lunasvg-populate-stamp/Debug/lunasvg-populate-build
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^\\WSL.LOCALHOST\UBUNTU\HOME\AU19277\PROJEKTER\WIN-DIR-FAN\FANFOLDER\BUILD-X64\_DEPS\LUNASVG-SUBBUILD\CMAKEFILES\733B8BAA2F162A5792BEFB1FA4F81704\LUNASVG-POPULATE-INSTALL.RULE
+setlocal
+cd \\wsl.localhost\Ubuntu\home\au19277\projekter\win-dir-fan\FanFolder\build-x64\_deps\lunasvg-build
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch //wsl.localhost/Ubuntu/home/au19277/projekter/win-dir-fan/FanFolder/build-x64/_deps/lunasvg-subbuild/lunasvg-populate-prefix/src/lunasvg-populate-stamp/Debug/lunasvg-populate-install
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^\\WSL.LOCALHOST\UBUNTU\HOME\AU19277\PROJEKTER\WIN-DIR-FAN\FANFOLDER\BUILD-X64\_DEPS\LUNASVG-SUBBUILD\CMAKEFILES\733B8BAA2F162A5792BEFB1FA4F81704\LUNASVG-POPULATE-TEST.RULE
+setlocal
+cd \\wsl.localhost\Ubuntu\home\au19277\projekter\win-dir-fan\FanFolder\build-x64\_deps\lunasvg-build
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch //wsl.localhost/Ubuntu/home/au19277/projekter/win-dir-fan/FanFolder/build-x64/_deps/lunasvg-subbuild/lunasvg-populate-prefix/src/lunasvg-populate-stamp/Debug/lunasvg-populate-test
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^\\WSL.LOCALHOST\UBUNTU\HOME\AU19277\PROJEKTER\WIN-DIR-FAN\FANFOLDER\BUILD-X64\_DEPS\LUNASVG-SUBBUILD\CMAKEFILES\649E8C7EA57E2B1E9285250B904B2A57\LUNASVG-POPULATE-COMPLETE.RULE
+setlocal
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E make_directory //wsl.localhost/Ubuntu/home/au19277/projekter/win-dir-fan/FanFolder/build-x64/_deps/lunasvg-subbuild/CMakeFiles/Debug
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch //wsl.localhost/Ubuntu/home/au19277/projekter/win-dir-fan/FanFolder/build-x64/_deps/lunasvg-subbuild/CMakeFiles/Debug/lunasvg-populate-complete
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch //wsl.localhost/Ubuntu/home/au19277/projekter/win-dir-fan/FanFolder/build-x64/_deps/lunasvg-subbuild/lunasvg-populate-prefix/src/lunasvg-populate-stamp/Debug/lunasvg-populate-done
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^\\WSL.LOCALHOST\UBUNTU\HOME\AU19277\PROJEKTER\WIN-DIR-FAN\FANFOLDER\BUILD-X64\_DEPS\LUNASVG-SUBBUILD\CMAKEFILES\75A3A5312078CA6DC58C3616EB8060EA\LUNASVG-POPULATE.RULE
+setlocal
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^\\WSL.LOCALHOST\UBUNTU\HOME\AU19277\PROJEKTER\WIN-DIR-FAN\FANFOLDER\BUILD-X64\_DEPS\LUNASVG-SUBBUILD\CMAKELISTS.TXT
+setlocal
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -S//wsl.localhost/Ubuntu/home/au19277/projekter/win-dir-fan/FanFolder/build-x64/_deps/lunasvg-subbuild -B//wsl.localhost/Ubuntu/home/au19277/projekter/win-dir-fan/FanFolder/build-x64/_deps/lunasvg-subbuild --check-stamp-file //wsl.localhost/Ubuntu/home/au19277/projekter/win-dir-fan/FanFolder/build-x64/_deps/lunasvg-subbuild/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

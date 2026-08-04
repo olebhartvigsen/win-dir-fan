@@ -1,0 +1,132 @@
+{
+  "Listings": {
+    "Language": "tr",
+    "Description": "FanFolder, en son kullandığınız dosyaları Windows görev çubuğundan bir tık uzakta getirir. Az önce kullandığınız dosyaları Dosya Gezgini'nde aramayı bırakın — FanFolder simgesine tıklayarak animasyonlu bir dosya yelpazesi açın ve alışık olduğunuz Windows kabuk eylemleriyle açın, sürükleyin, kopyalayın, yeniden adlandırın veya silin.\n\nSon belgeler, aktif bir proje klasörü, İndirilenler, Masaüstü, Belgeler veya sık açtığınız herhangi bir klasör için kullanın.\n\nFanFolder, .NET bağımlılığı olmayan küçük bir yerel Win32/C++ uygulamasıdır. Yürütülebilir dosya yaklaşık 161 KB'dir. Tüm ayarlar Windows kayıt defterinde saklanır ve görev çubuğu menüsünden erişilebilir.",
+    "WhatsNew": "Gezgin'in Son dosyalar listesi (::RecentFiles::) artık ::RecentDocs:: ve ::GraphRecent:: ile birlikte görev çubuğunun Klasör alt menüsünde kullanılabilir.",
+    "ProductFeatures": [
+      "Görev çubuğuna sabitlenmiş animasyonlu yay/yelpaze açılır penceresi",
+      "Birden fazla animasyon stili: Yelpaze, Kayma, Yay, Solma, Yok",
+      "Kabuk simgeleri ve dosya küçük resimleriyle uyarlanabilir simge boyutu",
+      "Yapılandırılabilir klasör, sıralama düzeni, öğe sayısı ve dosya adı filtresi",
+      "Değiştirilme tarihine, oluşturma tarihine veya ada göre sırala",
+      "Sağ tıklama ile kabuk bağlam menüsü (aç, kopyala, sil, yeniden adlandır)",
+      "Menüden diğer uygulamalara öğe sürükle ve bırak",
+      "Dosya Gezgini'nden dosyaları yelpaze menüsüne bırakarak izlenen klasöre taşıyın",
+      "Dosya uzantılarını göster veya gizle",
+      "Tüm ayarlar Windows kayıt defterinde saklanır — görev çubuğu menüsünden erişilebilir"
+    ],
+    "ShortDescription": "En son dosyalarınız Windows görev çubuğundan bir tık uzakta. Herhangi bir klasörden animasyonlu bir dosya yelpazesi açın.",
+    "SearchTerms": [
+      "görev çubuğu",
+      "son dosyalar",
+      "dosya klasörü",
+      "hızlı erişim",
+      "dosya başlatıcı"
+    ],
+    "AdditionalLicenseTerms": "",
+    "Copyright": "© 2026 Ole Bülow Hartvigsen. Tüm hakları saklıdır.",
+    "DevelopedBy": "Ole Bülow Hartvigsen",
+    "Requirements": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ],
+    "SortTitle": "FanFolder",
+    "ContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues"
+  },
+  "Properties": {
+    "IsPrivacyPolicyRequired": true,
+    "PrivacyPolicyUrl": "https://olebhartvigsen.github.io/FanFolder/privacy",
+    "WebSite": "https://olebhartvigsen.github.io/FanFolder/",
+    "SupportContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues",
+    "CertificationNotes": "FanFolder yerel bir Win32 görev çubuğu yardımcı programıdır. MSI yükleyici %LOCALAPPDATA%'ya yüklenir (yönetici ayrıcalığı gerekmez). Sessiz yükleme: msiexec /i FanFolderSetup-x64.msi /quiet /norestart. Uygulama HKCU Run anahtarı ile oturum açmada başlar. Sistem hizmeti, sürücü, çekirdek bileşeni yoktur. Telemetri: Aptabase (AB barındırılan, gizlilik dostu) üzerinden kurulum başına bir kez anonim app_installed olayı gönderilir. Kişisel veri, dosya yolu veya kullanım ayrıntısı toplanmaz. HKCU\\SOFTWARE\\FanFolder içinde TelemetryEnabled=0 ile çıkın. Gizlilik politikası: https://olebhartvigsen.github.io/FanFolder/privacy",
+    "Category": "Productivity",
+    "SubCategory": "",
+    "ProductDeclarations": {
+      "DependsOnDriversOrNT": false,
+      "AccessibilitySupport": false,
+      "PenAndInkSupport": false
+    },
+    "IsSystemFeatureRequired": [],
+    "SystemRequirementDetails": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ]
+  },
+  "Availability": {
+    "Markets": [
+      "AT",
+      "BE",
+      "BG",
+      "CH",
+      "CY",
+      "CZ",
+      "DE",
+      "DK",
+      "EE",
+      "ES",
+      "FI",
+      "FR",
+      "GB",
+      "GR",
+      "HR",
+      "HU",
+      "IE",
+      "IS",
+      "IT",
+      "LI",
+      "LT",
+      "LU",
+      "LV",
+      "MT",
+      "NL",
+      "NO",
+      "PL",
+      "PT",
+      "RO",
+      "SE",
+      "SI",
+      "SK",
+      "US",
+      "CA",
+      "AU",
+      "NZ",
+      "JP",
+      "KR",
+      "CN",
+      "TW",
+      "HK",
+      "SG",
+      "MY",
+      "TH",
+      "ID",
+      "VN",
+      "PH",
+      "IN",
+      "SA",
+      "AE",
+      "EG",
+      "ZA",
+      "BR",
+      "MX",
+      "AR",
+      "CL",
+      "CO",
+      "PE",
+      "VE",
+      "TR",
+      "IL",
+      "UA",
+      "RU"
+    ],
+    "Discoverability": "Public",
+    "EnableInFutureMarkets": true,
+    "Pricing": "Free",
+    "FreeTrial": "None"
+  }
+}

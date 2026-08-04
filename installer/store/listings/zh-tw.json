@@ -1,0 +1,132 @@
+{
+  "Listings": {
+    "Language": "zh-tw",
+    "Description": "FanFolder將您最近使用的檔案放在Windows工作列上一鍵之遙的位置。不再需要在檔案總管中翻找剛用過的檔案 — 點擊FanFolder圖示開啟動畫檔案扇，然後使用熟悉的Windows shell操作開啟、拖曳、複製、重新命名或刪除它們。\n\n用於最近文件、活動專案資料夾、下載、桌面、文件或您經常開啟的任何資料夾。\n\nFanFolder是一個小型原生Win32/C++應用程式，沒有.NET執行階段相依性。可執行檔約161 KB。所有設定儲存在Windows登錄檔中，可透過工作列選單存取。",
+    "WhatsNew": "檔案總管的最近檔案清單(::RecentFiles::)現在可於工作列的資料夾子選單中使用，與::RecentDocs::和::GraphRecent::並列。",
+    "ProductFeatures": [
+      "錨定在工作列上的動畫弧形/扇形彈出視窗",
+      "多種動畫樣式：扇形、滑動、彈簧、淡入淡出、無",
+      "使用shell圖示和檔案縮圖的自適應圖示大小",
+      "可設定的資料夾、排序順序、項目數量和檔案名稱篩選器",
+      "依修改日期、建立日期或名稱排序",
+      "右鍵點擊時顯示shell內容選單（開啟、複製、刪除、重新命名）",
+      "從選單拖放項目到其他應用程式",
+      "從檔案總管拖放檔案到扇形選單以將它們移動到監視資料夾",
+      "顯示或隱藏副檔名",
+      "所有設定儲存在Windows登錄檔中 — 透過工作列選單存取"
+    ],
+    "ShortDescription": "您最近的檔案，距Windows工作列僅一鍵之遙。從任何資料夾開啟動畫檔案扇。",
+    "SearchTerms": [
+      "工作列",
+      "最近檔案",
+      "檔案資料夾",
+      "快速存取",
+      "檔案啟動器"
+    ],
+    "AdditionalLicenseTerms": "",
+    "Copyright": "© 2026 Ole Bülow Hartvigsen. All rights reserved.",
+    "DevelopedBy": "Ole Bülow Hartvigsen",
+    "Requirements": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ],
+    "SortTitle": "FanFolder",
+    "ContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues"
+  },
+  "Properties": {
+    "IsPrivacyPolicyRequired": true,
+    "PrivacyPolicyUrl": "https://olebhartvigsen.github.io/FanFolder/privacy",
+    "WebSite": "https://olebhartvigsen.github.io/FanFolder/",
+    "SupportContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues",
+    "CertificationNotes": "FanFolder是原生Win32工作列公用程式。MSI安裝程式安裝到%LOCALAPPDATA%（不需要系統管理員權限）。無訊息安裝：msiexec /i FanFolderSetup-x64.msi /quiet /norestart。應用程式透過HKCU Run機碼在登入時啟動。沒有系統服務、驅動程式或核心元件。遙測：透過Aptabase（EU託管，隱私權友好）每次安裝發送一次匿名app_installed事件。不收集個人資料、檔案路徑或使用詳情。透過HKCU\\SOFTWARE\\FanFolder中的TelemetryEnabled=0選擇退出。隱私權政策：https://olebhartvigsen.github.io/FanFolder/privacy",
+    "Category": "Productivity",
+    "SubCategory": "",
+    "ProductDeclarations": {
+      "DependsOnDriversOrNT": false,
+      "AccessibilitySupport": false,
+      "PenAndInkSupport": false
+    },
+    "IsSystemFeatureRequired": [],
+    "SystemRequirementDetails": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ]
+  },
+  "Availability": {
+    "Markets": [
+      "AT",
+      "BE",
+      "BG",
+      "CH",
+      "CY",
+      "CZ",
+      "DE",
+      "DK",
+      "EE",
+      "ES",
+      "FI",
+      "FR",
+      "GB",
+      "GR",
+      "HR",
+      "HU",
+      "IE",
+      "IS",
+      "IT",
+      "LI",
+      "LT",
+      "LU",
+      "LV",
+      "MT",
+      "NL",
+      "NO",
+      "PL",
+      "PT",
+      "RO",
+      "SE",
+      "SI",
+      "SK",
+      "US",
+      "CA",
+      "AU",
+      "NZ",
+      "JP",
+      "KR",
+      "CN",
+      "TW",
+      "HK",
+      "SG",
+      "MY",
+      "TH",
+      "ID",
+      "VN",
+      "PH",
+      "IN",
+      "SA",
+      "AE",
+      "EG",
+      "ZA",
+      "BR",
+      "MX",
+      "AR",
+      "CL",
+      "CO",
+      "PE",
+      "VE",
+      "TR",
+      "IL",
+      "UA",
+      "RU"
+    ],
+    "Discoverability": "Public",
+    "EnableInFutureMarkets": true,
+    "Pricing": "Free",
+    "FreeTrial": "None"
+  }
+}

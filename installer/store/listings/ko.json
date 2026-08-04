@@ -1,0 +1,132 @@
+{
+  "Listings": {
+    "Language": "ko",
+    "Description": "FanFolder는 최신 파일을 Windows 작업 표시줄에서 클릭 한 번으로 사용할 수 있게 해줍니다. 방금 사용한 파일을 파일 탐색기에서 더 이상 찾지 마세요 — FanFolder 아이콘을 클릭하여 애니메이션 파일 부채를 열고, 익숙한 Windows 셸 작업으로 열기, 끌기, 복사, 이름 바꾸기 또는 삭제를 수행하세요.\n\n최근 문서, 활성 프로젝트 폴더, 다운로드, 바탕 화면, 문서 또는 자주 여는 모든 폴더에 사용할 수 있습니다.\n\nFanFolder는 .NET 런타임 종속성이 없는 작은 네이티브 Win32/C++ 응용 프로그램입니다. 실행 파일은 약 161 KB입니다. 모든 설정은 Windows 레지스트리에 저장되며 작업 표시줄 메뉴에서 액세스할 수 있습니다.",
+    "WhatsNew": "탐색기의 최근 파일 목록(::RecentFiles::)이 이제 ::RecentDocs:: 및 ::GraphRecent::와 함께 작업 표시줄의 폴더 하위 메뉴에서 사용할 수 있습니다.",
+    "ProductFeatures": [
+      "작업 표시줄에 고정된 애니메이션 부채/호 팝업",
+      "여러 애니메이션 스타일: 부채, 글라이드, 스프링, 페이드, 없음",
+      "셸 아이콘과 파일 미리 보기가 있는 적응형 아이콘 크기",
+      "구성 가능한 폴더, 정렬 순서, 항목 수 및 파일 이름 필터",
+      "수정 날짜, 만든 날짜 또는 이름별로 정렬",
+      "마우스 오른쪽 버튼 클릭 시 셸 컨텍스트 메뉴(열기, 복사, 삭제, 이름 바꾸기)",
+      "메뉴에서 다른 응용 프로그램으로 항목 끌어서 놓기",
+      "탐색기에서 부채 메뉴로 파일을 끌어다 놓아 감시 폴더로 이동",
+      "파일 확장자 표시 또는 숨기기",
+      "모든 설정은 Windows 레지스트리에 저장 — 작업 표시줄 메뉴에서 액세스 가능"
+    ],
+    "ShortDescription": "최신 파일을 Windows 작업 표시줄에서 클릭 한 번으로. 모든 폴더에서 애니메이션 파일 부채를 엽니다.",
+    "SearchTerms": [
+      "작업 표시줄",
+      "최근 파일",
+      "파일 폴더",
+      "빠른 액세스",
+      "파일 실행기"
+    ],
+    "AdditionalLicenseTerms": "",
+    "Copyright": "© 2026 Ole Bülow Hartvigsen. All rights reserved.",
+    "DevelopedBy": "Ole Bülow Hartvigsen",
+    "Requirements": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ],
+    "SortTitle": "FanFolder",
+    "ContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues"
+  },
+  "Properties": {
+    "IsPrivacyPolicyRequired": true,
+    "PrivacyPolicyUrl": "https://olebhartvigsen.github.io/FanFolder/privacy",
+    "WebSite": "https://olebhartvigsen.github.io/FanFolder/",
+    "SupportContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues",
+    "CertificationNotes": "FanFolder는 네이티브 Win32 작업 표시줄 유틸리티입니다. MSI 설치 관리자는 %LOCALAPPDATA%에 설치됩니다(관리자 권한 불필요). 자동 설치: msiexec /i FanFolderSetup-x64.msi /quiet /norestart. 응용 프로그램은 HKCU Run 키를 통해 로그인 시 시작됩니다. 시스템 서비스, 드라이버, 커널 구성 요소가 없습니다. 원격 측정: Aptabase(EU 호스팅, 개인 정보 보호)를 통해 설치당 한 번 익명 app_installed 이벤트가 전송됩니다. 개인 데이터, 파일 경로 또는 사용 세부 정보는 수집되지 않습니다. HKCU\\SOFTWARE\\FanFolder의 TelemetryEnabled=0으로 옵트아웃. 개인 정보 보호 정책: https://olebhartvigsen.github.io/FanFolder/privacy",
+    "Category": "Productivity",
+    "SubCategory": "",
+    "ProductDeclarations": {
+      "DependsOnDriversOrNT": false,
+      "AccessibilitySupport": false,
+      "PenAndInkSupport": false
+    },
+    "IsSystemFeatureRequired": [],
+    "SystemRequirementDetails": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ]
+  },
+  "Availability": {
+    "Markets": [
+      "AT",
+      "BE",
+      "BG",
+      "CH",
+      "CY",
+      "CZ",
+      "DE",
+      "DK",
+      "EE",
+      "ES",
+      "FI",
+      "FR",
+      "GB",
+      "GR",
+      "HR",
+      "HU",
+      "IE",
+      "IS",
+      "IT",
+      "LI",
+      "LT",
+      "LU",
+      "LV",
+      "MT",
+      "NL",
+      "NO",
+      "PL",
+      "PT",
+      "RO",
+      "SE",
+      "SI",
+      "SK",
+      "US",
+      "CA",
+      "AU",
+      "NZ",
+      "JP",
+      "KR",
+      "CN",
+      "TW",
+      "HK",
+      "SG",
+      "MY",
+      "TH",
+      "ID",
+      "VN",
+      "PH",
+      "IN",
+      "SA",
+      "AE",
+      "EG",
+      "ZA",
+      "BR",
+      "MX",
+      "AR",
+      "CL",
+      "CO",
+      "PE",
+      "VE",
+      "TR",
+      "IL",
+      "UA",
+      "RU"
+    ],
+    "Discoverability": "Public",
+    "EnableInFutureMarkets": true,
+    "Pricing": "Free",
+    "FreeTrial": "None"
+  }
+}

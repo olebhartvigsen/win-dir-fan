@@ -1,0 +1,132 @@
+{
+  "Listings": {
+    "Language": "pl",
+    "Description": "FanFolder umieszcza Twoje ostatnio używane pliki o jeden klik od siebie na pasku zadań Windows. Przestań przeszukiwać Eksploratora plików po pliki, których właśnie używałeś — kliknij ikonę FanFolder, aby otworzyć animowany wachlarz plików, a następnie otwórz, przeciągnij, kopiuj, zmień nazwę lub usuń je za pomocą znanych akcji powłoki Windows.\n\nUżywaj go do ostatnio używanych dokumentów, aktywnego folderu projektu, Pobranych, Pulpitu, Dokumentów lub dowolnego folderu, który często otwierasz.\n\nFanFolder to mała natywna aplikacja Win32/C++ bez zależności od .NET. Plik wykonywalny ma około 161 KB. Wszystkie ustawienia są przechowywane w rejestrze Windows i są dostępne przez menu paska zadań.",
+    "WhatsNew": "Lista ostatnio używanych plików Eksploratora (::RecentFiles::) jest teraz dostępna w podmenu Folder paska zadań, obok ::RecentDocs:: i ::GraphRecent::.",
+    "ProductFeatures": [
+      "Animowane wyskakujące okienko wachlarza/luku zakotwiczone na pasku zadań",
+      "Wiele stylów animacji: Wachlarz, Ślizg, Sprężyna, Zanikanie, Brak",
+      "Adaptacyjny rozmiar ikon z ikonami powłoki i miniaturami plików",
+      "Konfigurowalny folder, kolejność sortowania, liczba elementów i filtr nazw plików",
+      "Sortuj według daty modyfikacji, daty utworzenia lub nazwy",
+      "Menu kontekstowe powłoki (otwórz, kopiuj, usuń, zmień nazwę) po kliknięciu prawym przyciskiem",
+      "Przeciągnij i upuść elementy z menu do innych aplikacji",
+      "Upuść pliki z Eksploratora do menu wachlarza, aby przenieść je do obserwowanego folderu",
+      "Pokaż lub ukryj rozszerzenia plików",
+      "Wszystkie ustawienia przechowywane w rejestrze Windows — dostępne z menu paska zadań"
+    ],
+    "ShortDescription": "Twoje ostatnio używane pliki, o jeden klik od paska zadań Windows. Otwórz animowany wachlarz plików z dowolnego folderu.",
+    "SearchTerms": [
+      "pasek zadań",
+      "ostatnio używane pliki",
+      "folder plików",
+      "szybki dostęp",
+      "uruchamiacz plików"
+    ],
+    "AdditionalLicenseTerms": "",
+    "Copyright": "© 2026 Ole Bülow Hartvigsen. Wszelkie prawa zastrzeżone.",
+    "DevelopedBy": "Ole Bülow Hartvigsen",
+    "Requirements": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ],
+    "SortTitle": "FanFolder",
+    "ContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues"
+  },
+  "Properties": {
+    "IsPrivacyPolicyRequired": true,
+    "PrivacyPolicyUrl": "https://olebhartvigsen.github.io/FanFolder/privacy",
+    "WebSite": "https://olebhartvigsen.github.io/FanFolder/",
+    "SupportContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues",
+    "CertificationNotes": "FanFolder to natywne narzędzie paska zadań Win32. Instalator MSI instaluje do %LOCALAPPDATA% (nie wymaga uprawnień administratora). Instalacja dyskretna: msiexec /i FanFolderSetup-x64.msi /quiet /norestart. Aplikacja uruchamia się przy logowaniu przez klucz Run HKCU. Brak usług systemowych, sterowników, komponentów jądra. Telemetria: jedno anonimowe zdarzenie app_installed wysyłane raz na instalację przez Aptabase (hostowane w UE, przyjazne dla prywatności). Brak danych osobowych, ścieżek plików ani szczegółów użycia jest zbieranych. Wypisz się przez TelemetryEnabled=0 w HKCU\\SOFTWARE\\FanFolder. Polityka prywatności: https://olebhartvigsen.github.io/FanFolder/privacy",
+    "Category": "Productivity",
+    "SubCategory": "",
+    "ProductDeclarations": {
+      "DependsOnDriversOrNT": false,
+      "AccessibilitySupport": false,
+      "PenAndInkSupport": false
+    },
+    "IsSystemFeatureRequired": [],
+    "SystemRequirementDetails": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ]
+  },
+  "Availability": {
+    "Markets": [
+      "AT",
+      "BE",
+      "BG",
+      "CH",
+      "CY",
+      "CZ",
+      "DE",
+      "DK",
+      "EE",
+      "ES",
+      "FI",
+      "FR",
+      "GB",
+      "GR",
+      "HR",
+      "HU",
+      "IE",
+      "IS",
+      "IT",
+      "LI",
+      "LT",
+      "LU",
+      "LV",
+      "MT",
+      "NL",
+      "NO",
+      "PL",
+      "PT",
+      "RO",
+      "SE",
+      "SI",
+      "SK",
+      "US",
+      "CA",
+      "AU",
+      "NZ",
+      "JP",
+      "KR",
+      "CN",
+      "TW",
+      "HK",
+      "SG",
+      "MY",
+      "TH",
+      "ID",
+      "VN",
+      "PH",
+      "IN",
+      "SA",
+      "AE",
+      "EG",
+      "ZA",
+      "BR",
+      "MX",
+      "AR",
+      "CL",
+      "CO",
+      "PE",
+      "VE",
+      "TR",
+      "IL",
+      "UA",
+      "RU"
+    ],
+    "Discoverability": "Public",
+    "EnableInFutureMarkets": true,
+    "Pricing": "Free",
+    "FreeTrial": "None"
+  }
+}

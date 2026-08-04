@@ -1,0 +1,132 @@
+{
+  "Listings": {
+    "Language": "pt-br",
+    "Description": "O FanFolder coloca seus arquivos mais recentes a um clique de distância na barra de tarefas do Windows. Pare de procurar no Explorador de Arquivos pelos arquivos que você acabou de usar — clique no ícone do FanFolder para abrir um leque animado de arquivos e abra, arraste, copie, renomeie ou exclua-os usando as ações de shell familiares do Windows.\n\nUse-o para documentos recentes, uma pasta de projeto ativa, Downloads, Área de Trabalho, Documentos ou qualquer pasta que você abre com frequência.\n\nO FanFolder é um pequeno aplicativo Win32/C++ nativo sem dependência do .NET. O executável tem cerca de 161 KB. Todas as configurações são armazenadas no Registro do Windows e são acessíveis através do menu da barra de tarefas.",
+    "WhatsNew": "A lista de arquivos recentes do Explorador (::RecentFiles::) agora está disponível no submenu Pasta da barra de tarefas, junto com ::RecentDocs:: e ::GraphRecent::.",
+    "ProductFeatures": [
+      "Pop-up de arco/leque animado ancorado na barra de tarefas",
+      "Vários estilos de animação: Leque, Deslizar, Mola, Desvanecer, Nenhum",
+      "Tamanho de ícone adaptável com ícones de shell e miniaturas de arquivos",
+      "Pasta, ordem de classificação, contagem de itens e filtro de nome de arquivo configuráveis",
+      "Classificar por data de modificação, data de criação ou nome",
+      "Menu de contexto de shell (abrir, copiar, excluir, renomear) ao clicar com o botão direito",
+      "Arrastar e soltar itens do menu para outros aplicativos",
+      "Soltar arquivos do Explorador no menu leque para movê-los para a pasta monitorada",
+      "Mostrar ou ocultar extensões de arquivo",
+      "Todas as configurações armazenadas no Registro do Windows — acessíveis pelo menu da barra de tarefas"
+    ],
+    "ShortDescription": "Seus arquivos mais recentes, a um clique da barra de tarefas do Windows. Abra um leque animado de arquivos de qualquer pasta.",
+    "SearchTerms": [
+      "barra de tarefas",
+      "arquivos recentes",
+      "pasta de arquivos",
+      "acesso rápido",
+      "iniciador de arquivos"
+    ],
+    "AdditionalLicenseTerms": "",
+    "Copyright": "© 2026 Ole Bülow Hartvigsen. Todos os direitos reservados.",
+    "DevelopedBy": "Ole Bülow Hartvigsen",
+    "Requirements": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ],
+    "SortTitle": "FanFolder",
+    "ContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues"
+  },
+  "Properties": {
+    "IsPrivacyPolicyRequired": true,
+    "PrivacyPolicyUrl": "https://olebhartvigsen.github.io/FanFolder/privacy",
+    "WebSite": "https://olebhartvigsen.github.io/FanFolder/",
+    "SupportContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues",
+    "CertificationNotes": "O FanFolder é um utilitário nativo da barra de tarefas Win32. O instalador MSI instala em %LOCALAPPDATA% (sem privilégios de administrador necessários). Instalação silenciosa: msiexec /i FanFolderSetup-x64.msi /quiet /norestart. O aplicativo inicia no login através da chave Run do HKCU. Sem serviços do sistema, drivers, componentes do kernel. Telemetria: um único evento anônimo app_installed é enviado uma vez por instalação através do Aptabase (hospedado na UE, amigável à privacidade). Nenhum dado pessoal, caminho de arquivo ou detalhe de uso é coletado. Cancelar inscrição com TelemetryEnabled=0 em HKCU\\SOFTWARE\\FanFolder. Política de privacidade: https://olebhartvigsen.github.io/FanFolder/privacy",
+    "Category": "Productivity",
+    "SubCategory": "",
+    "ProductDeclarations": {
+      "DependsOnDriversOrNT": false,
+      "AccessibilitySupport": false,
+      "PenAndInkSupport": false
+    },
+    "IsSystemFeatureRequired": [],
+    "SystemRequirementDetails": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ]
+  },
+  "Availability": {
+    "Markets": [
+      "AT",
+      "BE",
+      "BG",
+      "CH",
+      "CY",
+      "CZ",
+      "DE",
+      "DK",
+      "EE",
+      "ES",
+      "FI",
+      "FR",
+      "GB",
+      "GR",
+      "HR",
+      "HU",
+      "IE",
+      "IS",
+      "IT",
+      "LI",
+      "LT",
+      "LU",
+      "LV",
+      "MT",
+      "NL",
+      "NO",
+      "PL",
+      "PT",
+      "RO",
+      "SE",
+      "SI",
+      "SK",
+      "US",
+      "CA",
+      "AU",
+      "NZ",
+      "JP",
+      "KR",
+      "CN",
+      "TW",
+      "HK",
+      "SG",
+      "MY",
+      "TH",
+      "ID",
+      "VN",
+      "PH",
+      "IN",
+      "SA",
+      "AE",
+      "EG",
+      "ZA",
+      "BR",
+      "MX",
+      "AR",
+      "CL",
+      "CO",
+      "PE",
+      "VE",
+      "TR",
+      "IL",
+      "UA",
+      "RU"
+    ],
+    "Discoverability": "Public",
+    "EnableInFutureMarkets": true,
+    "Pricing": "Free",
+    "FreeTrial": "None"
+  }
+}

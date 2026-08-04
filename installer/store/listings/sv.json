@@ -1,0 +1,132 @@
+{
+  "Listings": {
+    "Language": "sv",
+    "Description": "FanFolder lägger dina senaste filer ett klick bort på Windows aktivitetsfält. Sluta gräva i Utforskaren efter filer du just använde — klicka på FanFolder-ikonen för att öppna en animerad solfjäder av filer, öppna, dra, kopiera, byt namn på eller ta bort dem med vanliga Windows shell-åtgärder.\n\nAnvänd den för senaste dokument, en aktiv projektmapp, Hämtningar, Skrivbord, Dokument eller vilken mapp du ofta öppnar.\n\nFanFolder är ett litet inbyggt Win32/C++-program utan .NET-beroende. Körningen är cirka 161 KB. Alla inställningar lagras i Windows-registret och är tillgängliga via aktivitetsfältsmenyn.",
+    "WhatsNew": "Utforskarens lista över Senaste filer (::RecentFiles::) är nu tillgänglig i aktivitetsfältets Mapp-undermeny, tillsammans med ::RecentDocs:: och ::GraphRecent::.",
+    "ProductFeatures": [
+      "Animerad båg/solfjäders-popup förankrad i aktivitetsfältet",
+      "Flera animationsstilar: Solfläkt, Glid, Fjäder, Tona ut, Ingen",
+      "Anpassningsbar ikonstorlek med shell-ikoner och filminiatyrer",
+      "Konfigurerbar mapp, sorteringsordning, antal objekt och filnamnsfilter",
+      "Sortera efter ändrad datum, skapat datum eller namn",
+      "Shell-snabbmeny (öppna, kopiera, ta bort, byt namn) vid högerklick",
+      "Dra-och-släpp objekt ut från menyn till andra program",
+      "Släpp filer från Utforskaren på solfjädermenyn för att flytta dem till den bevakade mappen",
+      "Visa eller dölj filnamnstillägg",
+      "Alla inställningar lagras i Windows-registret — tillgängliga via aktivitetsfältsmenyn"
+    ],
+    "ShortDescription": "Dina senaste filer, ett klick bort från Windows aktivitetsfält. Öppna en animerad solfjäder av filer från valfri mapp.",
+    "SearchTerms": [
+      "aktivitetsfält",
+      "senaste filer",
+      "filmapp",
+      "snabb åtkomst",
+      "fillansering"
+    ],
+    "AdditionalLicenseTerms": "",
+    "Copyright": "© 2026 Ole Bülow Hartvigsen. Alla rättigheter förbehålls.",
+    "DevelopedBy": "Ole Bülow Hartvigsen",
+    "Requirements": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ],
+    "SortTitle": "FanFolder",
+    "ContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues"
+  },
+  "Properties": {
+    "IsPrivacyPolicyRequired": true,
+    "PrivacyPolicyUrl": "https://olebhartvigsen.github.io/FanFolder/privacy",
+    "WebSite": "https://olebhartvigsen.github.io/FanFolder/",
+    "SupportContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues",
+    "CertificationNotes": "FanFolder är ett inbyggt Win32-aktivitetsfältsverktyg. MSI-installationsprogrammet installerar till %LOCALAPPDATA% (inga administratörsrättigheter krävs). Tyst installation: msiexec /i FanFolderSetup-x64.msi /quiet /norestart. Programmet startar vid inloggning via HKCU Run-nyckel. Inga systemtjänster, inga drivrutiner, inga kärnkomponenter. Telemetri: en anonym app_installed-händelse skickas en gång per installation via Aptabase (EU-värd, integritetsvänlig). Inga personliga data, filsökvägar eller användningsdetaljer samlas in. Avregistrera via TelemetryEnabled=0 i HKCU\\SOFTWARE\\FanFolder. Integritetspolicy: https://olebhartvigsen.github.io/FanFolder/privacy",
+    "Category": "Productivity",
+    "SubCategory": "",
+    "ProductDeclarations": {
+      "DependsOnDriversOrNT": false,
+      "AccessibilitySupport": false,
+      "PenAndInkSupport": false
+    },
+    "IsSystemFeatureRequired": [],
+    "SystemRequirementDetails": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ]
+  },
+  "Availability": {
+    "Markets": [
+      "AT",
+      "BE",
+      "BG",
+      "CH",
+      "CY",
+      "CZ",
+      "DE",
+      "DK",
+      "EE",
+      "ES",
+      "FI",
+      "FR",
+      "GB",
+      "GR",
+      "HR",
+      "HU",
+      "IE",
+      "IS",
+      "IT",
+      "LI",
+      "LT",
+      "LU",
+      "LV",
+      "MT",
+      "NL",
+      "NO",
+      "PL",
+      "PT",
+      "RO",
+      "SE",
+      "SI",
+      "SK",
+      "US",
+      "CA",
+      "AU",
+      "NZ",
+      "JP",
+      "KR",
+      "CN",
+      "TW",
+      "HK",
+      "SG",
+      "MY",
+      "TH",
+      "ID",
+      "VN",
+      "PH",
+      "IN",
+      "SA",
+      "AE",
+      "EG",
+      "ZA",
+      "BR",
+      "MX",
+      "AR",
+      "CL",
+      "CO",
+      "PE",
+      "VE",
+      "TR",
+      "IL",
+      "UA",
+      "RU"
+    ],
+    "Discoverability": "Public",
+    "EnableInFutureMarkets": true,
+    "Pricing": "Free",
+    "FreeTrial": "None"
+  }
+}

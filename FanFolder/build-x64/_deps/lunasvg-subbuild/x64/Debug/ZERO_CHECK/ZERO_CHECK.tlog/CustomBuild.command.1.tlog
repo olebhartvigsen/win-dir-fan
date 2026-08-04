@@ -1,0 +1,10 @@
+^\\WSL.LOCALHOST\UBUNTU\HOME\AU19277\PROJEKTER\WIN-DIR-FAN\FANFOLDER\BUILD-X64\_DEPS\LUNASVG-SUBBUILD\CMAKEFILES\75A3A5312078CA6DC58C3616EB8060EA\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -S//wsl.localhost/Ubuntu/home/au19277/projekter/win-dir-fan/FanFolder/build-x64/_deps/lunasvg-subbuild -B//wsl.localhost/Ubuntu/home/au19277/projekter/win-dir-fan/FanFolder/build-x64/_deps/lunasvg-subbuild --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file //wsl.localhost/Ubuntu/home/au19277/projekter/win-dir-fan/FanFolder/build-x64/_deps/lunasvg-subbuild/lunasvg-populate.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

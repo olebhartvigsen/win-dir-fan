@@ -1,0 +1,132 @@
+{
+  "Listings": {
+    "Language": "hi",
+    "Description": "FanFolder आपकी नवीनतम फ़ाइलों को Windows कार्यपट्टी से एक क्लिक दूर रखता है। अभी उपयोग की गई फ़ाइलों के लिए फ़ाइल एक्सप्लोरर में खोजना बंद करें — FanFolder आइकन पर क्लिक करें और फ़ाइलों का एक एनिमेटेड पंखा खोलें, और परिचित Windows शेल क्रियाओं के साथ उन्हें खोलें, खींचें, कॉपी करें, नाम बदलें या हटाएं।\n\nहाल के दस्तावेज़ों, सक्रिय प्रोजेक्ट फ़ोल्डर, डाउनलोड, डेस्कटॉप, दस्तावेज़ या किसी भी फ़ोल्डर के लिए उपयोग करें जिसे आप अक्सर खोलते हैं।\n\nFanFolder एक छोटा नेटिव Win32/C++ एप्लिकेशन है जिसमें कोई .NET निर्भरता नहीं है। निष्पादन योग्य फ़ाइल लगभग 161 KB है। सभी सेटिंग्स Windows रजिस्ट्री में संग्रहीत हैं और कार्यपट्टी मेनू के माध्यम से सुलभ हैं।",
+    "WhatsNew": "एक्सप्लोरर की हाल की फ़ाइलों की सूची (::RecentFiles::) अब ::RecentDocs:: और ::GraphRecent:: के साथ कार्यपट्टी के फ़ोल्डर उप-मेनू में उपलब्ध है।",
+    "ProductFeatures": [
+      "कार्यपट्टी पर एंकर किए गए एनिमेटेड चाप/पंखा पॉपअप",
+      "कई एनिमेशन शैलियाँ: पंखा, ग्लाइड, स्प्रिंग, फेड, कोई नहीं",
+      "शेल आइकन और फ़ाइल थंबनेल के साथ अनुकूली आइकन आकार",
+      "कॉन्फ़िगर करने योग्य फ़ोल्डर, क्रमबद्ध क्रम, आइटम संख्या और फ़ाइल नाम फ़िल्टर",
+      "संशोधित तिथि, निर्मित तिथि या नाम से क्रमबद्ध करें",
+      "राइट-क्लिक पर शेल संदर्भ मेनू (खोलें, कॉपी करें, हटाएं, नाम बदलें)",
+      "मेनू से अन्य एप्लिकेशन में आइटम खींचें और छोड़ें",
+      "एक्सप्लोरर से फ़ाइलों को पंखा मेनू पर छोड़कर उन्हें देखे गए फ़ोल्डर में ले जाएँ",
+      "फ़ाइल एक्सटेंशन दिखाएँ या छिपाएँ",
+      "सभी सेटिंग्स Windows रजिस्ट्री में संग्रहीत — कार्यपट्टी मेनू से सुलभ"
+    ],
+    "ShortDescription": "आपकी नवीनतम फ़ाइलें, Windows कार्यपट्टी से एक क्लिक दूर। किसी भी फ़ोल्डर से फ़ाइलों का एक एनिमेटेड पंखा खोलें।",
+    "SearchTerms": [
+      "कार्यपट्टी",
+      "हाल की फ़ाइलें",
+      "फ़ाइल फ़ोल्डर",
+      "त्वरित पहुँच",
+      "फ़ाइल लॉन्चर"
+    ],
+    "AdditionalLicenseTerms": "",
+    "Copyright": "© 2026 Ole Bülow Hartvigsen. सर्वाधिकार सुरक्षित।",
+    "DevelopedBy": "Ole Bülow Hartvigsen",
+    "Requirements": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ],
+    "SortTitle": "FanFolder",
+    "ContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues"
+  },
+  "Properties": {
+    "IsPrivacyPolicyRequired": true,
+    "PrivacyPolicyUrl": "https://olebhartvigsen.github.io/FanFolder/privacy",
+    "WebSite": "https://olebhartvigsen.github.io/FanFolder/",
+    "SupportContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues",
+    "CertificationNotes": "FanFolder एक नेटिव Win32 कार्यपट्टी उपयोगिता है। MSI इंस्टॉलर %LOCALAPPDATA% में इंस्टॉल करता है (व्यवस्थापक विशेषाधिकार आवश्यक नहीं)। साइलेंट इंस्टॉल: msiexec /i FanFolderSetup-x64.msi /quiet /norestart। एप्लिकेशन HKCU Run कुंजी के माध्यम से लॉगिन पर प्रारंभ होती है। कोई सिस्टम सेवा, ड्राइवर, या कर्नेल घटक नहीं है। टेलीमेट्री: Aptabase (EU-होस्टेड, गोपनीयता-अनुकूल) के माध्यम से प्रति इंस्टॉलेशन एक बार गुमनाम app_installed इवेंट भेजा जाता है। कोई व्यक्तिगत डेटा, फ़ाइल पथ या उपयोग विवरण एकत्र नहीं किया जाता है। HKCU\\SOFTWARE\\FanFolder में TelemetryEnabled=0 के माध्यम से ऑप्ट-आउट करें। गोपनीयता नीति: https://olebhartvigsen.github.io/FanFolder/privacy",
+    "Category": "Productivity",
+    "SubCategory": "",
+    "ProductDeclarations": {
+      "DependsOnDriversOrNT": false,
+      "AccessibilitySupport": false,
+      "PenAndInkSupport": false
+    },
+    "IsSystemFeatureRequired": [],
+    "SystemRequirementDetails": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ]
+  },
+  "Availability": {
+    "Markets": [
+      "AT",
+      "BE",
+      "BG",
+      "CH",
+      "CY",
+      "CZ",
+      "DE",
+      "DK",
+      "EE",
+      "ES",
+      "FI",
+      "FR",
+      "GB",
+      "GR",
+      "HR",
+      "HU",
+      "IE",
+      "IS",
+      "IT",
+      "LI",
+      "LT",
+      "LU",
+      "LV",
+      "MT",
+      "NL",
+      "NO",
+      "PL",
+      "PT",
+      "RO",
+      "SE",
+      "SI",
+      "SK",
+      "US",
+      "CA",
+      "AU",
+      "NZ",
+      "JP",
+      "KR",
+      "CN",
+      "TW",
+      "HK",
+      "SG",
+      "MY",
+      "TH",
+      "ID",
+      "VN",
+      "PH",
+      "IN",
+      "SA",
+      "AE",
+      "EG",
+      "ZA",
+      "BR",
+      "MX",
+      "AR",
+      "CL",
+      "CO",
+      "PE",
+      "VE",
+      "TR",
+      "IL",
+      "UA",
+      "RU"
+    ],
+    "Discoverability": "Public",
+    "EnableInFutureMarkets": true,
+    "Pricing": "Free",
+    "FreeTrial": "None"
+  }
+}

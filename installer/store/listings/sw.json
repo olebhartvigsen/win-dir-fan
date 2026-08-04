@@ -1,0 +1,132 @@
+{
+  "Listings": {
+    "Language": "sw",
+    "Description": "FanFolder huweka faili zako za hivi karibuni kwa kilichofungua moja kutoka kwa taskbar ya Windows. Acha kutafuta File Explorer kwa faili ulizotumia sasa hivi — bofya ikoni ya FanFolder kufungua waa ya faili iliyoharaka, kisha fungua, buruta, nakili, badilisha jina au futa kwa kutumia vitendo vya shell vya Windows vinavyojulikana.\n\nTumia kwa waraka za hivi karibuni, folda ya mradi inayofanya kazi, Faili Zilizopakuliwa, eneo-kazi, Waraka, au folda yoyote unayofungua mara kwa mara.\n\nFanFolder ni programu ndogo ya asili ya Win32/C++ bila tegemezi la .NET. Faili ya uendeshaji ni takriban KB 161. Mipangilio yote imehifadhiwa katika usajili wa Windows na inaweza kufikiwa kupitia menyu ya taskbar.",
+    "WhatsNew": "Orodha ya faili za hivi karibuni za Explorer (::RecentFiles::) sasa inapatikana katika menyu ndogo ya Folda ya taskbar, pamoja na ::RecentDocs:: na ::GraphRecent::.",
+    "ProductFeatures": [
+      "Dirisha ibuka la waa/mwendo iliyoharaka iliyofungwa kwenye taskbar",
+      "Mitindo mingi ya uhuisho: Waa, Teleza, Majira, Fifa, Hakuna",
+      "Saizi ya ikoni inayobadilika na ikoni za shell na picha ndogo za faili",
+      "Folda inayosanidiwa, mpangilio wa upangaji, idadi ya vitu na kichujio cha jina la faili",
+      "Panga kwa tarehe iliyobadilishwa, tarehe iliyoundwa au jina",
+      "Menyu ya muktadha ya shell (fungua, nakili, futa, badilisha jina) unapobonyeza kulia",
+      "Buruta na angusha vitu kutoka kwa menyu kwenda kwa programu zingine",
+      "Angusha faili kutoka Explorer kwenye menyu ya waa kuzihamaisha kwenye folda inayofuatiliwa",
+      "Onyesha au ficha nyongeza za faili",
+      "Mipangilio yote imehifadhiwa katika usajili wa Windows — inaweza kufikiwa kupitia menyu ya taskbar"
+    ],
+    "ShortDescription": "Faili zako za hivi karibuni, kwa kilichofungua moja kutoka kwa taskbar ya Windows. Fungua waa ya faili iliyoharaka kutoka folda yoyote.",
+    "SearchTerms": [
+      "taskbar",
+      "faili za hivi karibuni",
+      "folda ya faili",
+      "kutumia haraka",
+      "kizindua faili"
+    ],
+    "AdditionalLicenseTerms": "",
+    "Copyright": "© 2026 Ole Bülow Hartvigsen. Haki zote zimehifadhiwa.",
+    "DevelopedBy": "Ole Bülow Hartvigsen",
+    "Requirements": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ],
+    "SortTitle": "FanFolder",
+    "ContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues"
+  },
+  "Properties": {
+    "IsPrivacyPolicyRequired": true,
+    "PrivacyPolicyUrl": "https://olebhartvigsen.github.io/FanFolder/privacy",
+    "WebSite": "https://olebhartvigsen.github.io/FanFolder/",
+    "SupportContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues",
+    "CertificationNotes": "FanFolder ni zana ya asili ya taskbar ya Win32. Kusanidi kwa MSI husanidiwa kwenye %LOCALAPPDATA% (hauhitaji ruhusa ya msimamizi). usanidi wa kimyakimya: msiexec /i FanFolderSetup-x64.msi /quiet /norestart. Programu huanza wakati wa kuingia kupitia ufunguo wa Run wa HKCU. Hakuna huduma za mfumo, madereva, au vipengele vya kernel. Telemetri: tukio moja lisilojulikana app_installed linatumwa mara moja kwa kila usanidi kupitia Aptabase (kilichohudumiwa katika EU, kirafiki kwa faragha). Hakuna data ya kibinafsi, njia za faili, au maelezo ya matumizi yanayokusanywa. Ondoka kupitia TelemetryEnabled=0 katika HKCU\\SOFTWARE\\FanFolder. Sera ya faragha: https://olebhartvigsen.github.io/FanFolder/privacy",
+    "Category": "Productivity",
+    "SubCategory": "",
+    "ProductDeclarations": {
+      "DependsOnDriversOrNT": false,
+      "AccessibilitySupport": false,
+      "PenAndInkSupport": false
+    },
+    "IsSystemFeatureRequired": [],
+    "SystemRequirementDetails": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ]
+  },
+  "Availability": {
+    "Markets": [
+      "AT",
+      "BE",
+      "BG",
+      "CH",
+      "CY",
+      "CZ",
+      "DE",
+      "DK",
+      "EE",
+      "ES",
+      "FI",
+      "FR",
+      "GB",
+      "GR",
+      "HR",
+      "HU",
+      "IE",
+      "IS",
+      "IT",
+      "LI",
+      "LT",
+      "LU",
+      "LV",
+      "MT",
+      "NL",
+      "NO",
+      "PL",
+      "PT",
+      "RO",
+      "SE",
+      "SI",
+      "SK",
+      "US",
+      "CA",
+      "AU",
+      "NZ",
+      "JP",
+      "KR",
+      "CN",
+      "TW",
+      "HK",
+      "SG",
+      "MY",
+      "TH",
+      "ID",
+      "VN",
+      "PH",
+      "IN",
+      "SA",
+      "AE",
+      "EG",
+      "ZA",
+      "BR",
+      "MX",
+      "AR",
+      "CL",
+      "CO",
+      "PE",
+      "VE",
+      "TR",
+      "IL",
+      "UA",
+      "RU"
+    ],
+    "Discoverability": "Public",
+    "EnableInFutureMarkets": true,
+    "Pricing": "Free",
+    "FreeTrial": "None"
+  }
+}

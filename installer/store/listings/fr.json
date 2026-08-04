@@ -1,0 +1,132 @@
+{
+  "Listings": {
+    "Language": "fr",
+    "Description": "FanFolder place vos derniers fichiers à un clic près sur la barre des tâches Windows. Arrêtez de fouiller dans l'Explorateur de fichiers pour trouver des fichiers que vous venez d'utiliser — cliquez sur l'icône FanFolder pour ouvrir un éventail animé de fichiers, puis ouvrez, faites glisser, copiez, renommez ou supprimez-les avec les actions shell Windows habituelles.\n\nUtilisez-le pour les documents récents, un dossier de projet actif, Téléchargements, Bureau, Documents ou tout dossier que vous ouvrez souvent.\n\nFanFolder est une petite application Win32/C++ native sans dépendance .NET. L'exécutable fait environ 161 Ko. Tous les paramètres sont stockés dans le Registre Windows et sont accessibles via le menu de la barre des tâches.",
+    "WhatsNew": "La liste des fichiers récents de l'Explorateur (::RecentFiles::) est désormais disponible dans le sous-menu Dossier de la barre des tâches, aux côtés de ::RecentDocs:: et ::GraphRecent::.",
+    "ProductFeatures": [
+      "Pop-up d'éventail/arc animé ancré sur la barre des tâches",
+      "Plusieurs styles d'animation : Éventail, Glissement, Ressort, Fondu, Aucun",
+      "Taille d'icône adaptative avec icônes shell et miniatures de fichiers",
+      "Dossier configurable, ordre de tri, nombre d'éléments et filtre de nom de fichier",
+      "Trier par date de modification, date de création ou nom",
+      "Menu contextuel shell (ouvrir, copier, supprimer, renommer) par clic droit",
+      "Glisser-déposer des éléments hors du menu vers d'autres applications",
+      "Déposer des fichiers de l'Explorateur sur le menu éventail pour les déplacer dans le dossier surveillé",
+      "Afficher ou masquer les extensions de fichier",
+      "Tous les paramètres stockés dans le Registre Windows — accessibles via le menu de la barre des tâches"
+    ],
+    "ShortDescription": "Vos derniers fichiers, à un clic de la barre des tâches Windows. Ouvrez un éventail animé de fichiers à partir de n'importe quel dossier.",
+    "SearchTerms": [
+      "barre des tâches",
+      "fichiers récents",
+      "dossier de fichiers",
+      "accès rapide",
+      "lanceur de fichiers"
+    ],
+    "AdditionalLicenseTerms": "",
+    "Copyright": "© 2026 Ole Bülow Hartvigsen. Tous droits réservés.",
+    "DevelopedBy": "Ole Bülow Hartvigsen",
+    "Requirements": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ],
+    "SortTitle": "FanFolder",
+    "ContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues"
+  },
+  "Properties": {
+    "IsPrivacyPolicyRequired": true,
+    "PrivacyPolicyUrl": "https://olebhartvigsen.github.io/FanFolder/privacy",
+    "WebSite": "https://olebhartvigsen.github.io/FanFolder/",
+    "SupportContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues",
+    "CertificationNotes": "FanFolder est un utilitaire de barre des tâches Win32 natif. Le programme d'installation MSI installe dans %LOCALAPPDATA% (aucun privilège d'administrateur requis). Installation silencieuse : msiexec /i FanFolderSetup-x64.msi /quiet /norestart. L'application se lance à la connexion via la clé Run HKCU. Aucun service système, pilote ou composant du noyau. Télémétrie : un seul événement app_installed anonyme est envoyé une fois par installation via Aptabase (hébergé dans l'UE, respectueux de la vie privée). Aucune donnée personnelle, chemin de fichier ou détail d'utilisation n'est collecté. Désinscription via TelemetryEnabled=0 dans HKCU\\SOFTWARE\\FanFolder. Politique de confidentialité : https://olebhartvigsen.github.io/FanFolder/privacy",
+    "Category": "Productivity",
+    "SubCategory": "",
+    "ProductDeclarations": {
+      "DependsOnDriversOrNT": false,
+      "AccessibilitySupport": false,
+      "PenAndInkSupport": false
+    },
+    "IsSystemFeatureRequired": [],
+    "SystemRequirementDetails": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ]
+  },
+  "Availability": {
+    "Markets": [
+      "AT",
+      "BE",
+      "BG",
+      "CH",
+      "CY",
+      "CZ",
+      "DE",
+      "DK",
+      "EE",
+      "ES",
+      "FI",
+      "FR",
+      "GB",
+      "GR",
+      "HR",
+      "HU",
+      "IE",
+      "IS",
+      "IT",
+      "LI",
+      "LT",
+      "LU",
+      "LV",
+      "MT",
+      "NL",
+      "NO",
+      "PL",
+      "PT",
+      "RO",
+      "SE",
+      "SI",
+      "SK",
+      "US",
+      "CA",
+      "AU",
+      "NZ",
+      "JP",
+      "KR",
+      "CN",
+      "TW",
+      "HK",
+      "SG",
+      "MY",
+      "TH",
+      "ID",
+      "VN",
+      "PH",
+      "IN",
+      "SA",
+      "AE",
+      "EG",
+      "ZA",
+      "BR",
+      "MX",
+      "AR",
+      "CL",
+      "CO",
+      "PE",
+      "VE",
+      "TR",
+      "IL",
+      "UA",
+      "RU"
+    ],
+    "Discoverability": "Public",
+    "EnableInFutureMarkets": true,
+    "Pricing": "Free",
+    "FreeTrial": "None"
+  }
+}

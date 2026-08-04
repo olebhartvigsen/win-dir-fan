@@ -1,0 +1,132 @@
+{
+  "Listings": {
+    "Language": "hu",
+    "Description": "A FanFolder a legutóbb használt fájljait egy kattintásra teszi a Windows tálcájáról. Hagyd abba a fájlkeresést a Fáljkezelőben — kattints a FanFolder ikonra egy animált legyező megnyitásához, majd nyisd meg, húzd, másold, nevezd át vagy töröld őket a megszokott Windows shell műveletekkel.\n\nHasználd legutóbbi dokumentumokhoz, aktív projektmappához, Letöltések, Asztal, Dokumentumok vagy bármely mappához, amelyet gyakran megnyitsz.\n\nA FanFolder egy kis natív Win32/C++ alkalmazás .NET-függőség nélkül. A végrehajtható fájl körülbelül 161 KB. Az összes beállítás a Windows regisztriben tárolódik, és a tálca menüből érhető el.",
+    "WhatsNew": "A Fáljkezelő Legutóbbi fájlok listája (::RecentFiles::) immár elérhető a tálca Mappa almenüjében, a ::RecentDocs:: és ::GraphRecent:: mellett.",
+    "ProductFeatures": [
+      "A tálcára horgonyzott animált legyező/ív felugró ablak",
+      "Több animációs stílus: Legyező, Siklás, Rugó, Elhalványulás, Nincs",
+      "Adaptív ikonméret shell ikonokkal és fájlbélyegképekkel",
+      "Konfigurálható mappa, rendezési sorrend, elemszám és fájlnévszűrő",
+      "Rendezés módosítási dátum, létrehozási dátum vagy név szerint",
+      "Shell helyi menü (megnyitás, másolás, törlés, átnevezés) jobb kattintással",
+      "Elemek húzása és ejtése a menüből más alkalmazásokba",
+      "Fájlok ejtése a Fáljkezelőből a legyező menübe a figyelt mappába való áthelyezéshez",
+      "Fájlkiterjesztések megjelenítése vagy elrejtése",
+      "Minden beállítás a Windows regisztriben tárolva — a tálca menüből elérhető"
+    ],
+    "ShortDescription": "Legutóbbi fájljaid egy kattintásra a Windows tálcájáról. Nyiss animált fájllegyezőt bármely mappából.",
+    "SearchTerms": [
+      "tálca",
+      "legutóbbi fájlok",
+      "fájlmappa",
+      "gyors hozzáférés",
+      "fájlindító"
+    ],
+    "AdditionalLicenseTerms": "",
+    "Copyright": "© 2026 Ole Bülow Hartvigsen. Minden jog fenntartva.",
+    "DevelopedBy": "Ole Bülow Hartvigsen",
+    "Requirements": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ],
+    "SortTitle": "FanFolder",
+    "ContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues"
+  },
+  "Properties": {
+    "IsPrivacyPolicyRequired": true,
+    "PrivacyPolicyUrl": "https://olebhartvigsen.github.io/FanFolder/privacy",
+    "WebSite": "https://olebhartvigsen.github.io/FanFolder/",
+    "SupportContactInfo": "https://github.com/olebhartvigsen/win-dir-fan/issues",
+    "CertificationNotes": "A FanFolder egy natív Win32 tálcakészülék. Az MSI-telepítő a %LOCALAPPDATA% mappába telepít (nincs szükség rendszergazdai jogosultságra). Csendes telepítés: msiexec /i FanFolderSetup-x64.msi /quiet /norestart. Az alkalmazás a bejelentkezéskor indul a HKCU Run kulccsal. Nincs rendszer-szolgáltatás, illesztőprogram, kernel komponens. Telemetria: anonim app_installed esemény küldése egyszer történik telepítésenként az Aptabase-on keresztül (EU-ban tárolt, adatvédelem-barát). Személyes adat, fájlútvonal vagy használati adat nem gyűjtött. Leiratkozás TelemetryEnabled=0 HKCU\\SOFTWARE\\FanFolder. Adatvédelmi irányelv: https://olebhartvigsen.github.io/FanFolder/privacy",
+    "Category": "Productivity",
+    "SubCategory": "",
+    "ProductDeclarations": {
+      "DependsOnDriversOrNT": false,
+      "AccessibilitySupport": false,
+      "PenAndInkSupport": false
+    },
+    "IsSystemFeatureRequired": [],
+    "SystemRequirementDetails": [
+      {
+        "MinimumRequirement": "Windows 10 (x64)",
+        "RecommendedRequirement": "Windows 11 (x64 or ARM64)",
+        "HardwareItemType": "OS"
+      }
+    ]
+  },
+  "Availability": {
+    "Markets": [
+      "AT",
+      "BE",
+      "BG",
+      "CH",
+      "CY",
+      "CZ",
+      "DE",
+      "DK",
+      "EE",
+      "ES",
+      "FI",
+      "FR",
+      "GB",
+      "GR",
+      "HR",
+      "HU",
+      "IE",
+      "IS",
+      "IT",
+      "LI",
+      "LT",
+      "LU",
+      "LV",
+      "MT",
+      "NL",
+      "NO",
+      "PL",
+      "PT",
+      "RO",
+      "SE",
+      "SI",
+      "SK",
+      "US",
+      "CA",
+      "AU",
+      "NZ",
+      "JP",
+      "KR",
+      "CN",
+      "TW",
+      "HK",
+      "SG",
+      "MY",
+      "TH",
+      "ID",
+      "VN",
+      "PH",
+      "IN",
+      "SA",
+      "AE",
+      "EG",
+      "ZA",
+      "BR",
+      "MX",
+      "AR",
+      "CL",
+      "CO",
+      "PE",
+      "VE",
+      "TR",
+      "IL",
+      "UA",
+      "RU"
+    ],
+    "Discoverability": "Public",
+    "EnableInFutureMarkets": true,
+    "Pricing": "Free",
+    "FreeTrial": "None"
+  }
+}

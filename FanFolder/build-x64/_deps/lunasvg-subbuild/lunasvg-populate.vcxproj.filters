@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="\\wsl.localhost\Ubuntu\home\au19277\projekter\win-dir-fan\FanFolder\build-x64\_deps\lunasvg-subbuild\CMakeFiles\733b8baa2f162a5792befb1fa4f81704\lunasvg-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="\\wsl.localhost\Ubuntu\home\au19277\projekter\win-dir-fan\FanFolder\build-x64\_deps\lunasvg-subbuild\CMakeFiles\733b8baa2f162a5792befb1fa4f81704\lunasvg-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="\\wsl.localhost\Ubuntu\home\au19277\projekter\win-dir-fan\FanFolder\build-x64\_deps\lunasvg-subbuild\CMakeFiles\733b8baa2f162a5792befb1fa4f81704\lunasvg-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="\\wsl.localhost\Ubuntu\home\au19277\projekter\win-dir-fan\FanFolder\build-x64\_deps\lunasvg-subbuild\CMakeFiles\733b8baa2f162a5792befb1fa4f81704\lunasvg-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="\\wsl.localhost\Ubuntu\home\au19277\projekter\win-dir-fan\FanFolder\build-x64\_deps\lunasvg-subbuild\CMakeFiles\733b8baa2f162a5792befb1fa4f81704\lunasvg-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="\\wsl.localhost\Ubuntu\home\au19277\projekter\win-dir-fan\FanFolder\build-x64\_deps\lunasvg-subbuild\CMakeFiles\733b8baa2f162a5792befb1fa4f81704\lunasvg-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="\\wsl.localhost\Ubuntu\home\au19277\projekter\win-dir-fan\FanFolder\build-x64\_deps\lunasvg-subbuild\CMakeFiles\733b8baa2f162a5792befb1fa4f81704\lunasvg-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="\\wsl.localhost\Ubuntu\home\au19277\projekter\win-dir-fan\FanFolder\build-x64\_deps\lunasvg-subbuild\CMakeFiles\733b8baa2f162a5792befb1fa4f81704\lunasvg-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="\\wsl.localhost\Ubuntu\home\au19277\projekter\win-dir-fan\FanFolder\build-x64\_deps\lunasvg-subbuild\CMakeFiles\649e8c7ea57e2b1e9285250b904b2a57\lunasvg-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="\\wsl.localhost\Ubuntu\home\au19277\projekter\win-dir-fan\FanFolder\build-x64\_deps\lunasvg-subbuild\CMakeFiles\75a3a5312078ca6dc58c3616eb8060ea\lunasvg-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="\\wsl.localhost\Ubuntu\home\au19277\projekter\win-dir-fan\FanFolder\build-x64\_deps\lunasvg-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="\\wsl.localhost\Ubuntu\home\au19277\projekter\win-dir-fan\FanFolder\build-x64\_deps\lunasvg-subbuild\CMakeFiles\lunasvg-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{11BE4384-BF4A-3DBA-9429-0F62823D4588}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
