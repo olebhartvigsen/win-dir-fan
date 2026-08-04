@@ -264,16 +264,18 @@ if (-not (Test-Path $certPath)) {
 # Sign the MSIX
 Write-Info "signtool sign -fd SHA256 $msixFile"
 & $signTool sign -fd SHA256 -f $certPath -p $certPass $msixFile
-if ($LASTEXITCODE -ne 0) { Write-Err "SignTool failed"; exit 1 }
-Write-OK "Signed with SHA256"
+if ($LASTEXITCODE -ne 0) {
+    Write-Warn "SignTool self-sign failed (expected on some systems)."
+    Write-Warn "Will try unsigned install -- requires Developer Mode enabled."
+} else {
+    Write-OK "Signed with SHA256"
+}
 
-# Install cert to Trusted People (required for MSIX installation)
+# Install cert to Trusted People (helps if signing worked; harmless if not)
 Write-Info "Installing cert to Trusted People..."
 $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 $certPath, $secPass
 $store = New-Object System.Security.Cryptography.X509Certificates.X509Store "TrustedPeople", "CurrentUser"
 $store.Open("ReadWrite")
-
-# Remove old cert if present
 $existing = $store.Certificates | Where-Object { $_.Subject -eq $certSubject }
 if ($existing) {
     $store.Remove($existing)
@@ -297,12 +299,17 @@ if ($pkg) {
 }
 
 Write-Info "Add-AppxPackage -Path $msixFile"
-Add-AppxPackage -Path $msixFile
+try {
+    Add-AppxPackage -Path $msixFile -AllowUnsigned
+} catch {
+    Write-Warn "AllowUnsigned failed, trying without flag (requires Developer Mode)..."
+    Add-AppxPackage -Path $msixFile
+}
 if ($?) {
     Write-OK "Installed successfully"
 } else {
     Write-Err "Installation failed"
-    Write-Warn "Try enabling Developer Mode: Settings -> For developers -> Developer Mode"
+    Write-Warn "Enable Developer Mode: Settings -> Privacy & security -> For developers -> Developer Mode"
     exit 1
 }
 
