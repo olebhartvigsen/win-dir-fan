@@ -9,14 +9,14 @@ Partner Center rejects URLs that redirect (302). GitHub Releases URLs redirect t
 - **Architecture:** x64
 - **App type:** MSIX
 - **Installer params:** _(leave empty)_
-- **Size:** 1,250,224 bytes (1.2 MB)
+- **Size:** 1,250,226 bytes (1.2 MB)
 
 ### ARM64
 - **Package URL:** `https://raw.githubusercontent.com/olebhartvigsen/FanFolder/main/downloads/v1.3.1/FanFolder-arm64.msix`
 - **Architecture:** arm64
 - **App type:** MSIX
 - **Installer params:** _(leave empty)_
-- **Size:** 1,191,783 bytes (1.1 MB)
+- **Size:** 1,191,786 bytes (1.1 MB)
 
 ## Verification (2026-08-04)
 
@@ -38,4 +38,4 @@ Both packages comply with Microsoft Store [app-package-requirements](https://lea
 - Capabilities: runFullTrust, broadFileSystemAccess
 - EntryPoint: Windows.FullTrustApplication
 
-CI Build: `30901828284` (SHA `fdc8731`)
+CI Build: `30902759292` (SHA `263e85b`)
