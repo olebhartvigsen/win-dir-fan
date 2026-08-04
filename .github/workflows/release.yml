@@ -114,13 +114,11 @@ jobs:
           path: msix-staging/arm64
 
       - name: Prepare MSIX manifest
-        shell: pwsh
+        shell: bash
         run: |
-          $manifest = Get-Content installer/msix/AppxManifest.xml -Raw
-          $manifest = $manifest -replace 'Version="[^"]*"', "Version=`"${{ steps.version.outputs.MSIX_VERSION }}`""
-          # Use .NET to write without BOM — Out-File with utf8NoBom may be unreliable
-          $bytes = [System.Text.Encoding]::UTF8.GetBytes($manifest)
-          [System.IO.File]::WriteAllBytes("msix-staging/AppxManifest.xml", $bytes)
+          mkdir -p msix-staging
+          cp installer/msix/AppxManifest.xml msix-staging/AppxManifest.xml
+          sed -i 's/Version="[^"]*"/Version="${{ steps.version.outputs.MSIX_VERSION }}"/' msix-staging/AppxManifest.xml
 
       - name: Generate MSIX assets from icon
         shell: pwsh
@@ -153,11 +151,13 @@ jobs:
               $bmp.Dispose()
             }
             $ico.Dispose()
-            # Make sure manifest is in each staging dir (avoid BOM issues by using .NET)
-            $destManifest = "msix-staging/$arch/AppxManifest.xml"
-            $manifestBytes = [System.IO.File]::ReadAllBytes("msix-staging/AppxManifest.xml")
-            [System.IO.File]::WriteAllBytes($destManifest, $manifestBytes)
           }
+
+      - name: Copy manifest to staging dirs
+        shell: bash
+        run: |
+          cp msix-staging/AppxManifest.xml msix-staging/x64/AppxManifest.xml
+          cp msix-staging/AppxManifest.xml msix-staging/arm64/AppxManifest.xml
 
       - name: Find latest Windows SDK
         shell: pwsh
