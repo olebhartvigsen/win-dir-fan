@@ -82,7 +82,7 @@ Write-OK "CMake: $cmake"
 
 # Windows SDK -- MakeAppx + SignTool
 $sdkBinRoot = "C:\Program Files (x86)\Windows Kits\10\bin"
-$sdkVersion = (Get-ChildItem $sdkBinRoot -Directory | Where-Object Name -like "10.0.*" | Sort-Object Name -Descending | Select-Object -First).Name
+$sdkVersion = (Get-ChildItem $sdkBinRoot -Directory | Where-Object Name -like "10.0.*" | Sort-Object Name -Descending | Select-Object -First 1).Name
 if (-not $sdkVersion) {
     Write-Err "Windows 10 SDK not found at $sdkBinRoot"
     exit 1
