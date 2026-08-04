@@ -171,11 +171,16 @@ jobs:
             $ico.Dispose()
           }
 
-      - name: Copy manifest to staging dirs
+      - name: Copy manifest to staging dirs (with architecture)
         shell: bash
         run: |
+          # x64 manifest — inject ProcessorArchitecture="x64"
           cp msix-staging/AppxManifest.xml msix-staging/x64/AppxManifest.xml
+          sed -i 's/<Identity /<Identity ProcessorArchitecture="x64" /' msix-staging/x64/AppxManifest.xml
+
+          # arm64 manifest — inject ProcessorArchitecture="arm64"
           cp msix-staging/AppxManifest.xml msix-staging/arm64/AppxManifest.xml
+          sed -i 's/<Identity /<Identity ProcessorArchitecture="arm64" /' msix-staging/arm64/AppxManifest.xml
 
       - name: Find latest Windows SDK
         shell: pwsh
