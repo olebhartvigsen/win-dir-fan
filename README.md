@@ -2,7 +2,7 @@
 
 **Your latest files, one click away from the Windows taskbar.**
 
-Stop digging through File Explorer for files you just used. FanFolder puts your recent documents — or any folder you choose — directly on the taskbar. Click the icon and the files fan out. Open, drag, copy, rename, or delete them with the same Windows actions you already know.
+Stop digging through File Explorer for files you just used. FanFolder puts your recent documents (or any folder you choose) directly on the taskbar. Click the icon and the files fan out. Open, drag, copy, rename, or delete them with the same Windows actions you already know.
 
 Use it for recent documents, an active project folder, Downloads, or whatever you open often.
 
@@ -31,7 +31,7 @@ If you find FanFolder useful, an optional "buy me a coffee" donation is apprecia
 - Drag items out of the menu and drop them into other applications
 - Drop files from Explorer onto the fan menu to move them into the watched folder
 - Show or hide file extensions
-- All settings live in the Windows registry — change them from the tray icon menu
+- All settings live in the Windows registry. Change them from the tray icon menu
 
 ---
 
@@ -183,7 +183,7 @@ Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "ShowExtensions" -Value 
 
 ### FilterRegex
 
-**Type:** `REG_SZ` | **Default:** *(empty — no filter)*
+**Type:** `REG_SZ` | **Default:** *(empty, no filter)*
 
 A regular expression, matched case-insensitively against each filename. Only matching items are shown.
 
@@ -207,7 +207,7 @@ Remove-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "FilterRegex" -ErrorA
 | `Glide` | All items drift upward while fading in together (ease-out-cubic). |
 | `Spring` | Items scale in from zero with a slight overshoot bounce, staggered. |
 | `Fade` | Instant layout, very short fade-in only. |
-| `None` | Instant — no animation. |
+| `None` | Instant, no animation. |
 
 ```powershell
 Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "AnimationStyle" -Value "Spring"
