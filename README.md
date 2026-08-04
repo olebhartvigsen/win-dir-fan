@@ -2,13 +2,13 @@
 
 **Your latest files, one click away from the Windows taskbar.**
 
-Stop digging through File Explorer for files you just used. FanFolder puts your recent documents or any folder you choose directly on the taskbar. Click its icon to open an animated fan of files, then open, drag, copy, rename, or delete them using familiar Windows shell actions.
+Stop digging through File Explorer for files you just used. FanFolder puts your recent documents — or any folder you choose — directly on the taskbar. Click the icon and the files fan out. Open, drag, copy, rename, or delete them with the same Windows actions you already know.
 
-Use it for recent documents, an active project folder, Downloads, or any folder you open often.
+Use it for recent documents, an active project folder, Downloads, or whatever you open often.
 
-FanFolder is a small native Win32/C++ application. It has no .NET runtime dependency and the executable is about 161 KB.
+FanFolder is a native Win32/C++ app. No .NET runtime needed. The executable is about 161 KB.
 
-🌐 **Homepage:** <https://olebhartvigsen.github.io/FanFolder/>
+**Homepage:** <https://olebhartvigsen.github.io/FanFolder/>
 
 ---
 
@@ -22,16 +22,16 @@ If you find FanFolder useful, an optional "buy me a coffee" donation is apprecia
 
 ## Features
 
-- Animated arc/fan popup anchored to the taskbar
+- Arc-shaped popup that opens from the taskbar
 - Multiple animation styles: Fan, Glide, Spring, Fade, None
-- Adaptive icon size with shell icons and file thumbnails
-- Configurable folder, sort order, item count, and filename filter
+- Icons resize automatically, with actual Windows shell icons and thumbnails
+- Pick your folder, sort order, item count, and filter by filename
 - Sort by date modified, date created, or name
-- Shell context menu (open, copy, delete, rename, …) on right-click
-- Drag-and-drop items out of the menu to other applications
+- Right-click any item for the full Windows context menu (open, copy, delete, rename...)
+- Drag items out of the menu and drop them into other applications
 - Drop files from Explorer onto the fan menu to move them into the watched folder
 - Show or hide file extensions
-- All settings stored in the Windows registry — accessible via the tray icon menu
+- All settings live in the Windows registry — change them from the tray icon menu
 
 ---
 
@@ -85,20 +85,9 @@ Output: `FanFolder\build\Release\FanFolder.exe`
 
 ## Anonymous installation telemetry
 
-After FanFolder has successfully created its main window, it sends one anonymous
-`app_installed` event to the FanFolder Aptabase project in the EU. The request uses
-the Windows WinHTTP API, runs in the background, has a short timeout, and is
-ignored when the network is unavailable. It never affects normal operation. This
-telemetry is sent by both release and debug builds unless disabled in the registry.
+Once FanFolder is running, it sends a single anonymous `app_installed` event to the FanFolder Aptabase project in the EU. This uses the Windows WinHTTP API, runs in the background with a short timeout, and is skipped entirely if there is no network. It will not slow you down or get in the way. Both release and debug builds send this unless you disable it in the registry.
 
-The event contains a random per-user installation identifier, application version,
-CPU architecture, and the platform identifier `Windows`. Aptabase may also derive
-coarse region information from the network request. FanFolder does not send
-usernames, folder paths, filenames, account information, or file activity. Aptabase
-can receive normal network metadata associated with the HTTPS request. The
-identifier is stored under `HKEY_CURRENT_USER\SOFTWARE\FanFolder`; the event is
-marked as sent only after a successful response, so failed delivery is retried on a
-later launch.
+The event contains a random per-user installation identifier, the application version, CPU architecture, and the platform identifier `Windows`. Aptabase may also derive coarse region information from the network request. FanFolder does not send usernames, folder paths, filenames, account information, or file activity. Aptabase can receive normal network metadata associated with the HTTPS request. The identifier is stored under `HKEY_CURRENT_USER\SOFTWARE\FanFolder`; the event is only marked as sent after a successful response, so a failed delivery is retried on a later launch.
 
 To opt out before launching FanFolder, run:
 
@@ -123,8 +112,7 @@ All settings live under `HKEY_CURRENT_USER\SOFTWARE\FanFolder` and can be change
 
 **Type:** `REG_SZ` | **Default:** `::RecentDocs::`
 
-The folder whose contents are displayed in the fan menu. In addition to a normal
-filesystem path, three special virtual values are supported:
+The folder whose contents are displayed in the fan menu. In addition to a normal filesystem path, three special virtual values are supported:
 
 | Value | Shows |
 |---|---|
@@ -161,8 +149,7 @@ Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "SortMode" -Value "DateM
 
 **Type:** `REG_DWORD` | **Default:** `15` | **Range:** 1 – 50 (tray menu offers 5 / 10 / 15 / 20 / 25)
 
-Maximum number of items shown. The tray menu selects it in steps of 5; any value
-from 1 to 50 can be set directly in the registry.
+Maximum number of items shown. The tray menu sets it in steps of 5; any value from 1 to 50 can be set directly in the registry.
 
 ```powershell
 Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "MaxItems" -Value 10
@@ -198,7 +185,7 @@ Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "ShowExtensions" -Value 
 
 **Type:** `REG_SZ` | **Default:** *(empty — no filter)*
 
-A regular expression matched case-insensitively against each item's filename. Only matching items are shown.
+A regular expression, matched case-insensitively against each filename. Only matching items are shown.
 
 ```powershell
 # Show only PDFs and Word documents
@@ -236,4 +223,3 @@ Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "AnimationStyle" -Value 
 # Remove registry settings
 Remove-Item -Path "HKCU:\SOFTWARE\FanFolder" -Recurse -ErrorAction SilentlyContinue
 ```
-
