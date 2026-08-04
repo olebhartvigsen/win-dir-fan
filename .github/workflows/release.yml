@@ -135,7 +135,8 @@ jobs:
         run: |
           mkdir -p msix-staging
           cp installer/msix/AppxManifest.xml msix-staging/AppxManifest.xml
-          sed -i 's/Version="[^"]*"/Version="${{ steps.version.outputs.MSIX_VERSION }}"/' msix-staging/AppxManifest.xml
+          sed -i 's|<Identity Name="OleBhartvigsen.FanFolder"|&|' msix-staging/AppxManifest.xml
+          sed -i '/<Identity /s/Version="[^"]*"/Version="${{ steps.version.outputs.MSIX_VERSION }}"/' msix-staging/AppxManifest.xml
 
       - name: Generate MSIX assets from icon
         shell: pwsh
