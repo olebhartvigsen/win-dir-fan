@@ -19,6 +19,34 @@
 
   <Resources>
     <Resource Language="en-US"/>
+    <Resource Language="ar-SA"/>
+    <Resource Language="cs-CZ"/>
+    <Resource Language="da-DK"/>
+    <Resource Language="de-DE"/>
+    <Resource Language="el-GR"/>
+    <Resource Language="es-ES"/>
+    <Resource Language="fi-FI"/>
+    <Resource Language="fr-FR"/>
+    <Resource Language="he-IL"/>
+    <Resource Language="hi-IN"/>
+    <Resource Language="hu-HU"/>
+    <Resource Language="id-ID"/>
+    <Resource Language="it-IT"/>
+    <Resource Language="ja-JP"/>
+    <Resource Language="ko-KR"/>
+    <Resource Language="nb-NO"/>
+    <Resource Language="nl-NL"/>
+    <Resource Language="pl-PL"/>
+    <Resource Language="pt-BR"/>
+    <Resource Language="ro-RO"/>
+    <Resource Language="ru-RU"/>
+    <Resource Language="sv-SE"/>
+    <Resource Language="sw-KE"/>
+    <Resource Language="th-TH"/>
+    <Resource Language="tr-TR"/>
+    <Resource Language="uk-UA"/>
+    <Resource Language="vi-VN"/>
+    <Resource Language="zh-CN"/>
   </Resources>
 
   <Dependencies>
