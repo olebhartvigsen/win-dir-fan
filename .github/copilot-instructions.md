@@ -87,7 +87,7 @@ FanFolder lives in two repos with a strict separation of concerns:
 | Repo | Visibility | Contains | Do not put here |
 |---|---|---|---|
 | [`olebhartvigsen/win-dir-fan`](https://github.com/olebhartvigsen/win-dir-fan) | **private** — source repo | All source code, CMake/WiX project, build pipeline, docs, winget manifest templates, website source | Release binaries (built artifacts are uploaded to the distribution repo, not committed here) |
-| [`olebhartvigsen/FanFolder`](https://github.com/olebhartvigsen/FanFolder) | **public** — distribution repo | Releases only: `.exe`, `.msi`, bundle installer, auto-generated winget manifests, a public `LICENSE`, and a minimal README pointing to the website. **No source code.** | Any C++/C#/build source, private URLs |
+| [`olebhartvigsen/FanFolder`](https://github.com/olebhartvigsen/FanFolder) | **public** — distribution repo | Releases only: `.exe`, `.msi`, bundle installer, auto-generated winget manifests, a public `LICENSE.md`, and a minimal README pointing to the website. **No source code.** | Any C++/C#/build source, private URLs |
 
 **All development happens in `win-dir-fan`.** Clones, PRs, issues, CI, and commits all target that repo. The `FanFolder` repo is a publish target — you do not edit it directly except for release metadata.
 
