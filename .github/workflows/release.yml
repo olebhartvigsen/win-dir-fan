@@ -118,9 +118,9 @@ jobs:
         run: |
           $manifest = Get-Content installer/msix/AppxManifest.xml -Raw
           $manifest = $manifest -replace 'Version="[^"]*"', "Version=`"${{ steps.version.outputs.MSIX_VERSION }}`""
-          # Write without BOM so makeappx can parse it
-          $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-          [System.IO.File]::WriteAllText("msix-staging/AppxManifest.xml", $manifest, $utf8NoBom)
+          # Use .NET to write without BOM — Out-File with utf8NoBom may be unreliable
+          $bytes = [System.Text.Encoding]::UTF8.GetBytes($manifest)
+          [System.IO.File]::WriteAllBytes("msix-staging/AppxManifest.xml", $bytes)
 
       - name: Generate MSIX assets from icon
         shell: pwsh
@@ -153,7 +153,10 @@ jobs:
               $bmp.Dispose()
             }
             $ico.Dispose()
-            Copy-Item "msix-staging/AppxManifest.xml" "msix-staging/$arch/AppxManifest.xml" -Force
+            # Make sure manifest is in each staging dir (avoid BOM issues by using .NET)
+            $destManifest = "msix-staging/$arch/AppxManifest.xml"
+            $manifestBytes = [System.IO.File]::ReadAllBytes("msix-staging/AppxManifest.xml")
+            [System.IO.File]::WriteAllBytes($destManifest, $manifestBytes)
           }
 
       - name: Find latest Windows SDK
