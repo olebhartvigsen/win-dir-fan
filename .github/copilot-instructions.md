@@ -105,7 +105,7 @@ FanFolder lives in two repos with a strict separation of concerns:
 - If you hand-edit `installer/winget/*.yaml` without updating the generator, your changes will be overwritten on the next release. Don't do it.
 
 **Public-facing URLs — always use the `FanFolder` repo:**
-- License: `https://github.com/olebhartvigsen/FanFolder/blob/main/LICENSE`
+- License: `https://github.com/olebhartvigsen/FanFolder/blob/main/LICENSE.md`
 - Installer downloads: `https://github.com/olebhartvigsen/FanFolder/releases/download/v<version>/...`
 - Release notes: `https://github.com/olebhartvigsen/FanFolder/releases/tag/v<version>`
 - Never link the public world to `win-dir-fan` — it is private and will 404 for winget validators, end users, and the website.

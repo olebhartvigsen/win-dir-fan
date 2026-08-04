@@ -118,7 +118,9 @@ jobs:
         run: |
           $manifest = Get-Content installer/msix/AppxManifest.xml -Raw
           $manifest = $manifest -replace 'Version="[^"]*"', "Version=`"${{ steps.version.outputs.MSIX_VERSION }}`""
-          $manifest | Set-Content msix-staging/AppxManifest.xml -Encoding UTF8
+          # Write without BOM so makeappx can parse it
+          $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+          [System.IO.File]::WriteAllText("msix-staging/AppxManifest.xml", $manifest, $utf8NoBom)
 
       - name: Generate MSIX assets from icon
         shell: pwsh
