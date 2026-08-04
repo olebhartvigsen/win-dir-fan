@@ -1,5 +1,11 @@
 ## C++ build output
 FanFolder/build/
+FanFolder/build-*/
+
+## MSIX local staging / output / test certs
+installer/msix/staging-*/
+installer/msix/output/
+installer/msix/*.pfx
 
 ## Installer output
 installer/output/
