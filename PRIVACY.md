@@ -6,7 +6,7 @@ Last updated: 31 July 2026
 
 FanFolder is a local Windows taskbar utility. It shows you files from folders on your computer and uses the standard Windows context menu for file operations. The app does not transmit, upload, sync, or share your files, folder contents, filenames, or file activity to any server.
 
-Your file data stays on your device unless you open, move, or share it through Windows or another application. None of that goes through FanFolder.
+Your file data stays on your device unless you open, move, or share it through Windows or another application — none of that goes through FanFolder.
 
 ---
 
@@ -30,7 +30,7 @@ FanFolder sends one thing: an anonymous installation event, once, on the first s
 
 ## 2. What the network request reveals
 
-The installation event goes to Aptabase as an HTTPS POST. Like any HTTPS request, Aptabase can see normal network metadata: your IP address and standard HTTP headers. Aptabase may use your IP to figure out a rough geographic region like country. FanFolder does not include your IP address or any network metadata in the event payload itself; Aptabase sees only what the HTTPS connection itself exposes.
+The installation event goes to Aptabase as an HTTPS POST. Like any HTTPS request, Aptabase can see normal network metadata — your IP address and standard HTTP headers. Aptabase may use your IP to figure out a rough geographic region like country. FanFolder does not include your IP address or any network metadata in the event payload itself; Aptabase sees only what the HTTPS connection itself exposes.
 
 ---
 
@@ -58,7 +58,7 @@ On the first successful launch after installation or update:
 1. FanFolder checks `TelemetryFirstRunSent` in the registry. If it is already set, nothing is sent and the app continues normally.
 2. If the flag is not set, FanFolder generates a random installation identifier (as described above) and stores it in the registry.
 3. It sends a single HTTPS POST to `https://eu.aptabase.com/api/v0/events`. The request runs in a background thread using the Windows WinHTTP API, with a 3-second timeout for each stage. It does not block startup, and the app remains fully usable even without a network.
-4. Only if the request succeeds (HTTP 2xx) does the app set `TelemetryFirstRunSent`. If it fails (no network, timeout, server error), the flag stays unset, and the app retries on a later launch.
+4. Only if the request succeeds (HTTP 2xx) does the app set `TelemetryFirstRunSent`. If it fails — no network, timeout, server error — the flag stays unset, and the app retries on a later launch.
 5. On all later launches the flag is already set, so no further telemetry is sent for that installation.
 
 ---
