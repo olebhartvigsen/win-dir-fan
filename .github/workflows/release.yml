@@ -73,6 +73,119 @@ jobs:
             FanFolder/build/Release/FanFolder.exe
             installer/output/FanFolderSetup-${{ matrix.arch }}.msi
 
+      - name: Upload EXE for MSIX (renamed)
+        uses: actions/upload-artifact@v4
+        with:
+          name: exe-${{ matrix.arch }}
+          path: FanFolder/build/Release/FanFolder.exe
+
+  build-msix:
+    name: Build MSIX packages
+    runs-on: windows-2022
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            MSIX_VERSION="${VERSION}.0"
+            echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "MSIX_VERSION=${MSIX_VERSION}" >> "$GITHUB_OUTPUT"
+          else
+            echo "VERSION=0.0.0" >> "$GITHUB_OUTPUT"
+            echo "MSIX_VERSION=0.0.0.0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download x64 EXE
+        uses: actions/download-artifact@v4
+        with:
+          name: exe-x64
+          path: msix-staging/x64
+
+      - name: Download arm64 EXE
+        uses: actions/download-artifact@v4
+        with:
+          name: exe-arm64
+          path: msix-staging/arm64
+
+      - name: Prepare MSIX manifest
+        shell: pwsh
+        run: |
+          $manifest = Get-Content installer/msix/AppxManifest.xml -Raw
+          $manifest = $manifest -replace 'Version="[^"]*"', "Version=`"${{ steps.version.outputs.MSIX_VERSION }}`""
+          $manifest | Set-Content msix-staging/AppxManifest.xml -Encoding UTF8
+
+      - name: Generate MSIX assets from icon
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          $icoPath = "FanFolder/resources/app.ico"
+          $assets = @{
+            "StoreLogo.png"    = @{W=50;  H=50}
+            "Logo44.png"       = @{W=44;  H=44}
+            "Logo71.png"       = @{W=71;  H=71}
+            "Logo150.png"      = @{W=150; H=150}
+            "Logo310.png"      = @{W=310; H=310}
+            "Wide310x150.png"  = @{W=310; H=150}
+            "SplashScreen.png" = @{W=620; H=300}
+          }
+          foreach ($arch in @("x64","arm64")) {
+            $assetsDir = "msix-staging/$arch/assets"
+            New-Item -ItemType Directory -Force -Path $assetsDir | Out-Null
+            $ico = [System.Drawing.Icon]::new($icoPath)
+            foreach ($kv in $assets.GetEnumerator()) {
+              $name = $kv.Key; $w = $kv.Value.W; $h = $kv.Value.H
+              $dest = "$assetsDir/$name"
+              $bmp = New-Object System.Drawing.Bitmap $w, $h
+              $g = [System.Drawing.Graphics]::FromImage($bmp)
+              $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+              $g.Clear([System.Drawing.Color]::Transparent)
+              $g.DrawImage($ico.ToBitmap(), 0, 0, $w, $h)
+              $g.Dispose()
+              $bmp.Save($dest, [System.Drawing.Imaging.ImageFormat]::Png)
+              $bmp.Dispose()
+            }
+            $ico.Dispose()
+            Copy-Item "msix-staging/AppxManifest.xml" "msix-staging/$arch/AppxManifest.xml" -Force
+          }
+
+      - name: Find latest Windows SDK
+        shell: pwsh
+        run: |
+          $sdkRoot = "C:\Program Files (x86)\Windows Kits\10\bin"
+          $latest = (Get-ChildItem $sdkRoot -Directory | Where-Object Name -like "10.0.*" | Sort-Object Name -Descending | Select-Object -First 1).Name
+          $makeAppx = Join-Path $sdkRoot "$latest/x64/makeappx.exe"
+          if (-not (Test-Path $makeAppx)) {
+            $makeAppx = Join-Path $sdkRoot "$latest/x86/makeappx.exe"
+          }
+          echo "MAKEAPPX=$makeAppx" >> $env:GITHUB_OUTPUT
+        id: sdk
+
+      - name: Pack MSIX (x64)
+        shell: pwsh
+        run: |
+          & "${{ steps.sdk.outputs.MAKEAPPX }}" pack -d msix-staging/x64 -p msix-staging/FanFolder-x64.msix
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Pack MSIX (arm64)
+        shell: pwsh
+        run: |
+          & "${{ steps.sdk.outputs.MAKEAPPX }}" pack -d msix-staging/arm64 -p msix-staging/FanFolder-arm64.msix
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Upload MSIX artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: msix-packages
+          path: |
+            msix-staging/FanFolder-x64.msix
+            msix-staging/FanFolder-arm64.msix
+
   bundle:
     name: Create combined installer
     runs-on: windows-2022
@@ -154,10 +267,7 @@ jobs:
             exit 0
           fi
           git commit -m "Sync winget manifest templates for ${{ github.ref_name }}"
-          # Push to the branch the tag was created from (default: master/main).
           DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
-          # Rebase onto the latest default branch in case master moved between
-          # checkout and now; retry a few times to survive concurrent pushes.
           for attempt in 1 2 3; do
             git fetch origin "$DEFAULT_BRANCH"
             if git rebase "origin/$DEFAULT_BRANCH"; then
@@ -171,9 +281,15 @@ jobs:
             echo "Sync attempt $attempt failed; retrying..."
             sleep $((attempt * 5))
           done
-          echo "::warning::Could not sync winget templates back to master after 3 attempts. Continuing so the release still publishes; templates will be regenerated on the next release."
+          echo "::warning::Could not sync winget templates back to master after 3 attempts."
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download MSIX artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: msix-packages
+          path: artifacts/msix
 
       - name: Publish release to distribution repo
         shell: bash
@@ -192,7 +308,6 @@ jobs:
             PRERELEASE="--prerelease"
           fi
 
-          # Create the release (ignore error if it already exists)
           gh release create "$TAG" \
             --repo "$DIST_REPO" \
             --title "$TITLE" \
@@ -208,6 +323,8 @@ jobs:
             "artifacts/x64/installer/output/FanFolderSetup-x64.msi" \
             "artifacts/arm64/installer/output/FanFolderSetup-arm64.msi" \
             "installer/bundle/output/FanFolderSetup.exe" \
+            "artifacts/msix/FanFolder-x64.msix" \
+            "artifacts/msix/FanFolder-arm64.msix" \
             "winget-manifests/OleBhartvigsen.FanFolder.yaml" \
             "winget-manifests/OleBhartvigsen.FanFolder.installer.yaml" \
             "winget-manifests/OleBhartvigsen.FanFolder.locale.en-US.yaml"
