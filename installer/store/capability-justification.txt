@@ -1,0 +1,33 @@
+========================================
+runFullTrust (under 500 chars)
+========================================
+
+FanFolder is a Win32/C++ system tray utility. It shows recent files as a fan menu on taskbar click. It needs runFullTrust because it uses Win32 APIs with no UWP equivalent: Shell_NotifyIcon for the tray icon, IContextMenu (COM) for the Explorer right-click menu, OLE drag-and-drop to drag files into other apps, windows.startupTask for autostart, and IShellLink (COM) to resolve .lnk shortcuts. The app is not elevated, has a visible tray icon, and can be closed at any time.
+
+Support: https://github.com/olebhartvigsen/win-dir-fan
+
+========================================
+broadFileSystemAccess -- REMOVED
+========================================
+
+Removed from AppxManifest.xml. Not needed for a full-trust (medium IL)
+desktop app. FanFolder uses Win32 file APIs (CreateFileW, FindFirstFileW,
+GetFileAttributesW, IShellLink COM) which work directly under the user's
+token with runFullTrust. broadFileSystemAccess is for UWP sandbox apps that
+need Windows.Storage APIs to break out of the sandbox. FanFolder has zero
+WinRT/Windows.Storage references.
+
+Microsoft docs confirm: "A Medium IL app is already running as the user;
+so an app like that can already perform those operations without requiring
+those capabilities."
+
+========================================
+Partner Center action needed
+========================================
+
+The reviewer also asked for a support contact URL:
+
+  Properties > Support Info > Use different details for this app
+  > Support contact info
+
+Set to: https://github.com/olebhartvigsen/win-dir-fan
