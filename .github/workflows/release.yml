@@ -138,38 +138,13 @@ jobs:
           sed -i 's|<Identity Name="OleBhartvigsen.FanFolder"|&|' msix-staging/AppxManifest.xml
           sed -i '/<Identity /s/Version="[^"]*"/Version="${{ steps.version.outputs.MSIX_VERSION }}"/' msix-staging/AppxManifest.xml
 
-      - name: Generate MSIX assets from icon
-        shell: pwsh
+      - name: Copy pre-generated MSIX assets
+        shell: bash
         run: |
-          Add-Type -AssemblyName System.Drawing
-          $icoPath = "FanFolder/resources/app.ico"
-          $assets = @{
-            "StoreLogo.png"    = @{W=50;  H=50}
-            "Logo44.png"       = @{W=44;  H=44}
-            "Logo71.png"       = @{W=71;  H=71}
-            "Logo150.png"      = @{W=150; H=150}
-            "Logo310.png"      = @{W=310; H=310}
-            "Wide310x150.png"  = @{W=310; H=150}
-            "SplashScreen.png" = @{W=620; H=300}
-          }
-          foreach ($arch in @("x64","arm64")) {
-            $assetsDir = "msix-staging/$arch/assets"
-            New-Item -ItemType Directory -Force -Path $assetsDir | Out-Null
-            $ico = [System.Drawing.Icon]::new($icoPath)
-            foreach ($kv in $assets.GetEnumerator()) {
-              $name = $kv.Key; $w = $kv.Value.W; $h = $kv.Value.H
-              $dest = "$assetsDir/$name"
-              $bmp = New-Object System.Drawing.Bitmap $w, $h
-              $g = [System.Drawing.Graphics]::FromImage($bmp)
-              $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-              $g.Clear([System.Drawing.Color]::Transparent)
-              $g.DrawImage($ico.ToBitmap(), 0, 0, $w, $h)
-              $g.Dispose()
-              $bmp.Save($dest, [System.Drawing.Imaging.ImageFormat]::Png)
-              $bmp.Dispose()
-            }
-            $ico.Dispose()
-          }
+          for arch in x64 arm64; do
+            mkdir -p "msix-staging/$arch/assets"
+            cp installer/msix/assets/*.png "msix-staging/$arch/assets/"
+          done
 
       - name: Copy manifest to staging dirs (with architecture)
         shell: bash
