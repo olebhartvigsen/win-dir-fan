@@ -106,7 +106,8 @@ void MainWindow::Register(HINSTANCE hInst) {
     wc.style         = 0;
     wc.lpfnWndProc   = WndProc;
     wc.hInstance     = hInst;
-    wc.hIcon         = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_APP));
+    wc.hIcon         = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(IDI_APP),
+                                        IMAGE_ICON, 0, 0, LR_CREATEDIBSECTION);
     wc.hCursor       = LoadCursor(nullptr, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wc.lpszClassName = ClassName();
@@ -159,14 +160,17 @@ bool MainWindow::Create() {
     DwmSetWindowAttribute(_hwnd, DWMWA_EXCLUDED_FROM_PEEK,          &val, sizeof(val));
 
     // Set taskbar icon from embedded resource
+    // Use LR_CREATEDIBSECTION to preserve the 32-bit alpha channel.
+    // LR_DEFAULTCOLOR drops alpha on MSIX-packaged apps, causing the
+    // icon background to appear as a solid blue square.
     _icoSmall     = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
-                                       IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
+                                       IMAGE_ICON, 16, 16, LR_CREATEDIBSECTION);
     _icoBig       = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
-                                       IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
+                                       IMAGE_ICON, 32, 32, LR_CREATEDIBSECTION);
     _icoOpenSmall = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP_OPEN),
-                                       IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
+                                       IMAGE_ICON, 16, 16, LR_CREATEDIBSECTION);
     _icoOpenBig   = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP_OPEN),
-                                       IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
+                                       IMAGE_ICON, 32, 32, LR_CREATEDIBSECTION);
     SetTaskbarIcon(false);
 
     StartPrewarm(/*force*/ true);
@@ -888,10 +892,10 @@ void MainWindow::ProvideIconicThumbnail(int w, int h) {
 
     static constexpr int SrcSize = 256;
     HICON hIco = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
-                                    IMAGE_ICON, SrcSize, SrcSize, LR_DEFAULTCOLOR);
+                                    IMAGE_ICON, SrcSize, SrcSize, LR_CREATEDIBSECTION);
     if (!hIco)
         hIco = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
-                                  IMAGE_ICON, 0, 0, LR_DEFAULTCOLOR);
+                                  IMAGE_ICON, 0, 0, LR_CREATEDIBSECTION);
     if (!hIco) return;
 
     // Draw into a 256×256 DIB — DrawIconEx preserves premultiplied alpha
