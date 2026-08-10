@@ -87,11 +87,11 @@ static HICON CreateAlphaIconAtSize(HINSTANCE hInst, LPCWSTR resId, int size) {
     // Create a 32-bit top-down DIB section at the target size
     BITMAPINFO bi = {};
     bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
-    bi.biHeader.biWidth        = size;
-    bi.biHeader.biHeight       = -size;   // top-down
-    bi.biHeader.biPlanes       = 1;
-    bi.biHeader.biBitCount      = 32;
-    bi.bmiHeader.biCompression  = BI_RGB;
+    bi.bmiHeader.biWidth       = size;
+    bi.bmiHeader.biHeight      = -size;   // top-down
+    bi.bmiHeader.biPlanes      = 1;
+    bi.bmiHeader.biBitCount    = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
 
     void* bits = nullptr;
     HDC hdc = GetDC(nullptr);
@@ -112,7 +112,6 @@ static HICON CreateAlphaIconAtSize(HINSTANCE hInst, LPCWSTR resId, int size) {
     DestroyIcon(hSrc);
 
     // Create a mask bitmap (all zero = no clipping, rely on alpha)
-    HDC maskDC = CreateCompatibleDC(nullptr);
     BITMAPINFO mi = {};
     mi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
     mi.bmiHeader.biWidth       = size;
@@ -121,6 +120,7 @@ static HICON CreateAlphaIconAtSize(HINSTANCE hInst, LPCWSTR resId, int size) {
     mi.bmiHeader.biBitCount    = 1;
     mi.bmiHeader.biCompression = BI_RGB;
     void* maskBits = nullptr;
+    HDC maskDC = CreateCompatibleDC(nullptr);
     HBITMAP hMask = CreateDIBSection(maskDC, &mi, DIB_RGB_COLORS, &maskBits, nullptr, 0);
     ZeroMemory(maskBits, ((size + 7) / 8) * size);
     DeleteDC(maskDC);
@@ -128,8 +128,8 @@ static HICON CreateAlphaIconAtSize(HINSTANCE hInst, LPCWSTR resId, int size) {
     // Create the icon from the color bitmap + mask
     ICONINFO ii = {};
     ii.fIcon    = TRUE;
-    ii.xSpot    = 0;
-    ii.ySpot    = 0;
+    ii.xHotspot = 0;
+    ii.yHotspot = 0;
     ii.hbmMask  = hMask;
     ii.hbmColor = hbmp;
 
