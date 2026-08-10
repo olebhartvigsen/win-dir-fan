@@ -73,6 +73,73 @@ static HBITMAP DuplicateTopDownDib32(HBITMAP src) {
     return dst;
 }
 
+// Create an HICON with proper 32-bit alpha at a specific size by drawing
+// a larger source icon into a 32-bit DIB section, then wrapping it with
+// CreateIconIndirect.  This bypasses LoadImageW's downsampling which
+// can drop the alpha channel under MSIX packaged apps.
+static HICON CreateAlphaIconAtSize(HINSTANCE hInst, LPCWSTR resId, int size) {
+    // Load the source at 256x256 with LR_CREATEDIBSECTION (preserves alpha)
+    HICON hSrc = (HICON)LoadImageW(hInst, resId, IMAGE_ICON, 256, 256, LR_CREATEDIBSECTION);
+    if (!hSrc)
+        hSrc = (HICON)LoadImageW(hInst, resId, IMAGE_ICON, 0, 0, LR_CREATEDIBSECTION);
+    if (!hSrc) return nullptr;
+
+    // Create a 32-bit top-down DIB section at the target size
+    BITMAPINFO bi = {};
+    bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    bi.biHeader.biWidth        = size;
+    bi.biHeader.biHeight       = -size;   // top-down
+    bi.biHeader.biPlanes       = 1;
+    bi.biHeader.biBitCount      = 32;
+    bi.bmiHeader.biCompression  = BI_RGB;
+
+    void* bits = nullptr;
+    HDC hdc = GetDC(nullptr);
+    HBITMAP hbmp = CreateDIBSection(hdc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    HDC mem = CreateCompatibleDC(hdc);
+    HBITMAP old = (HBITMAP)SelectObject(mem, hbmp);
+
+    // Clear to transparent black
+    ZeroMemory(bits, size * size * 4);
+
+    // Draw the source icon scaled down with alpha
+    DrawIconEx(mem, 0, 0, hSrc, size, size, 0, nullptr, DI_NORMAL);
+    GdiFlush();
+
+    SelectObject(mem, old);
+    DeleteDC(mem);
+    ReleaseDC(nullptr, hdc);
+    DestroyIcon(hSrc);
+
+    // Create a mask bitmap (all zero = no clipping, rely on alpha)
+    HDC maskDC = CreateCompatibleDC(nullptr);
+    BITMAPINFO mi = {};
+    mi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    mi.bmiHeader.biWidth       = size;
+    mi.bmiHeader.biHeight      = size;   // bottom-up for mask
+    mi.bmiHeader.biPlanes      = 1;
+    mi.bmiHeader.biBitCount    = 1;
+    mi.bmiHeader.biCompression = BI_RGB;
+    void* maskBits = nullptr;
+    HBITMAP hMask = CreateDIBSection(maskDC, &mi, DIB_RGB_COLORS, &maskBits, nullptr, 0);
+    ZeroMemory(maskBits, ((size + 7) / 8) * size);
+    DeleteDC(maskDC);
+
+    // Create the icon from the color bitmap + mask
+    ICONINFO ii = {};
+    ii.fIcon    = TRUE;
+    ii.xSpot    = 0;
+    ii.ySpot    = 0;
+    ii.hbmMask  = hMask;
+    ii.hbmColor = hbmp;
+
+    HICON hIcon = CreateIconIndirect(&ii);
+
+    DeleteObject(hMask);
+    DeleteObject(hbmp);
+    return hIcon;
+}
+
 // DWM constants not always present
 #ifndef DWMWA_FORCE_ICONIC_REPRESENTATION
 #define DWMWA_FORCE_ICONIC_REPRESENTATION 7
@@ -106,8 +173,7 @@ void MainWindow::Register(HINSTANCE hInst) {
     wc.style         = 0;
     wc.lpfnWndProc   = WndProc;
     wc.hInstance     = hInst;
-    wc.hIcon         = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(IDI_APP),
-                                        IMAGE_ICON, 0, 0, LR_CREATEDIBSECTION);
+    wc.hIcon         = CreateAlphaIconAtSize(hInst, MAKEINTRESOURCEW(IDI_APP), 32);
     wc.hCursor       = LoadCursor(nullptr, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wc.lpszClassName = ClassName();
@@ -159,18 +225,17 @@ bool MainWindow::Create() {
     DwmSetWindowAttribute(_hwnd, DWMWA_DISALLOW_PEEK,               &val, sizeof(val));
     DwmSetWindowAttribute(_hwnd, DWMWA_EXCLUDED_FROM_PEEK,          &val, sizeof(val));
 
-    // Set taskbar icon from embedded resource
-    // Use LR_CREATEDIBSECTION to preserve the 32-bit alpha channel.
-    // LR_DEFAULTCOLOR drops alpha on MSIX-packaged apps, causing the
-    // icon background to appear as a solid blue square.
-    _icoSmall     = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
-                                       IMAGE_ICON, 16, 16, LR_CREATEDIBSECTION);
-    _icoBig       = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
-                                       IMAGE_ICON, 32, 32, LR_CREATEDIBSECTION);
-    _icoOpenSmall = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP_OPEN),
-                                       IMAGE_ICON, 16, 16, LR_CREATEDIBSECTION);
-    _icoOpenBig   = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP_OPEN),
-                                       IMAGE_ICON, 32, 32, LR_CREATEDIBSECTION);
+    // Set taskbar icon from embedded resource.
+    // Under MSIX packaged apps, LoadImageW with explicit small sizes (16/32)
+    // can drop the 32-bit alpha channel even with LR_CREATEDIBSECTION,
+    // causing the icon background to appear as a solid blue square.
+    // Fix: load the icon at native 256x256 size (which preserves alpha),
+    // draw it into a 32-bit DIB section at the target size, then wrap
+    // with CreateIconIndirect. This produces a proper alpha-aware HICON.
+    _icoSmall     = CreateAlphaIconAtSize(_hInst, MAKEINTRESOURCEW(IDI_APP),     16);
+    _icoBig       = CreateAlphaIconAtSize(_hInst, MAKEINTRESOURCEW(IDI_APP),     32);
+    _icoOpenSmall = CreateAlphaIconAtSize(_hInst, MAKEINTRESOURCEW(IDI_APP_OPEN), 16);
+    _icoOpenBig   = CreateAlphaIconAtSize(_hInst, MAKEINTRESOURCEW(IDI_APP_OPEN), 32);
     SetTaskbarIcon(false);
 
     StartPrewarm(/*force*/ true);
