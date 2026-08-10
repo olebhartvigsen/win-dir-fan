@@ -14,6 +14,16 @@ Alternatives:
 ## Description (max 260 chars)
 Click one taskbar icon and your recent files fan out in an arc. Open, drag, rename or delete them right there with the normal Windows menus. Point it at Recent, Downloads or any folder you like. Native Win32, 161 KB, no runtime, free forever.
 
+## Media
+
+Files live in `FanFolder/windows store/producthunt/`.
+
+- `fanfolder-demo.gif` (960x540, 3.6s loop, 600 KB) - use as the gallery thumbnail
+- `fanfolder-demo.mp4` (1280x720, 30 fps) - upload where video is allowed, it looks sharper
+- `fanfolder-hero.png` (1280x720) - static fallback and social card
+
+The loop shows the fan opening, the cursor moving over items, and the menu holding open so people can read the file names. Source clip: `FanFolder/resources/menu-opens.mp4`.
+
 ## Topics
 Productivity, Windows, Developer Tools, Design Tools, Task Management
 
