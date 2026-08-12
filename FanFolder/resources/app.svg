@@ -1,14 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
   <!--
-    FanFolder app icon — OPEN STATE (full-bleed green)
-    Green gradient fills the entire tile, blending with the front card.
-    Purple card peeks out on the left. No blue, no transparency.
+    FanFolder app icon — OPEN STATE (transparent, no blue card)
+    Two file cards fanning upward from a bottom-center hinge.
+    Back  : Purple image (photo with sun + mountains)
+    Front : Green spreadsheet (grid) — largest, most prominent
+    No blue card. Transparent background.
   -->
   <defs>
-    <linearGradient id="bgGreen" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#5CE08C"/>
-      <stop offset="100%" stop-color="#15A34A"/>
-    </linearGradient>
     <linearGradient id="gGreen" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#5CE08C"/>
       <stop offset="100%" stop-color="#15A34A"/>
@@ -32,13 +30,7 @@
     </filter>
   </defs>
 
-  <!-- Full-bleed green gradient background (matches front card) -->
-  <rect x="0" y="0" width="256" height="256" fill="url(#bgGreen)"/>
-
-  <!-- Scale cards 1.283x to fill more of the tile -->
-  <g transform="translate(-26.8, 26.0) translate(154.8, 102.0) scale(1.2827) translate(-154.8, -102.0)">
-
-  <!-- Back: Purple image (peek on left) -->
+  <!-- Back: Purple image -->
   <g transform="translate(100,250) rotate(4)" filter="url(#cardShadow)">
     <rect x="-48" y="-218" width="96" height="130" rx="11" fill="url(#gPurple)"/>
     <rect x="-48" y="-218" width="96" height="130" rx="11" fill="url(#cardGloss)"/>
@@ -52,7 +44,7 @@
     <rect x="-32" y="-116" width="36" height="5" rx="2" fill="#ffffff" opacity="0.45"/>
   </g>
 
-  <!-- Front: Green spreadsheet (blends with background) -->
+  <!-- Front: Green spreadsheet -->
   <g transform="translate(100,250) rotate(24)" filter="url(#cardShadow)">
     <rect x="-58" y="-242" width="116" height="160" rx="13" fill="url(#gGreen)"/>
     <rect x="-58" y="-242" width="116" height="160" rx="13" fill="url(#cardGloss)"/>
@@ -65,7 +57,5 @@
       <line x1="-46" y1="-147" x2="46"  y2="-147" stroke-width="5" opacity="0.92"/>
       <line x1="-46" y1="-120" x2="46"  y2="-120" stroke-width="5" opacity="0.92"/>
     </g>
-  </g>
-
   </g>
 </svg>
