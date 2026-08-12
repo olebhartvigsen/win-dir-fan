@@ -29,6 +29,7 @@
       </feMerge>
     </filter>
   </defs>
+<g transform="translate(-78.66490,-15.67169) scale(1.357617,1.372157)">
 
   <!-- Back: Purple image -->
   <g transform="translate(100,250) rotate(4)" filter="url(#cardShadow)">
@@ -58,4 +59,5 @@
       <line x1="-46" y1="-120" x2="46"  y2="-120" stroke-width="5" opacity="0.92"/>
     </g>
   </g>
+</g>
 </svg>
