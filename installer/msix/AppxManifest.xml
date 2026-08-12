@@ -9,7 +9,7 @@
 
   <Identity Name="Hartvigsen.FanFolder"
             Publisher="CN=26E1ACFC-F324-4E77-8BEF-404C2340AA56"
-            Version="1.4.0.0" />
+            Version="1.4.1.0" />
 
   <Properties>
     <DisplayName>FanFolder</DisplayName>
@@ -61,7 +61,7 @@
         AppListEntry="default"
         DisplayName="FanFolder"
         Description="Animated fan folder popup for the Windows taskbar"
-        BackgroundColor="transparent"
+        BackgroundColor="#15A34A"
         Square150x150Logo="assets\Logo150.png"
         Square44x44Logo="assets\Logo44.png">
         <uap:DefaultTile Wide310x150Logo="assets\Wide310x150.png"
