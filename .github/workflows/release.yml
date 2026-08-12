@@ -167,7 +167,32 @@ jobs:
             $makeAppx = Join-Path $sdkRoot "$latest/x86/makeappx.exe"
           }
           echo "MAKEAPPX=$makeAppx" >> $env:GITHUB_OUTPUT
+          $makePri = Join-Path $sdkRoot "$latest/x64/makepri.exe"
+          if (-not (Test-Path $makePri)) {
+            $makePri = Join-Path $sdkRoot "$latest/x86/makepri.exe"
+          }
+          echo "MAKEPRI=$makePri" >> $env:GITHUB_OUTPUT
         id: sdk
+
+      - name: Build resources.pri (index qualified assets)
+        shell: pwsh
+        run: |
+          # Without a resources.pri, MRT never indexes the qualified asset
+          # names (targetsize-*, altform-unplated), so the taskbar falls back
+          # to the plated path and paints BackgroundColor behind the icon.
+          foreach ($arch in @("x64", "arm64")) {
+            $stage = "msix-staging/$arch"
+            $cfg = "msix-staging/priconfig-$arch.xml"
+            & "${{ steps.sdk.outputs.MAKEPRI }}" createconfig /cf $cfg /dq en-US /o
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            & "${{ steps.sdk.outputs.MAKEPRI }}" new /pr $stage /cf $cfg /of "$stage/resources.pri" /o
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            if (-not (Test-Path "$stage/resources.pri")) {
+              Write-Error "resources.pri missing for $arch"
+              exit 1
+            }
+            Write-Host "resources.pri built for $arch"
+          }
 
       - name: Pack MSIX (x64)
         shell: pwsh
