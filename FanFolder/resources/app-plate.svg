@@ -40,8 +40,8 @@
 </defs>
 
   <!-- Background plate to prevent Windows adding blue behind icon -->
-  <rect x="0" y="0" width="256" height="256" rx="48" fill="#ffffff"/>
-  <rect x="0" y="0" width="256" height="256" rx="48" fill="url(#plateGrad)"/>
+  <rect x="0" y="0" width="256" height="256" rx="0" fill="#ffffff"/>
+  <rect x="0" y="0" width="256" height="256" rx="0" fill="url(#plateGrad)"/>
 
   <!-- Back: Blue document -->
   <g transform="translate(100,250) rotate(-18)" filter="url(#cardShadow)">
