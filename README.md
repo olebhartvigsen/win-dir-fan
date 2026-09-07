@@ -6,7 +6,7 @@ Stop digging through File Explorer for files you just used. FanFolder puts your 
 
 Use it for recent documents, an active project folder, Downloads, or whatever you open often.
 
-FanFolder is a native Win32/C++ app. No .NET runtime needed. The executable is about 161 KB.
+FanFolder is a native Win32/C++ app. No .NET runtime needed. The executable is about 1.4 MB.
 
 **Homepage:** <https://olebhartvigsen.github.io/FanFolder/>
 
@@ -37,14 +37,27 @@ If you find FanFolder useful, an optional "buy me a coffee" donation is apprecia
 
 ## Requirements
 
-- Windows 10 or 11 (x64)
+- Windows 10 or 11 (x64 or ARM64)
 - No runtime dependencies
 
 ---
 
 ## Installation
 
-### MSI Installer (recommended)
+### winget (recommended)
+
+```powershell
+winget install OleBhartvigsen.FanFolder
+```
+
+### Download the MSI
+
+Grab the installer from the latest release:
+
+- [x64 MSI](https://github.com/olebhartvigsen/FanFolder/releases/latest/download/FanFolderSetup-x64.msi)
+- [ARM64 MSI](https://github.com/olebhartvigsen/FanFolder/releases/latest/download/FanFolderSetup-arm64.msi)
+
+### Build the MSI yourself
 
 Build and package in one step (requires Visual Studio Build Tools 2022 and WiX 4):
 
