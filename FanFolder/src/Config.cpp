@@ -86,6 +86,7 @@ ConfigData Config::Load() {
                 if (RegQueryValueExW(hKey, L"AnimationStyle", nullptr, &type, (LPBYTE)buf, &size) == ERROR_SUCCESS) {
                     if (wcscmp(buf, L"Fan") == 0)         cfg.animStyle = ConfigData::AnimStyle::Fan;
                     else if (wcscmp(buf, L"Glide") == 0)  cfg.animStyle = ConfigData::AnimStyle::Glide;
+                    else if (wcscmp(buf, L"Spring") == 0) cfg.animStyle = ConfigData::AnimStyle::Spring;
                     else if (wcscmp(buf, L"None") == 0)   cfg.animStyle = ConfigData::AnimStyle::None;
                     else if (wcscmp(buf, L"Fade") == 0)   cfg.animStyle = ConfigData::AnimStyle::Fade;
                     else                                   cfg.animStyle = ConfigData::AnimStyle::Glide;

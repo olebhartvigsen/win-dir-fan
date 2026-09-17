@@ -626,7 +626,7 @@ void MainWindow::ShowTrayMenu() {
         ID_FOLDER_GRAPHRECENT,
         ID_FOLDER_BROWSE,
         ID_OPEN_FOLDER,
-        ID_OPEN_HOMEPAGE,
+        ID_VISIT_WEBPAGE,
         ID_EXIT,
     };
 
@@ -703,7 +703,7 @@ void MainWindow::ShowTrayMenu() {
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hFolder, s.folderSubmenu);
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hMenu, MF_STRING, ID_OPEN_HOMEPAGE, s.openHomepage);
+    AppendMenuW(hMenu, MF_STRING, ID_VISIT_WEBPAGE, s.visitWebpage);
     AppendMenuW(hMenu, MF_STRING, ID_EXIT, s.exitApp);
 
     // Position menu at cursor; SetForegroundWindow required for proper dismissal
@@ -797,7 +797,7 @@ void MainWindow::ShowTrayMenu() {
         }
         break;
     }
-    case ID_OPEN_HOMEPAGE:
+    case ID_VISIT_WEBPAGE:
         changed = false;
         ShellExecuteW(nullptr, L"open", L"https://olebhartvigsen.github.io/FanFolder/",
                       nullptr, nullptr, SW_SHOWNORMAL);

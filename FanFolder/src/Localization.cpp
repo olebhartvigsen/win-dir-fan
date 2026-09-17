@@ -35,7 +35,7 @@ static constexpr Strings kEn = {
     L"Recent Office 365 documents",
     L"Browse\u2026",
     L"Open in Explorer",
-    L"Open FanFolder homepage",
+    L"Visit the webpage",
 };
 
 // ---------------------------------------------------------------------------
