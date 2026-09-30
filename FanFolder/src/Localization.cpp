@@ -1047,6 +1047,338 @@ static constexpr Strings kTh = {
 };
 
 // ---------------------------------------------------------------------------
+// Info-screen strings (first-launch panel).  Kept as a separate keyed struct,
+// following the EmptyFolderLabel pattern, so the 29 positional Strings tables
+// above stay untouched.  Field order: aboutText, supportLink, homepageLink,
+// reportLink, clickHint, trayItem.
+// ---------------------------------------------------------------------------
+
+// English (default / fallback)
+static constexpr InfoStrings kInfoEn = {
+    L"FanFolder shows your recent files as a fan menu on the taskbar. It is free and open source.",
+    L"Support the project on Buy Me a Coffee",
+    L"Visit the webpage",
+    L"Report an error on GitHub",
+    L"Click anywhere to close",
+    L"Show info on launch",
+};
+
+// Danish (Dansk)  —  LANG_DANISH 0x06
+static constexpr InfoStrings kInfoDa = {
+    L"FanFolder viser dine seneste filer som en viftmenu p\u00E5 proceslinjen. Det er gratis og open source.",
+    L"St\u00F8t projektet p\u00E5 Buy Me a Coffee",
+    L"\u00C5bn FanFolder-hjemmeside",
+    L"Rapport\u00E9r en fejl p\u00E5 GitHub",
+    L"Klik hvor som helst for at lukke",
+    L"Vis info ved opstart",
+};
+
+// Swedish (Svenska)  —  LANG_SWEDISH 0x1D
+static constexpr InfoStrings kInfoSv = {
+    L"FanFolder visar dina senaste filer som en fl\u00E4ktmeny p\u00E5 aktivitetsf\u00E4ltet. Den \u00E4r gratis och har \u00F6ppen k\u00E4llkod.",
+    L"St\u00F6d projektet p\u00E5 Buy Me a Coffee",
+    L"\u00D6ppna FanFolder-hemsida",
+    L"Rapportera ett fel p\u00E5 GitHub",
+    L"Klicka var som helst f\u00F6r att st\u00E4nga",
+    L"Visa info vid start",
+};
+
+// Norwegian (Norsk)  —  LANG_NORWEGIAN 0x14
+static constexpr InfoStrings kInfoNo = {
+    L"FanFolder viser de siste filene dine som en viftmeny p\u00E5 oppgavelinjen. Den er gratis og har \u00E5pen kildekode.",
+    L"St\u00F8tt prosjektet p\u00E5 Buy Me a Coffee",
+    L"\u00C5pne FanFolder-hjemmeside",
+    L"Rapporter en feil p\u00E5 GitHub",
+    L"Klikk hvor som helst for \u00E5 lukke",
+    L"Vis info ved oppstart",
+};
+
+// German (Deutsch)  —  LANG_GERMAN 0x07
+static constexpr InfoStrings kInfoDe = {
+    L"FanFolder zeigt die zuletzt benutzten Dateien als F\u00E4cher-Men\u00FC in der Taskleiste. Es ist kostenlos und Open Source.",
+    L"Das Projekt auf Buy Me a Coffee unterst\u00FCtzen",
+    L"FanFolder-Homepage \u00F6ffnen",
+    L"Einen Fehler auf GitHub melden",
+    L"Zum Schlie\u00DFen irgendwo klicken",
+    L"Info beim Start anzeigen",
+};
+
+// Dutch (Nederlands)  —  LANG_DUTCH 0x13
+static constexpr InfoStrings kInfoNl = {
+    L"FanFolder toont je recente bestanden als een waaiersmenu op de taakbalk. Het is gratis en open source.",
+    L"Steun het project op Buy Me a Coffee",
+    L"FanFolder-website openen",
+    L"Meld een fout op GitHub",
+    L"Klik ergens om te sluiten",
+    L"Info tonen bij opstarten",
+};
+
+// Polish (Polski)  —  LANG_POLISH 0x15
+static constexpr InfoStrings kInfoPl = {
+    L"FanFolder pokazuje ostatnie pliki jako menu wachlarzowe na pasku zada\u0144. Program jest darmowy i open source.",
+    L"Wesprzyj projekt na Buy Me a Coffee",
+    L"Otw\u00F3rz stron\u0119 g\u0142\u00F3wn\u0105 FanFolder",
+    L"Zg\u0142o\u015B b\u0142\u0105d na GitHubie",
+    L"Kliknij gdziekolwiek, aby zamkn\u0105\u0107",
+    L"Pokazuj info przy uruchomieniu",
+};
+
+// Arabic (عربي)  —  LANG_ARABIC 0x01
+static constexpr InfoStrings kInfoAr = {
+    L"\u064A\u0639\u0631\u0636 FanFolder \u0645\u0644\u0641\u0627\u062A\u0643 \u0627\u0644\u062D\u062F\u064A\u062B\u0629 \u0643\u0642\u0627\u0626\u0645\u0629 \u0645\u0631\u0648\u062D\u0629 \u0639\u0644\u0649 \u0634\u0631\u064A\u0637 \u0627\u0644\u0645\u0647\u0627\u0645. \u0648\u0647\u0648 \u0645\u062C\u0627\u0646\u064A \u0648\u0645\u0641\u062A\u0648\u062D \u0627\u0644\u0645\u0635\u062F\u0631.",
+    L"\u0627\u062F\u0639\u0645 \u0627\u0644\u0645\u0634\u0631\u0648\u0639 \u0639\u0644\u0649 Buy Me a Coffee",
+    L"\u0627\u0641\u062A\u062D \u0635\u0641\u062D\u0629 FanFolder",
+    L"\u0627\u0644\u0625\u0628\u0644\u0627\u063A \u0639\u0646 \u062E\u0637\u0623 \u0639\u0644\u0649 GitHub",
+    L"\u0627\u0646\u0642\u0631 \u0641\u064A \u0623\u064A \u0645\u0643\u0627\u0646 \u0644\u0644\u0625\u063A\u0644\u0627\u0642",
+    L"\u0625\u0638\u0647\u0627\u0631 \u0627\u0644\u0645\u0639\u0644\u0648\u0645\u0627\u062A \u0639\u0646\u062F \u0627\u0644\u062A\u0634\u063A\u064A\u0644",
+};
+
+// Chinese Simplified (中文简体)  —  LANG_CHINESE 0x04
+static constexpr InfoStrings kInfoZh = {
+    L"FanFolder \u5728\u4EFB\u52A1\u680F\u4E0A\u4EE5\u6247\u5F62\u83DC\u5355\u663E\u793A\u6700\u8FD1\u4F7F\u7528\u7684\u6587\u4EF6\u3002\u5B8C\u5168\u514D\u8D39\uFF0C\u5F00\u6E90\u8F6F\u4EF6\u3002",
+    L"\u5728 Buy Me a Coffee \u4E0A\u652F\u6301\u672C\u9879\u76EE",
+    L"\u6253\u5F00 FanFolder \u4E3B\u9875",
+    L"\u5728 GitHub \u4E0A\u62A5\u544A\u9519\u8BEF",
+    L"\u70B9\u51FB\u4EFB\u610F\u4F4D\u7F6E\u5173\u95ED",
+    L"\u542F\u52A8\u65F6\u663E\u793A\u4FE1\u606F",
+};
+
+// Japanese (日本語)  —  LANG_JAPANESE 0x11
+static constexpr InfoStrings kInfoJa = {
+    L"FanFolder \u306F\u30BF\u30B9\u30AF\u30D0\u30FC\u4E0A\u306B\u6700\u8FD1\u4F7F\u3063\u305F\u30D5\u30A1\u30A4\u30EB\u3092\u6247\u5F62\u306E\u30E1\u30CB\u30E5\u30FC\u3067\u8868\u793A\u3057\u307E\u3059\u3002\u7121\u6599\u3067\u30AA\u30FC\u30D7\u30F3\u30BD\u30FC\u30B9\u3067\u3059\u3002",
+    L"Buy Me a Coffee \u3067\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u3092\u652F\u63F4\u3059\u308B",
+    L"FanFolder \u30DB\u30FC\u30E0\u30DA\u30FC\u30B8\u3092\u958B\u304F",
+    L"GitHub \u3067\u30A8\u30E9\u30FC\u3092\u5831\u544A\u3059\u308B",
+    L"\u3069\u3053\u3092\u30AF\u30EA\u30C3\u30AF\u3057\u3066\u3082\u9589\u3058\u307E\u3059",
+    L"\u8D77\u52D5\u6642\u306B\u60C5\u5831\u3092\u8868\u793A",
+};
+
+// Korean (한국어)  —  LANG_KOREAN 0x12
+static constexpr InfoStrings kInfoKo = {
+    L"FanFolder\uB294 \uC791\uC5C5 \uD45C\uC2DC\uC904\uC5D0 \uCD5C\uADFC \uD30C\uC77C\uC744 \uBD80\uCC44\uBA54\uB274\uB85C \uD45C\uC2DC\uD569\uB2C8\uB2E4. \uBB34\uB8CC \uC624\uD508\uC18C\uC2A4\uC785\uB2C8\uB2E4.",
+    L"Buy Me a Coffee\uC5D0\uC11C \uD504\uB85C\uC81D\uD2B8 \uC9C0\uC6D0\uD558\uAE30",
+    L"FanFolder \uD648\uD398\uC774\uC9C0 \uC5F4\uAE30",
+    L"GitHub\uC5D0\uC11C \uC624\uB958 \uBCF4\uACE0\uD558\uAE30",
+    L"\uC544\uBB34 \uACF3\uC774\uB098 \uD074\uB9AD\uD558\uBA74 \uB2EB\uD799\uB2C8\uB2E4",
+    L"\uC2E4\uD589 \uC2DC \uC815\uBCF4 \uD45C\uC2DC",
+};
+
+// Swahili (Kiswahili)  —  LANG_SWAHILI 0x41
+static constexpr InfoStrings kInfoSw = {
+    L"FanFolder inaonyesha faili zako za hivi karibuni kama menyu ya shabiki kwenye taskbar. Ni ya bure na ya chanzo wazi.",
+    L"Unga mkono mradi kwenye Buy Me a Coffee",
+    L"Fungua tovuti ya FanFolder",
+    L"Ripoti kosa kwenye GitHub",
+    L"Bofya popote kufunga",
+    L"Onyesha taarifa mwanzoni",
+};
+
+// French (Français)  —  LANG_FRENCH 0x0C
+static constexpr InfoStrings kInfoFr = {
+    L"FanFolder affiche vos fichiers r\u00E9cents dans un menu en \u00E9ventail sur la barre des t\u00E2ches. Il est gratuit et open source.",
+    L"Soutenir le projet sur Buy Me a Coffee",
+    L"Ouvrir la page d\u2019accueil de FanFolder",
+    L"Signaler une erreur sur GitHub",
+    L"Cliquez n\u2019importe o\u00F9 pour fermer",
+    L"Afficher les infos au d\u00E9marrage",
+};
+
+// Italian (Italiano)  —  LANG_ITALIAN 0x10
+static constexpr InfoStrings kInfoIt = {
+    L"FanFolder mostra i file recenti in un menu a ventaglio sulla barra delle applicazioni. \u00C8 gratuito e open source.",
+    L"Sostieni il progetto su Buy Me a Coffee",
+    L"Apri la homepage di FanFolder",
+    L"Segnala un errore su GitHub",
+    L"Fai clic ovunque per chiudere",
+    L"Mostra info all\u2019avvio",
+};
+
+// Spanish (Español)  —  LANG_SPANISH 0x0A
+static constexpr InfoStrings kInfoEs = {
+    L"FanFolder muestra tus archivos recientes como un men\u00FA de abanico en la barra de tareas. Es gratis y de c\u00F3digo abierto.",
+    L"Apoya el proyecto en Buy Me a Coffee",
+    L"Abrir la p\u00E1gina principal de FanFolder",
+    L"Informar de un error en GitHub",
+    L"Haz clic en cualquier lugar para cerrar",
+    L"Mostrar informaci\u00F3n al iniciar",
+};
+
+// Portuguese (Português)  —  LANG_PORTUGUESE 0x16
+static constexpr InfoStrings kInfoPt = {
+    L"O FanFolder mostra seus arquivos recentes como um menu em leque na barra de tarefas. \u00C9 gratuito e de c\u00F3digo aberto.",
+    L"Apoie o projeto no Buy Me a Coffee",
+    L"Abrir a p\u00E1gina inicial do FanFolder",
+    L"Comunicar um erro no GitHub",
+    L"Clique em qualquer lugar para fechar",
+    L"Mostrar informa\u00E7\u00F5es ao iniciar",
+};
+
+// Russian (Русский)  —  LANG_RUSSIAN 0x19
+static constexpr InfoStrings kInfoRu = {
+    L"FanFolder \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u043D\u0435\u0434\u0430\u0432\u043D\u0438\u0435 \u0444\u0430\u0439\u043B\u044B \u0432 \u0432\u0438\u0434\u0435 \u043C\u0435\u043D\u044E-\u0432\u0435\u0435\u0440\u0430 \u043D\u0430 \u043F\u0430\u043D\u0435\u043B\u0438 \u0437\u0430\u0434\u0430\u0447. \u042D\u0442\u043E \u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u043E\u0435 \u043F\u0440\u0438\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u0441 \u043E\u0442\u043A\u0440\u044B\u0442\u044B\u043C \u0438\u0441\u0445\u043E\u0434\u043D\u044B\u043C \u043A\u043E\u0434\u043E\u043C.",
+    L"\u041F\u043E\u0434\u0434\u0435\u0440\u0436\u0430\u0442\u044C \u043F\u0440\u043E\u0435\u043A\u0442 \u043D\u0430 Buy Me a Coffee",
+    L"\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0434\u043E\u043C\u0430\u0448\u043D\u044E\u044E \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u0443 FanFolder",
+    L"\u0421\u043E\u043E\u0431\u0449\u0438\u0442\u044C \u043E\u0431 \u043E\u0448\u0438\u0431\u043A\u0435 \u043D\u0430 GitHub",
+    L"\u041D\u0430\u0436\u043C\u0438\u0442\u0435 \u0432 \u043B\u044E\u0431\u043E\u043C \u043C\u0435\u0441\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u0437\u0430\u043A\u0440\u044B\u0442\u044C",
+    L"\u041F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0442\u044C \u0441\u0432\u0435\u0434\u0435\u043D\u0438\u044F \u043F\u0440\u0438 \u0437\u0430\u043F\u0443\u0441\u043A\u0435",
+};
+
+// Hindi (हिन्दी)  —  LANG_HINDI 0x39
+static constexpr InfoStrings kInfoHi = {
+    L"FanFolder \u0906\u092A\u0915\u0940 \u0939\u093E\u0932 \u0915\u0940 \u092B\u093C\u093E\u0907\u0932\u094B\u0902 \u0915\u094B \u091F\u093E\u0938\u094D\u0915\u092C\u093E\u0930 \u092A\u0930 \u092A\u0902\u0916\u0947 \u092E\u0947\u0928\u0942 \u0915\u0947 \u0930\u0942\u092A \u092E\u0947\u0902 \u0926\u093F\u0916\u093E\u0924\u093E \u0939\u0948\u0964 \u092F\u0939 \u092E\u0941\u092B\u093C\u094D\u0924 \u0914\u0930 \u0913\u092A\u0928 \u0938\u094B\u0930\u094D\u0938 \u0939\u0948\u0964",
+    L"Buy Me a Coffee \u092A\u0930 \u092A\u094D\u0930\u094B\u091C\u0947\u0915\u094D\u091F \u0915\u093E \u0938\u092E\u0930\u094D\u0925\u0928 \u0915\u0930\u0947\u0902",
+    L"FanFolder \u0939\u094B\u092E\u092A\u0947\u091C \u0916\u094B\u0932\u0947\u0902",
+    L"GitHub \u092A\u0930 \u0924\u094D\u0930\u0941\u091F\u093F \u0915\u0940 \u0930\u093F\u092A\u094B\u0930\u094D\u091F \u0915\u0930\u0947\u0902",
+    L"\u092C\u0902\u0926 \u0915\u0930\u0928\u0947 \u0915\u0947 \u0932\u093F\u090F \u0915\u0939\u0940\u0902 \u092D\u0940 \u0915\u094D\u0932\u093F\u0915 \u0915\u0930\u0947\u0902",
+    L"\u0932\u0949\u0928\u094D\u091A \u0915\u0930\u0924\u0947 \u0938\u092E\u092F \u091C\u093E\u0928\u0915\u093E\u0930\u0940 \u0926\u093F\u0916\u093E\u090F\u0901",
+};
+
+// Turkish (Türkçe)  —  LANG_TURKISH 0x1F
+static constexpr InfoStrings kInfoTr = {
+    L"FanFolder, g\u00F6rev \u00E7ubu\u011Funda son dosyalar\u0131n\u0131z\u0131 yelpaze men\u00FCs\u00FC olarak g\u00F6sterir. \u00DCcretsiz ve a\u00E7\u0131k kaynakt\u0131r.",
+    L"Buy Me a Coffee'de projeye destek ol",
+    L"FanFolder ana sayfas\u0131n\u0131 a\u00E7",
+    L"GitHub'da hata bildir",
+    L"Kapatmak i\u00E7in herhangi bir yere t\u0131klay\u0131n",
+    L"A\u00E7\u0131l\u0131\u015Fta bilgileri g\u00F6ster",
+};
+
+// Hebrew (עברית)  —  LANG_HEBREW 0x0D
+static constexpr InfoStrings kInfoHe = {
+    L"FanFolder \u05DE\u05E6\u05D9\u05D2 \u05D0\u05EA \u05D4\u05E7\u05D1\u05E6\u05D9\u05DD \u05D4\u05D0\u05D7\u05E8\u05D5\u05E0\u05D9\u05DD \u05E9\u05DC\u05DB\u05DD \u05DB\u05EA\u05E4\u05E8\u05D9\u05D8 \u05DE\u05E0\u05D9\u05E4\u05D4 \u05D1\u05E9\u05D5\u05E8\u05EA \u05D4\u05DE\u05E9\u05D9\u05DE\u05D5\u05EA. \u05D6\u05D4 \u05D7\u05D9\u05E0\u05DE\u05D9 \u05D5\u05E7\u05D5\u05D3 \u05E4\u05EA\u05D5\u05D7.",
+    L"\u05EA\u05DE\u05DB\u05D5 \u05D1\u05E4\u05E8\u05D5\u05D9\u05E7\u05D8 \u05D1-Buy Me a Coffee",
+    L"\u05E4\u05EA\u05D7 \u05D0\u05EA \u05D3\u05E3 \u05D4\u05D1\u05D9\u05EA \u05E9\u05DC FanFolder",
+    L"\u05D3\u05D5\u05D5\u05D7 \u05E2\u05DC \u05E9\u05D2\u05D9\u05D0\u05D4 \u05D1-GitHub",
+    L"\u05DC\u05D7\u05E5 \u05D1\u05DB\u05DC \u05DE\u05E7\u05D5\u05DD \u05DC\u05E1\u05D2\u05D9\u05E8\u05D4",
+    L"\u05D4\u05E6\u05D2 \u05DE\u05D9\u05D3\u05E2 \u05D1\u05D4\u05E4\u05E2\u05DC\u05D4",
+};
+
+// Czech (Čeština)  —  LANG_CZECH 0x05
+static constexpr InfoStrings kInfoCs = {
+    L"FanFolder zobrazuje va\u0161e posledn\u00ED soubory jako v\u011Bj\u00ED\u0159ov\u00E9 menu na panelu \u00FAloh. Je zdarma a open source.",
+    L"Podpo\u0159te projekt na Buy Me a Coffee",
+    L"Otev\u0159\u00EDt domovskou str\u00E1nku FanFolder",
+    L"Nahl\u00E1sit chybu na GitHubu",
+    L"Kliknut\u00EDm kamkoli zav\u0159ete",
+    L"Zobrazit informace p\u0159i spu\u0161t\u011Bn\u00ED",
+};
+
+// Finnish (Suomi)  —  LANG_FINNISH 0x0B
+static constexpr InfoStrings kInfoFi = {
+    L"FanFolder n\u00E4ytt\u00E4\u00E4 viimeisimm\u00E4t tiedostosi viuhkamenuina teht\u00E4v\u00E4palkissa. Se on ilmainen ja avoimen l\u00E4hdekoodin sovellus.",
+    L"Tue projektia Buy Me a Coffeessa",
+    L"Avaa FanFolder-kotisivu",
+    L"Ilmoita virheest\u00E4 GitHubissa",
+    L"Sulje klikkaamalla mihin tahansa",
+    L"N\u00E4yt\u00E4 tiedot k\u00E4ynnistyksess\u00E4",
+};
+
+// Hungarian (Magyar)  —  LANG_HUNGARIAN 0x0E
+static constexpr InfoStrings kInfoHu = {
+    L"A FanFolder a legut\u00F3bbi f\u00E1jlokat legyez\u0151men\u00FCk\u00E9nt mutatja a feladats\u00E1von. Ingyenes \u00E9s ny\u00EDlt forr\u00E1sk\u00F3d\u00FA szoftver.",
+    L"T\u00E1mogasd a projektet Buy Me a Coffee-n",
+    L"FanFolder f\u0151oldal megnyit\u00E1sa",
+    L"Hiba bejelent\u00E9se a GitHubon",
+    L"Kattints b\u00E1rhova a bez\u00E1r\u00E1shoz",
+    L"Inform\u00E1ci\u00F3 megjelen\u00EDt\u00E9se ind\u00EDt\u00E1skor",
+};
+
+// Greek (Ελληνικά)  —  LANG_GREEK 0x08
+static constexpr InfoStrings kInfoEl = {
+    L"\u03A4\u03BF FanFolder \u03B5\u03BC\u03C6\u03B1\u03BD\u03AF\u03B6\u03B5\u03B9 \u03C4\u03B1 \u03C0\u03C1\u03CC\u03C3\u03C6\u03B1\u03C4\u03B1 \u03B1\u03C1\u03C7\u03B5\u03AF\u03B1 \u03C3\u03B1\u03C2 \u03C3\u03B5 \u03BC\u03B5\u03BD\u03BF\u03CD \u03B2\u03B5\u03BD\u03C4\u03AC\u03BB\u03B9\u03B1\u03C2 \u03C3\u03C4\u03B7 \u03B3\u03C1\u03B1\u03BC\u03BC\u03AE \u03B5\u03C1\u03B3\u03B1\u03C3\u03B9\u03CE\u03BD. \u0395\u03AF\u03BD\u03B1\u03B9 \u03B4\u03C9\u03C1\u03B5\u03AC\u03BD \u03BA\u03B1\u03B9 \u03B1\u03BD\u03BF\u03B9\u03C7\u03C4\u03BF\u03CD \u03BA\u03CE\u03B4\u03B9\u03BA\u03B1.",
+    L"\u03A5\u03C0\u03BF\u03C3\u03C4\u03AE\u03C1\u03B9\u03BE\u03B7 \u03C4\u03BF\u03C5 \u03AD\u03C1\u03B3\u03BF\u03C5 \u03C3\u03C4\u03BF Buy Me a Coffee",
+    L"\u0386\u03BD\u03BF\u03B9\u03B3\u03BC\u03B1 \u03B1\u03C1\u03C7\u03B9\u03BA\u03AE\u03C2 \u03C3\u03B5\u03BB\u03AF\u03B4\u03B1\u03C2 FanFolder",
+    L"\u0391\u03BD\u03B1\u03C6\u03BF\u03C1\u03AC \u03C3\u03C6\u03AC\u03BB\u03BC\u03B1\u03C4\u03BF\u03C2 \u03C3\u03C4\u03BF GitHub",
+    L"\u03A0\u03B1\u03C4\u03AE\u03C3\u03C4\u03B5 \u03BF\u03C0\u03BF\u03C5\u03B4\u03AE\u03C0\u03BF\u03C4\u03B5 \u03B3\u03B9\u03B1 \u03BA\u03BB\u03B5\u03AF\u03C3\u03B9\u03BC\u03BF",
+    L"\u0395\u03BC\u03C6\u03AC\u03BD\u03B9\u03C3\u03B7 \u03C0\u03BB\u03B7\u03C1\u03BF\u03C6\u03BF\u03C1\u03B9\u03CE\u03BD \u03BA\u03B1\u03C4\u03AC \u03C4\u03B7\u03BD \u03B5\u03BA\u03BA\u03AF\u03BD\u03B7\u03C3\u03B7",
+};
+
+// Vietnamese (Tiếng Việt)  —  LANG_VIETNAMESE 0x2A
+static constexpr InfoStrings kInfoVi = {
+    L"FanFolder hi\u1EC3n th\u1ECB c\u00E1c file g\u1EA7n \u0111\u00E2y c\u1EE7a b\u1EA1n d\u01B0\u1EDBi d\u1EA1ng menu qu\u1EA1t tr\u00EAn thanh t\u00E1c v\u1EE5. Mi\u1EC5n ph\u00ED v\u00E0 m\u00E3 ngu\u1ED3n m\u1EDF.",
+    L"\u1EE6ng h\u1ED9 d\u1EF1 \u00E1n tr\u00EAn Buy Me a Coffee",
+    L"M\u1EDF trang ch\u1EE7 FanFolder",
+    L"B\u00E1o l\u1ED7i tr\u00EAn GitHub",
+    L"Nh\u1EA5p v\u00E0o b\u1EA5t k\u1EF3 \u0111\u00E2u \u0111\u1EC3 \u0111\u00F3ng",
+    L"Hi\u1EC3n th\u1ECB th\u00F4ng tin khi kh\u1EDFi \u0111\u1ED9ng",
+};
+
+// Indonesian (Bahasa Indonesia)  —  LANG_INDONESIAN 0x21
+static constexpr InfoStrings kInfoId = {
+    L"FanFolder menampilkan file terbaru Anda sebagai menu kipas di taskbar. Gratis dan open source.",
+    L"Dukung proyek ini di Buy Me a Coffee",
+    L"Buka beranda FanFolder",
+    L"Laporkan kesalahan di GitHub",
+    L"Klik di mana saja untuk menutup",
+    L"Tampilkan info saat peluncuran",
+};
+
+// Ukrainian (Українська)  —  LANG_UKRAINIAN 0x22
+static constexpr InfoStrings kInfoUk = {
+    L"FanFolder \u0432\u0456\u0434\u043E\u0431\u0440\u0430\u0436\u0430\u0454 \u043D\u0435\u0449\u043E\u0434\u0430\u0432\u043D\u0456 \u0444\u0430\u0439\u043B\u0438 \u0443 \u0432\u0438\u0433\u043B\u044F\u0434\u0456 \u043C\u0435\u043D\u044E-\u0432\u0456\u044F\u043B\u0430 \u043D\u0430 \u043F\u0430\u043D\u0435\u043B\u0456 \u0437\u0430\u0434\u0430\u0447. \u0411\u0435\u0437\u043A\u043E\u0448\u0442\u043E\u0432\u043D\u0430 \u043F\u0440\u043E\u0433\u0440\u0430\u043C\u0430 \u0437 \u0432\u0456\u0434\u043A\u0440\u0438\u0442\u0438\u043C \u043A\u043E\u0434\u043E\u043C.",
+    L"\u041F\u0456\u0434\u0442\u0440\u0438\u043C\u0430\u0442\u0438 \u043F\u0440\u043E\u0454\u043A\u0442 \u043D\u0430 Buy Me a Coffee",
+    L"\u0412\u0456\u0434\u043A\u0440\u0438\u0442\u0438 \u0434\u043E\u043C\u0430\u0448\u043D\u044E \u0441\u0442\u043E\u0440\u0456\u043D\u043A\u0443 FanFolder",
+    L"\u041F\u043E\u0432\u0456\u0434\u043E\u043C\u0438\u0442\u0438 \u043F\u0440\u043E \u043F\u043E\u043C\u0438\u043B\u043A\u0443 \u043D\u0430 GitHub",
+    L"\u041D\u0430\u0442\u0438\u0441\u043D\u0456\u0442\u044C \u0443 \u0431\u0443\u0434\u044C-\u044F\u043A\u043E\u043C\u0443 \u043C\u0456\u0441\u0446\u0456, \u0449\u043E\u0431 \u0437\u0430\u043A\u0440\u0438\u0442\u0438",
+    L"\u041F\u043E\u043A\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u0456\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0456\u044E \u043F\u0440\u0438 \u0437\u0430\u043F\u0443\u0441\u043A\u0443",
+};
+
+// Romanian (Română)  —  LANG_ROMANIAN 0x18
+static constexpr InfoStrings kInfoRo = {
+    L"FanFolder afi\u0219eaz\u0103 fi\u0219ierele recente ca meniu evantai pe bara de sarcini. Este gratuit \u0219i open source.",
+    L"Sus\u021Bine proiectul pe Buy Me a Coffee",
+    L"Deschide pagina principal\u0103 FanFolder",
+    L"Raporteaz\u0103 o eroare pe GitHub",
+    L"Click oriunde pentru \u00EEnchidere",
+    L"Arat\u0103 informa\u021Bii la pornire",
+};
+
+// Thai (ไทย)  —  LANG_THAI 0x1E
+static constexpr InfoStrings kInfoTh = {
+    L"FanFolder \u0E41\u0E2A\u0E14\u0E07\u0E44\u0E1F\u0E25\u0E4C\u0E25\u0E48\u0E32\u0E2A\u0E38\u0E14\u0E02\u0E2D\u0E07\u0E04\u0E38\u0E13\u0E40\u0E1B\u0E47\u0E19\u0E40\u0E21\u0E19\u0E39\u0E23\u0E39\u0E1B\u0E1E\u0E31\u0E14\u0E1A\u0E19\u0E41\u0E16\u0E1A\u0E07\u0E32\u0E19 \u0E1F\u0E23\u0E35\u0E41\u0E25\u0E30\u0E42\u0E2D\u0E40\u0E1E\u0E19\u0E0B\u0E2D\u0E23\u0E4C\u0E2A",
+    L"\u0E2A\u0E19\u0E31\u0E1A\u0E2A\u0E19\u0E38\u0E19\u0E42\u0E1B\u0E23\u0E41\u0E01\u0E23\u0E21\u0E1A\u0E19 Buy Me a Coffee",
+    L"\u0E40\u0E1B\u0E34\u0E14\u0E2B\u0E19\u0E49\u0E32\u0E2B\u0E25\u0E31\u0E01 FanFolder",
+    L"\u0E23\u0E32\u0E22\u0E07\u0E32\u0E19\u0E02\u0E49\u0E2D\u0E1C\u0E34\u0E14\u0E1E\u0E25\u0E32\u0E14\u0E1A\u0E19 GitHub",
+    L"\u0E04\u0E25\u0E34\u0E01\u0E17\u0E35\u0E48\u0E43\u0E14\u0E01\u0E47\u0E44\u0E14\u0E49\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E1B\u0E34\u0E14",
+    L"\u0E41\u0E2A\u0E14\u0E07\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E40\u0E21\u0E37\u0E48\u0E2D\u0E40\u0E1B\u0E34\u0E14\u0E42\u0E1B\u0E23\u0E41\u0E01\u0E23\u0E21",
+};
+
+const InfoStrings& GetInfoStrings() {
+    const LANGID lang = PRIMARYLANGID(GetUserDefaultUILanguage());
+    switch (lang) {
+    case 0x06: return kInfoDa;
+    case 0x1D: return kInfoSv;
+    case 0x14: return kInfoNo;
+    case 0x07: return kInfoDe;
+    case 0x13: return kInfoNl;
+    case 0x15: return kInfoPl;
+    case 0x01: return kInfoAr;
+    case 0x04: return kInfoZh;
+    case 0x11: return kInfoJa;
+    case 0x12: return kInfoKo;
+    case 0x41: return kInfoSw;
+    case 0x0C: return kInfoFr;
+    case 0x10: return kInfoIt;
+    case 0x0A: return kInfoEs;
+    case 0x16: return kInfoPt;
+    case 0x19: return kInfoRu;
+    case 0x39: return kInfoHi;
+    case 0x1F: return kInfoTr;
+    case 0x0D: return kInfoHe;
+    case 0x05: return kInfoCs;
+    case 0x0B: return kInfoFi;
+    case 0x0E: return kInfoHu;
+    case 0x08: return kInfoEl;
+    case 0x2A: return kInfoVi;
+    case 0x21: return kInfoId;
+    case 0x22: return kInfoUk;
+    case 0x18: return kInfoRo;
+    case 0x1E: return kInfoTh;
+    default:   return kInfoEn;   // English (fallback)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Language lookup
 // ---------------------------------------------------------------------------
 const Strings& GetStrings() {

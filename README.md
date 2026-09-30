@@ -228,6 +228,26 @@ Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "AnimationStyle" -Value 
 
 ---
 
+### ShowInfoOnLaunch
+
+**Type:** `REG_DWORD` | **Default:** `0`
+
+When set to `1`, the info panel (about FanFolder, with links to Buy Me a Coffee, the project homepage and error reporting) is shown every time the app starts. The same setting is available as a checkable item in the tray menu.
+
+```powershell
+Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "ShowInfoOnLaunch" -Value 1
+```
+
+---
+
+### InfoScreenShown
+
+**Type:** `REG_DWORD` | **Default:** `0` (absent on a fresh install)
+
+One-time marker. FanFolder sets it to `1` after the first launch, so the info panel is shown once on a fresh install and never again unless `ShowInfoOnLaunch` is enabled. Deleting the value from the registry shows the panel on the next launch.
+
+---
+
 ## Uninstall
 
 ```powershell

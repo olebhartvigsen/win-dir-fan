@@ -5,6 +5,7 @@
 #include "FileService.h"
 #include "Config.h"
 #include "Localization.h"
+#include "InfoScreen.h"
 #include "../resources/resource.h"
 #include <fstream>
 
@@ -254,6 +255,18 @@ bool MainWindow::Create() {
         SetTimer(_hwnd, TIMER_ID_VDM_RECONCILE, TIMER_VDM_INTERVAL_MS, nullptr);
     }
 
+    // First-launch info panel: show once on the very first run, or on every
+    // launch when the "Show info on launch" tray toggle is enabled.  Persist
+    // the first-run marker so the panel never auto-pops a second time for
+    // users who ignore both the tray toggle and the config.
+    if (!_config.infoScreenShown || _config.showInfoOnLaunch) {
+        if (!_config.infoScreenShown) {
+            _config.infoScreenShown = true;
+            Config::Save(_config);
+        }
+        ShowInfoScreen();
+    }
+
     return true;
 }
 
@@ -444,6 +457,10 @@ void MainWindow::CloseFan() {
         _fanWindow.reset();
     }
     _fanOpen = false;
+    // The LL mouse hook also serves the info panel (outside-click dismissal);
+    // re-install it if the panel is still visible.
+    if (_infoScreen && _infoScreen->IsVisible())
+        InstallHooks();
     SetTaskbarIcon(false);
     ShowWindow(_hwnd, SW_SHOWMINNOACTIVE);
     StartPrewarm(/*force*/ true);  // force fresh scan to pick up deletions/renames via context menu
@@ -608,6 +625,30 @@ void MainWindow::RemoveTrayIcon() {
     }
 }
 
+void MainWindow::ShowInfoScreen() {
+    if (!_infoScreen) {
+        _infoScreen = std::make_unique<InfoScreen>(_hInst);
+        if (!_infoScreen->Create(_hwnd)) {
+            _infoScreen.reset();
+            return;
+        }
+    }
+    // Outside-click dismissal is seen by the LL mouse hook, so it must be
+    // running while the panel is visible (InstallHooks is a no-op when the
+    // fan already installed it earlier in this session).
+    InstallHooks();
+    _infoScreen->Show();
+}
+
+void MainWindow::CloseInfoScreen() {
+    if (_infoScreen) _infoScreen->Close();
+    // Keep the hook alive if the fan is open (it has its own consumers);
+    // otherwise shut it down as CloseFan would.
+    if (!_fanOpen)
+        UninstallHooks();
+}
+
+
 void MainWindow::ShowTrayMenu() {
     // Menu IDs (mirror FanWindow::ShowSettingsMenu)
     enum {
@@ -627,6 +668,7 @@ void MainWindow::ShowTrayMenu() {
         ID_FOLDER_BROWSE,
         ID_OPEN_FOLDER,
         ID_VISIT_WEBPAGE,
+        ID_SHOW_INFO_ON_LAUNCH,
         ID_EXIT,
     };
 
@@ -703,6 +745,7 @@ void MainWindow::ShowTrayMenu() {
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hFolder, s.folderSubmenu);
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(hMenu, MF_STRING | (_config.showInfoOnLaunch ? MF_CHECKED : 0), ID_SHOW_INFO_ON_LAUNCH, GetInfoStrings().trayItem);
     AppendMenuW(hMenu, MF_STRING, ID_VISIT_WEBPAGE, s.visitWebpage);
     AppendMenuW(hMenu, MF_STRING, ID_EXIT, s.exitApp);
 
@@ -802,6 +845,11 @@ void MainWindow::ShowTrayMenu() {
         ShellExecuteW(nullptr, L"open", L"https://olebhartvigsen.github.io/FanFolder/",
                       nullptr, nullptr, SW_SHOWNORMAL);
         break;
+    case ID_SHOW_INFO_ON_LAUNCH:
+        _config.showInfoOnLaunch = !_config.showInfoOnLaunch;
+        Config::Save(_config);   // persist immediately; no folder rescan needed
+        changed = false;
+        break;
     case ID_EXIT:
         changed = false;
         PostMessageW(_hwnd, WM_CLOSE, 0, 0);
@@ -861,6 +909,24 @@ void MainWindow::UninstallHooks() {
 
 // ---------------------------------------------------------------------------
 LRESULT CALLBACK MainWindow::MouseHookProc(int nCode, WPARAM wParam, LPARAM lParam) {
+    // Info panel (first launch / "show info on launch"): a click that does not
+    // land on the panel's card dismisses it.  Never swallows the click, so
+    // whatever window is underneath still receives it (standard click-away).
+    if (nCode >= 0 && s_instance && s_instance->_infoScreen &&
+        s_instance->_infoScreen->IsVisible()) {
+        bool isDown = (wParam == WM_LBUTTONDOWN || wParam == WM_RBUTTONDOWN ||
+                       wParam == WM_MBUTTONDOWN);
+        if (isDown) {
+            POINT pt = {};
+            GetCursorPos(&pt);
+            if (!s_instance->_infoScreen->IsPointOnPanel(pt)) {
+                PostMessageW(s_instance->_hwnd, InfoScreen::WM_INFO_DISMISSED,
+                             (WPARAM)t_hookGen, 0);
+                // fall through to the fan branch below (panel + fan may both be up)
+            }
+        }
+    }
+
     if (nCode >= 0 && s_instance && s_instance->_fanOpen) {
         bool isDown = (wParam == WM_LBUTTONDOWN || wParam == WM_RBUTTONDOWN ||
                        wParam == WM_MBUTTONDOWN);
@@ -1137,6 +1203,16 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             self->_hookCloseTick = GetTickCount();
             self->CloseFan();
         }
+        return 0;
+    }
+
+    case InfoScreen::WM_INFO_DISMISSED: {
+        // Outside click seen by the LL mouse hook (or an in-panel body click
+        // via SendMessage from InfoScreen's WndProc).  wParam carries the hook
+        // generation; stale messages are ignored like WM_MAIN_CLOSE_FAN.
+        int msgGen = (int)wParam;
+        if (msgGen == self->_hookGen.load() || msgGen == 0)
+            self->CloseInfoScreen();
         return 0;
     }
 

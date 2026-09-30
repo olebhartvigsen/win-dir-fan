@@ -55,3 +55,20 @@ const Strings& GetStrings();
 // separate from the positional Strings tables so the 29 locale initializers
 // don't all need editing.
 const wchar_t* EmptyFolderLabel();
+
+// Strings for the first-launch info panel (and its tray toggle).  Keyed
+// struct instead of positional, so adding a locale later means adding one
+// initializer, not re-aligning 29 tables.  Field order: aboutText,
+// supportLink, homepageLink, reportLink, clickHint, trayItem.
+struct InfoStrings {
+    const wchar_t* aboutText;
+    const wchar_t* supportLink;
+    const wchar_t* homepageLink;
+    const wchar_t* reportLink;
+    const wchar_t* clickHint;
+    const wchar_t* trayItem;   // tray-menu toggle: "Show info on launch"
+};
+
+// Returns the info-panel strings for the current Windows UI language,
+// falling back to English if the language is not supported.
+const InfoStrings& GetInfoStrings();
