@@ -148,7 +148,7 @@ void InfoScreen::CalculateLayout() {
 
     // Measure text with a tiny offscreen bitmap (FanWindow's pattern).
     Gdiplus::Bitmap measureBmp(1, 1, PixelFormat32bppARGB);
-    Gdiplus::Graphics mg(measureBmp);
+    Gdiplus::Graphics mg(&measureBmp);
     Gdiplus::StringFormat noWrap;
     noWrap.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
 
