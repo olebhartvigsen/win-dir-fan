@@ -97,6 +97,13 @@ static HICON CreateAlphaIconAtSize(HINSTANCE hInst, LPCWSTR resId, int size) {
     HDC hdc = GetDC(nullptr);
     HBITMAP hbmp = CreateDIBSection(hdc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
     HDC mem = CreateCompatibleDC(hdc);
+    if (!hbmp || !bits || !mem) {
+        if (hbmp) DeleteObject(hbmp);
+        if (mem)  DeleteDC(mem);
+        ReleaseDC(nullptr, hdc);
+        DestroyIcon(hSrc);
+        return nullptr;
+    }
     HBITMAP old = (HBITMAP)SelectObject(mem, hbmp);
 
     // Clear to transparent black
@@ -122,7 +129,8 @@ static HICON CreateAlphaIconAtSize(HINSTANCE hInst, LPCWSTR resId, int size) {
     void* maskBits = nullptr;
     HDC maskDC = CreateCompatibleDC(nullptr);
     HBITMAP hMask = CreateDIBSection(maskDC, &mi, DIB_RGB_COLORS, &maskBits, nullptr, 0);
-    ZeroMemory(maskBits, ((size + 7) / 8) * size);
+    if (hMask && maskBits)
+        ZeroMemory(maskBits, ((size + 31) / 32) * 4 * size);  // DWORD-aligned DIB stride
     DeleteDC(maskDC);
 
     // Create the icon from the color bitmap + mask
@@ -130,12 +138,12 @@ static HICON CreateAlphaIconAtSize(HINSTANCE hInst, LPCWSTR resId, int size) {
     ii.fIcon    = TRUE;
     ii.xHotspot = 0;
     ii.yHotspot = 0;
-    ii.hbmMask  = hMask;
+    ii.hbmMask  = hMask;      // null is valid: CreateIconIndirect falls back to no mask
     ii.hbmColor = hbmp;
 
     HICON hIcon = CreateIconIndirect(&ii);
 
-    DeleteObject(hMask);
+    if (hMask) DeleteObject(hMask);
     DeleteObject(hbmp);
     return hIcon;
 }
@@ -157,6 +165,13 @@ static HICON CreateAlphaIconAtSize(HINSTANCE hInst, LPCWSTR resId, int size) {
 static constexpr UINT WM_MAIN_SHOW_MIN     = WM_USER + 20;
 static constexpr UINT WM_MAIN_PREWARM      = WM_USER + 3;
 static constexpr UINT WM_MAIN_CLOSE_FAN    = WM_USER + 4;
+// Sent BY the fan window to its owner when the fan wants to close itself
+// (context-menu command completed, or an item was dragged out to Explorer).
+// Deliberately distinct from WM_MAIN_CLOSE_FAN: that message is posted by the
+// hook thread and carries a hook generation in wParam which the handler
+// validates before acting. These posts pass wParam=0, so sharing the ID made
+// the generation check fail and the close was silently dropped.
+static constexpr UINT WM_MAIN_FAN_CLOSED   = WM_USER + 6;
 static constexpr UINT WM_TRAYICON          = WM_USER + 5;   // tray icon messages
 static constexpr int  TOGGLE_COOLDOWN_MS   = 250;
 
@@ -201,6 +216,12 @@ MainWindow::~MainWindow() {
         _vdm->Release();
         _vdm = nullptr;
     }
+    // Release the taskbar/tray icons. RemoveTrayIcon() only detaches the shell
+    // notification, so these four owned HICONs are freed here.
+    if (_icoSmall)     { DestroyIcon(_icoSmall);     _icoSmall     = nullptr; }
+    if (_icoBig)       { DestroyIcon(_icoBig);       _icoBig       = nullptr; }
+    if (_icoOpenSmall) { DestroyIcon(_icoOpenSmall); _icoOpenSmall = nullptr; }
+    if (_icoOpenBig)   { DestroyIcon(_icoOpenBig);   _icoOpenBig   = nullptr; }
     s_instance = nullptr;
 }
 
@@ -379,15 +400,14 @@ void MainWindow::OpenFan() {
     if (!_gdiPlusFullyWarmed.load(std::memory_order_acquire) && !prewarmBitmaps.empty()) {
         int numToWarmup = std::min(3, (int)prewarmBitmaps.size());
         for (int i = 0; i < numToWarmup; ++i) {
-            if (prewarmBitmaps[i]) {
-                // Convert HBITMAP → Gdiplus::Bitmap to warm the conversion path.
-                // FanWindow::HBitmapToGdiBitmap() will be called again during Show(),
-                // but the GDI+ codecs/device contexts will now be fully warmed.
-                if (auto gdiBmp = FanWindow::HBitmapToGdiBitmap(prewarmBitmaps[i])) {
-                    // Bitmap is now converted; let it go. We're just warming the pipeline.
-                    // FanWindow::Show() will do this conversion again (fast because warm).
-                }
-            }
+            if (!prewarmBitmaps[i]) continue;
+            // Convert HBITMAP to Gdiplus::Bitmap once to warm the conversion path.
+            // The result is deliberately discarded: FanWindow::Show() converts the
+            // same bitmaps again, fast now that the codecs and device contexts are
+            // warm.  It still has to be deleted here or it leaks on the first open
+            // of every session.
+            if (Gdiplus::Bitmap* warm = FanWindow::HBitmapToGdiBitmap(prewarmBitmaps[i]))
+                delete warm;
         }
         _gdiPlusFullyWarmed.store(true, std::memory_order_release);
         DebugLog(L"[FanFolder] OpenFan: second-pass GDI+ warm-up complete\n");
@@ -436,6 +456,32 @@ void MainWindow::OpenFan() {
     }
 }
 
+// Cheap staleness gate.  A folder's mtime changes when an entry is added,
+// removed, or renamed, so if the mtime still matches the one recorded with the
+// cached prewarm, a rescan would only re-derive the same list.  Skipping it
+// keeps the cached icons warm, so the next open reuses them instead of paying
+// a fresh scan plus N shell thumbnail lookups.
+//
+// Returns without starting anything when the cache is provably current.  Any
+// case we cannot reason about (no cache yet, different config, virtual
+// sentinel, unreadable path) falls through to a full forced prewarm.
+void MainWindow::StartPrewarmIfFolderChanged() {
+    FILETIME now = {};
+    const bool stampValid = FileService::ReadFolderStamp(_config.folderPath, now);
+
+    {
+        std::lock_guard<std::mutex> lk(_prewarmMutex);
+        if (_prewarm.ready && stampValid && _prewarm.stampValid &&
+            _prewarm.scanConfig == _config &&
+            _prewarm.folderStamp.dwLowDateTime  == now.dwLowDateTime &&
+            _prewarm.folderStamp.dwHighDateTime == now.dwHighDateTime) {
+            return;  // folder unchanged and config identical — cache is current
+        }
+    }
+
+    StartPrewarm(/*force*/ true);
+}
+
 void MainWindow::CloseFan() {
     DebugLog(L"[FanFolder] CloseFan: ENTER\n");
     UninstallHooks();
@@ -446,7 +492,10 @@ void MainWindow::CloseFan() {
     _fanOpen = false;
     SetTaskbarIcon(false);
     ShowWindow(_hwnd, SW_SHOWMINNOACTIVE);
-    StartPrewarm(/*force*/ true);  // force fresh scan to pick up deletions/renames via context menu
+    // Refresh so the fan reflects files added/removed/renamed while it was
+    // open (e.g. via the right-click shell menu), but only pay for a rescan
+    // when the folder actually changed.
+    StartPrewarmIfFolderChanged();
 }
 
 // ---------------------------------------------------------------------------
@@ -499,12 +548,21 @@ void MainWindow::StartPrewarm(bool force) {
             iconSize = std::clamp(screenH / 19, 48, 128);
         }
 
+        // Read the directory mtime BEFORE scanning.  Capturing it first means a
+        // change that lands mid-scan still leaves us with the older stamp, so
+        // the next open rescans rather than trusting a scan that raced.
+        FILETIME stamp = {};
+        const bool stampValid = FileService::ReadFolderStamp(pw->cfg.folderPath, stamp);
+
         auto items = FileService::ScanFolder(pw->cfg.folderPath, pw->cfg.maxItems,
                                              pw->cfg.includeDirs, pw->cfg.filterRegex, pw->cfg.sortMode);
         auto* data      = new MainWindow::PrewarmData;
         data->items     = items;
         data->iconSize  = iconSize;
         data->ready     = true;
+        data->scanConfig     = pw->cfg;
+        data->folderStamp    = stamp;
+        data->stampValid     = stampValid;
         data->bitmaps.resize(items.size(), nullptr);
         data->icons.resize(items.size(), nullptr);
         data->gdiBitmaps.resize(items.size());
@@ -603,7 +661,9 @@ void MainWindow::AddTrayIcon() {
 void MainWindow::RemoveTrayIcon() {
     if (_nid.cbSize) {
         Shell_NotifyIconW(NIM_DELETE, &_nid);
-        if (_nid.hIcon) { DestroyIcon(_nid.hIcon); _nid.hIcon = nullptr; }
+        // _nid.hIcon is a borrowed alias of _icoSmall (see AddTrayIcon), not an
+        // owned copy, so it must not be destroyed here.  The four icons this class
+        // does own are released in ~MainWindow.
         _nid = {};
     }
 }
@@ -625,7 +685,6 @@ void MainWindow::ShowTrayMenu() {
         ID_FOLDER_RECENTFILES,
         ID_FOLDER_GRAPHRECENT,
         ID_FOLDER_BROWSE,
-        ID_OPEN_FOLDER,
         ID_VISIT_WEBPAGE,
         ID_EXIT,
     };
@@ -651,6 +710,16 @@ void MainWindow::ShowTrayMenu() {
         AppendMenuW(hMax, MF_STRING | (_config.maxItems == n ? MF_CHECKED : 0), id,
                     std::to_wstring(n).c_str());
     }
+
+    // Animation submenu. All six strings (s.animation plus one per style)
+    // already exist in every one of the 29 locale tables, and README.md lists
+    // the styles as a feature, so this needs no new localization.
+    HMENU hAnim = CreatePopupMenu();
+    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Fan    ? MF_CHECKED : 0), ID_ANIM_FAN,    s.animFan);
+    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Glide  ? MF_CHECKED : 0), ID_ANIM_GLIDE,  s.animGlide);
+    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Spring ? MF_CHECKED : 0), ID_ANIM_SPRING, s.animSpring);
+    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::Fade   ? MF_CHECKED : 0), ID_ANIM_FADE,   s.animFade);
+    AppendMenuW(hAnim, MF_STRING | (_config.animStyle == ConfigData::AnimStyle::None   ? MF_CHECKED : 0), ID_ANIM_NONE,   s.animNone);
 
     // Resolve well-known folder paths for folder submenu
     auto getKnownPath = [](const KNOWNFOLDERID& id) -> std::wstring {
@@ -698,6 +767,7 @@ void MainWindow::ShowTrayMenu() {
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hSort,   s.sortBy);
     AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hMax,    s.maxItems);
+    AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hAnim,   s.animation);
     AppendMenuW(hMenu, MF_STRING | (_config.includeDirs    ? MF_CHECKED : 0), ID_INCLUDE_DIRS,    s.includeFolders);
     AppendMenuW(hMenu, MF_STRING | (_config.showExtensions ? MF_CHECKED : 0), ID_SHOW_EXTENSIONS, s.showExtensions);
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
@@ -1116,16 +1186,6 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         return 0;
     }
 
-    case FanWindow::WM_SETTINGS_CHANGED: {
-        auto* cfg = reinterpret_cast<ConfigData*>(lParam);
-        if (cfg) {
-            self->_config = *cfg;
-            delete cfg;
-        }
-        // Keep old prewarm alive — CloseFan → StartPrewarm will replace it with fresh data.
-        return 0;
-    }
-
     case WM_MAIN_CLOSE_FAN: { // WM_USER+4
         int msgGen = (int)wParam;
         int curGen = self->_hookGen.load();
@@ -1139,6 +1199,13 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         }
         return 0;
     }
+
+    // The fan closed itself after a context-menu command or an outbound drag.
+    // No generation check: the post travels in-process from our own window.
+    case WM_MAIN_FAN_CLOSED:
+        if (self->_fanOpen)
+            self->CloseFan();
+        return 0;
 
     case WM_TRAYICON:
         // lParam is the mouse/interaction event when using NOTIFYICON_VERSION_4
