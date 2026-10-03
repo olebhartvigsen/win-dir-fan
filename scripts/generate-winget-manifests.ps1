@@ -100,9 +100,9 @@ Author: Ole Bhartvigsen
 PackageName: FanFolder
 PackageUrl: https://github.com/olebhartvigsen/FanFolder
 License: Proprietary
-LicenseUrl: https://github.com/olebhartvigsen/FanFolder/blob/main/LICENSE
+LicenseUrl: https://github.com/olebhartvigsen/FanFolder/blob/main/LICENSE.md
 Copyright: Copyright (c) 2026 Ole Bulow Hartvigsen
-CopyrightUrl: https://github.com/olebhartvigsen/FanFolder/blob/main/LICENSE
+CopyrightUrl: https://github.com/olebhartvigsen/FanFolder/blob/main/LICENSE.md
 ShortDescription: Animated fan folder popup for the Windows taskbar.
 Description: |-
   FanFolder turns any folder into an animated, arc-shaped popup on the Windows
@@ -131,6 +131,15 @@ Tags:
 - utility
 - shell
 - files
+- macos
+- dock
+- stacks
+- recents
+- quick-launch
+- jump-lists
+- recent-files
+- file-launcher
+- windows-11
 ${releaseNotesBlock}ReleaseNotesUrl: https://github.com/olebhartvigsen/FanFolder/releases/tag/v$Version
 ManifestType: defaultLocale
 ManifestVersion: 1.9.0
