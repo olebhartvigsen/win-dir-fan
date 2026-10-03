@@ -46,13 +46,21 @@ Target these subreddits with a short write-up + the demo GIF:
 ### 5. 📦 Submit a winget package (Windows Package Manager)
 `winget` is built into Windows 11 and lets users install apps with one command:
 ```
-winget install FanFolder
+winget install OleBhartvigsen.FanFolder
 ```
-Steps:
-1. Create a release on GitHub with the `FanFolder.exe` (handled by the CI pipeline)
-2. Fork the [winget-pkgs](https://github.com/microsoft/winget-pkgs) repo
-3. Use [WingetCreate](https://github.com/microsoft/winget-create) to auto-generate the manifest from your GitHub release URL
-4. Submit a pull request — Microsoft reviews and merges within a few days
+
+The package identifier is `OleBhartvigsen.FanFolder`. The bare name `FanFolder` is not a valid package,
+so `winget install FanFolder` fails. Manifests live at `manifests/o/OleBhartvigsen/FanFolder/` in
+winget-pkgs.
+
+Status: **live**. Versions 1.2.2, 1.3.0 and 1.4.3 are published. `scripts/generate-winget-manifests.ps1`
+generates all three manifest files during CI and attaches them to every release, so a new version means
+tagging a release and submitting a PR with the generated YAML.
+
+Steps for the next version:
+1. Publish a GitHub release (CI builds the MSIs and generates the manifests from the fresh artifacts)
+2. Download the three generated `.yaml` files from the release assets and validate them
+3. Open a PR against [winget-pkgs](https://github.com/microsoft/winget-pkgs)
 
 This is **free**, requires no code signing, and gives huge discoverability on Windows 11.
 
@@ -105,45 +113,73 @@ This gives a clean URL to share everywhere and improves Google discoverability.
 
 ## Distribution & Registration Guide
 
-### Windows Package Manager (winget) — Recommended first step
+### Windows Package Manager (winget) — Live since v1.2.2
 **Cost:** Free | **Effort:** Low | **Reach:** All Windows 11 users
 
-1. Ensure the GitHub Release has a direct `.exe` download URL
-2. Install WingetCreate: `winget install Microsoft.WingetCreate`
-3. Run: `wingetcreate new https://github.com/olebhartvigsen/win-dir-fan/releases/download/vX.X.X/FanFolder.exe`
-4. Fill in the prompted fields (publisher, description, license)
-5. Submit the generated YAML files as a PR to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs)
+Package identifier: `OleBhartvigsen.FanFolder`
 
-> ⚠️ winget does **not** require code signing for community packages.
+```
+winget install OleBhartvigsen.FanFolder
+```
+
+You do not need WingetCreate by hand. `scripts/generate-winget-manifests.ps1` runs in CI on every
+release and produces the three manifest files (`OleBhartvigsen.FanFolder.yaml`,
+`.installer.yaml`, `.locale.en-US.yaml`) from the MSIs it just built, so the SHA256 and ProductCode
+cannot drift from the shipped files. They are attached to the release as assets.
+
+To publish a new version:
+1. Merge to `master`, then create and publish the GitHub release. The `release: published` event fires
+   the workflow.
+2. Download the three generated `.yaml` files from the release assets.
+3. Validate: version matches the tag, 64-character SHA256s, real ProductCodes, `Scope: user`, CRLF
+   endings, no unresolved `${...}` template variables.
+4. Open a PR against [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) at
+   `manifests/o/OleBhartvigsen/FanFolder/<version>/`.
+
+`workflow_dispatch` on the same workflow only produces a `dev-<sha>` prerelease. That is a compile
+gate, not a submittable version.
+
+> winget does **not** require code signing for community packages. The MSI is per-user, so the
+> manifests use `Scope: user` and no elevation is requested.
 
 ---
 
-### Microsoft Store — Longer term
+### Microsoft Store — Live since v1.2.x
 **Cost:** $19 one-time developer registration | **Effort:** Medium
 
-The Microsoft Store now accepts Win32 apps packaged as **MSIX** via the Desktop App Converter or directly with Visual Studio.
+Listing: https://apps.microsoft.com/detail/9P3VT115SBM1 (product ID `00765a5e-5d0b-4f78-af6f-bb51b3b0379b`,
+MSIX x64 + ARM64, 29 languages). The CI `build-msix` job packs both packages and attaches them to the
+release.
 
-Steps:
-1. Register at [partner.microsoft.com](https://partner.microsoft.com/en-us/dashboard) ($19 one-time fee)
-2. Package the app as MSIX:
-   - Use **MSIX Packaging Tool** (free, from the Store) to wrap `FanFolder.exe` into an MSIX
-   - Or add an MSIX packaging project in Visual Studio
-3. **Code signing is required** for Store submission:
-   - Purchase a code signing certificate (~$70–$200/year from Sectigo, DigiCert, etc.)
-   - Or apply for the [Microsoft Trusted Signing](https://learn.microsoft.com/en-us/azure/trusted-signing/) service (cheaper, $9.99/month)
-4. Submit via Partner Center — review typically takes 1–3 business days
+To ship a Store update:
+1. Bump the MSIX version in CI (`MSIX_VERSION` follows the release tag) and publish the release.
+2. Download `FanFolder-x64.msix` and `FanFolder-arm64.msix` from the release artifacts.
+3. In Partner Center, create a submission and upload **both** MSIX files. Microsoft signs them. Do not
+   upload the MSI here; the Store takes MSIX only.
+4. Update the listing fields. The import-ready CSV is
+   `FanFolder/windows store/Partner Center import - English/FanFolderListing.csv`, which carries the
+   per-language columns and the `SearchTerm1..7` keyword rows.
+5. Submit for review. Typically 1 to 3 business days.
 
-> 💡 Start with **winget** first (free, no signing required). Add the Store later if there's demand.
+> The Store listing and the winget `Tags` should say the same things. Both are search-driven surfaces
+> and they drift independently if only one gets updated.
 
 ---
 
 ### GitHub Releases — Already set up ✅
-The CI pipeline automatically attaches `FanFolder.exe` to every published GitHub Release.  
-Direct download link pattern:
+The CI pipeline publishes every release into the distribution repo `olebhartvigsen/FanFolder` and
+attaches the full asset set: `FanFolderSetup.exe` (bundle), `FanFolderSetup-x64.msi`,
+`FanFolderSetup-arm64.msi`, `FanFolder-x64.exe`, `FanFolder-arm64.exe`, `FanFolder-x64.msix`,
+`FanFolder-arm64.msix`, plus the three winget manifests.
+
+Single installer link that works for sharing:
 ```
-https://github.com/olebhartvigsen/win-dir-fan/releases/latest/download/FanFolder.exe
+https://github.com/olebhartvigsen/FanFolder/releases/latest/download/FanFolderSetup.exe
 ```
-Use this URL in all listings and blog posts.
+
+There is no asset called `FanFolder.exe`, so `releases/latest/download/FanFolder.exe` returns 404. The
+releases are per-architecture, and the `x64` and `arm64` names are the only way to get a direct binary
+for a given machine. If in doubt, link the homepage, which routes the visitor to the right one.
 
 ---
 

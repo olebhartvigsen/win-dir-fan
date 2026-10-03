@@ -35,7 +35,7 @@ Older but evergreen (only worth a short reply, people still find these via Googl
 
 1. **r/windowsapps** (best first post). The sub runs a steady stream of "I built X" posts from solo devs: WindowSill, Sidekit, SHARA, Folio all posted there in 2026 and got real feedback threads. FanFolder fits the format exactly: small utility, screenshot or GIF, short story, download link. Post version 1.x with one clear hook (recent files on the taskbar, no ExplorerPatcher needed).
 2. **r/software**. Watch and comment in their recurring "must have utilities" threads. Example: [My list of Must Have Windows/Mac Utilities for 2026](https://www.reddit.com/r/software/comments/1qi6zep/my_list_of_must_have_windowsmac_utilities_for_2026/). A one-line addition ("FanFolder, free, puts recent files on the taskbar") fits the comment culture there. Full self-posts are hit and miss in this sub.
-3. **Hacker News** (Show HN). MARKETING.md already lists it. Verified that nothing about FanFolder is on HN yet, so the slot is open. The 161 KB native C++ angle plays well with that crowd; lead with the engineering, keep marketing out.
+3. **Hacker News** (Show HN). MARKETING.md already lists it. Verified that nothing about FanFolder is on HN yet, so the slot is open. The native C++ angle plays well with that crowd (about 1.4 MB, no runtime, reads Jump Lists directly); lead with the engineering, keep marketing out.
 4. **ElevenForum / TenForums as a poster, not just a replier**. Both have General Support sections where third-party tools get recommended by regulars all the time. After answering a few threads as a normal helpful user, a short "third-party tool" intro post is acceptable there if you disclose authorship.
 5. **r/Windows11** full post. Higher risk: the sub dislikes raw self-promotion and mods remove it. Safer there: keep answering the threads in section 1 until one gets traction.
 
@@ -65,7 +65,7 @@ Recent files thread:
 
 r/windowsapps post skeleton:
 
-> I built a 161 KB taskbar app because I kept digging through Explorer for files I had just used. Click the tray icon and your recent files fan out; you can also point it at Downloads or a project folder. Native Win32/C++, no runtime, free. Windows 10/11. Looking for feedback, especially on the animation styles.
+> I built a small taskbar app because I kept digging through Explorer for files I had just used. Click the tray icon and your recent files fan out; you can also point it at Downloads or a project folder. Native Win32/C++, about 1.4 MB, no runtime, free. Windows 10/11. Looking for feedback, especially on the animation styles.
 
 ---
 
