@@ -85,7 +85,9 @@ static constexpr float kPI = 3.14159265358979f;
 // Gdiplus::Bitmap* — the UI handler just takes ownership and assigns the
 // slots, avoiding the ~50ms × 15 = ~750ms HBitmapToGdiBitmap cost on the UI
 // thread that otherwise stalls the animation timer on cached reopens.
-static const UINT WM_ICON_READY  = WM_USER + 4;
+// WM_APP range (application-private) because lParam is a pointer we take
+// ownership of; see the note on WM_MAIN_PREWARM in MainWindow.cpp.
+static const UINT WM_ICON_READY  = WM_APP + 2;
 
 // Sent to our owner (MainWindow) when the fan wants itself closed. Kept as a
 // bare literal here because FanWindow does not include MainWindow.cpp's
@@ -100,6 +102,46 @@ struct IconReady {
     HICON            hIcon;   // may be null
     Gdiplus::Bitmap* gdiBmp;  // pre-converted on worker thread; may be null
 };
+
+// Provenance handoff for WM_ICON_READY. The window classes are findable by name,
+// so a same-session process can post any message it likes. Posting the POINTER
+// would mean dereferencing (and later deleting) whatever lParam contained.
+// Instead the worker registers the object here and posts a small integer token;
+// the handler resolves that token under the lock and only touches the object if
+// it really is one of ours. A forged message finds nothing and is dropped.
+namespace IconHandoff {
+    std::mutex g_mutex;
+    std::unordered_map<UINT, IconReady*> g_pending;
+    UINT g_nextToken = 1;
+
+    // Returns 0 when the pool is exhausted (2^32 in-flight posts is not a
+    // reachable state, but the caller must still handle failure).
+    UINT Register(IconReady* p) {
+        std::lock_guard<std::mutex> lk(g_mutex);
+        if (g_pending.size() >= 4096) return 0;   // refuse unbounded growth
+        UINT token = g_nextToken++;
+        if (g_nextToken == 0) g_nextToken = 1;    // wrapped: skip 0
+        g_pending.emplace(token, p);
+        return token;
+    }
+
+    // Removes and returns the object for token, or nullptr if unknown.
+    IconReady* Take(UINT token) {
+        if (!token) return nullptr;
+        std::lock_guard<std::mutex> lk(g_mutex);
+        auto it = g_pending.find(token);
+        if (it == g_pending.end()) return nullptr;
+        IconReady* p = it->second;
+        g_pending.erase(it);
+        return p;
+    }
+
+    void Forget(UINT token) {
+        if (!token) return;
+        std::lock_guard<std::mutex> lk(g_mutex);
+        g_pending.erase(token);
+    }
+}
 static const UINT WM_ANIM_TICK   = WM_USER + 3;
 
 // ---------------------------------------------------------------------------
@@ -1144,12 +1186,47 @@ void FanWindow::LaunchItem(int idx) {
                          _wcsicmp(dot, L".ppsx") == 0 || _wcsicmp(dot, L".odp")  == 0)
                     proto = L"ms-powerpoint";
             }
+            // The path here comes from a Jump List / .lnk written by another
+            // application, so treat it as untrusted before it reaches a protocol
+            // handler. The "ofe" grammar is pipe-delimited, so an unescaped '|'
+            // would let an attacker-controlled URL inject or replace fields.
+            // We reject rather than encode: a real Office URL is already
+            // percent-encoded, so anything outside this set is either malformed
+            // or an injection attempt, and falling through to the plain
+            // ShellExecuteW below still opens the document.
+            static bool IsSafeProtocolUrl(const std::wstring& url) {
+                // RFC 3986 unreserved + reserved characters only. This covers
+                // control chars, quotes, spaces, backslash, non-ASCII, and '|'.
+                for (wchar_t c : url) {
+                    if (c > 0x7E || c < 0x20) return false;
+                    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                        (c >= '0' && c <= '9'))
+                        continue;
+                    switch (c) {
+                    case '-': case '_': case '.': case '~':
+                    case ':': case '/': case '?': case '#':
+                    case '[': case ']': case '@':
+                    case '!': case '$': case '&': case '\'':
+                    case '(': case ')': case '*': case '+':
+                    case ',': case ';': case '=': case '%':
+                        continue;
+                    default:
+                        return false;
+                    }
+                }
+                return true;
+            }
+
             if (proto) {
                 // ms-word:ofe|u|https://... opens the document for editing in the desktop app
                 std::wstring uri = std::wstring(proto) + L":ofe|u|" + path;
-                HINSTANCE hr = ShellExecuteW(nullptr, L"open", uri.c_str(),
-                                             nullptr, nullptr, SW_SHOWNORMAL);
-                launched = (reinterpret_cast<INT_PTR>(hr) > 32);
+                if (!IsSafeProtocolUrl(path)) {
+                    launched = false;   // refuse to hand a malformed URI to Office
+                } else {
+                    HINSTANCE hr = ShellExecuteW(nullptr, L"open", uri.c_str(),
+                                                 nullptr, nullptr, SW_SHOWNORMAL);
+                    launched = (reinterpret_cast<INT_PTR>(hr) > 32);
+                }
             }
         }
 
@@ -1186,14 +1263,25 @@ void FanWindow::HandleFileDrop(IDataObject* pDataObj) {
         const wchar_t* name = PathFindFileNameW(srcPath);
         std::wstring dstPath = _config.folderPath + L"\\" + name;
 
-        // Double-null terminated strings required by SHFILEOPSTRUCTW
-        wchar_t srcBuf[MAX_PATH + 2] = {};  wcscpy_s(srcBuf, srcPath);
-        wchar_t dstBuf[MAX_PATH + 2] = {};  wcscpy_s(dstBuf, dstPath.c_str());
+        // Double-null terminated strings required by SHFILEOPSTRUCTW. These
+        // must be heap-allocated: folderPath comes from the registry and is only
+        // validated for existence, so folderPath + name can exceed MAX_PATH.
+        // Copying into a fixed wchar_t[MAX_PATH+2] would trip wcscpy_s's size
+        // check, which invokes the invalid-parameter handler and kills the
+        // process.
+        auto toDoubleNull = [](const std::wstring& s) {
+            std::vector<wchar_t> buf(s.begin(), s.end());
+            buf.push_back(L'\0');
+            buf.push_back(L'\0');
+            return buf;
+        };
+        std::vector<wchar_t> srcBuf = toDoubleNull(srcPath);
+        std::vector<wchar_t> dstBuf = toDoubleNull(dstPath);
 
         SHFILEOPSTRUCTW op = {};
         op.wFunc  = FO_MOVE;
-        op.pFrom  = srcBuf;
-        op.pTo    = dstBuf;
+        op.pFrom  = srcBuf.data();
+        op.pTo    = dstBuf.data();
         op.fFlags = FOF_RENAMEONCOLLISION | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
         if (SHFileOperationW(&op) == 0 && !op.fAnyOperationsAborted)
             anyCopied = true;
@@ -1298,8 +1386,21 @@ void FanWindow::StartIconLoad(int idx) {
     auto* work = new IconWork{hwnd, idx, std::move(p), std::move(tp), sz};
 
     TrySubmitThreadpoolCallback([](PTP_CALLBACK_INSTANCE, PVOID ctx) {
-        auto* w = static_cast<IconWork*>(ctx);
-        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        // Own the work item for the callback's whole lifetime, so it is freed on
+        // the normal path and on the throw path alike.
+        std::unique_ptr<IconWork> workOwner(static_cast<IconWork*>(ctx));
+        IconWork* w = workOwner.get();
+        // Nothing in this worker may escape: an exception (std::bad_alloc from
+        // an oversized image, std::length_error from a bad stream size) would
+        // otherwise cross the threadpool callback boundary and call
+        // std::terminate, taking the whole app down. Icon loads are
+        // best-effort, so a failure just means no icon for that item.
+        try {
+            // Balanced COM teardown on every exit path, including a throw.
+            struct ComGuard {
+                bool inited;
+                ~ComGuard() { if (inited) CoUninitialize(); }
+            } comGuard{ SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)) };
 
         // Resolve .lnk target lazily if prewarm fast-scan skipped it
         if (w->tp.empty()) {
@@ -1348,11 +1449,19 @@ void FanWindow::StartIconLoad(int idx) {
         // Graphics::Clear / DrawImage calls for hundreds of milliseconds.
         auto postReady = [&](HBITMAP hBmp, HICON hIco) {
             auto* r = new IconReady{ w->idx, hBmp, hIco, nullptr };
+            const UINT token = IconHandoff::Register(r);
+            if (!token) {                      // registry full: drop and free
+                if (r->hBmp)  DeleteObject(r->hBmp);
+                if (r->hIcon) DestroyIcon(r->hIcon);
+                delete r;
+                return;
+            }
             // If the fan HWND has been destroyed between when this worker was
             // submitted and now, PostMessage returns FALSE without queuing —
             // the IconReady allocation and its HBITMAP/HICON would leak.
             // Free them explicitly on that path.
-            if (!PostMessageW(w->hwnd, WM_ICON_READY, 0, (LPARAM)r)) {
+            if (!PostMessageW(w->hwnd, WM_ICON_READY, 0, (LPARAM)token)) {
+                IconHandoff::Forget(token);
                 if (r->hBmp)  DeleteObject(r->hBmp);
                 if (r->hIcon) DestroyIcon(r->hIcon);
                 delete r;
@@ -1391,8 +1500,9 @@ void FanWindow::StartIconLoad(int idx) {
                     postReady(nullptr, nullptr);
             }
         }
-        CoUninitialize();
-        delete w;
+        } catch (...) {
+            // Never let an exception escape a threadpool callback.
+        }
     }, work, nullptr);
 }
 
@@ -1641,7 +1751,10 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     // cached reopen).  We do the cheap GDI+ conversion here on the UI
     // thread — contention-free, it takes ~1 ms per icon.
     case WM_ICON_READY: {
-        std::unique_ptr<IconReady> r(reinterpret_cast<IconReady*>(lParam));
+        // Resolve the token rather than trusting lParam as a pointer. An
+        // unknown token means the message was not ours (or was already taken),
+        // so there is nothing to dereference or free.
+        std::unique_ptr<IconReady> r(IconHandoff::Take((UINT)lParam));
         if (!r) return 0;
         int idx = r->idx;
         {
