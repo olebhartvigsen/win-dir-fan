@@ -959,6 +959,23 @@ static std::vector<FileItem> ScanRecentFiles(int maxItems, ConfigData::SortMode 
     return out;
 }
 
+bool FileService::ReadFolderStamp(const std::wstring& folderPath, FILETIME& outStamp) {
+    outStamp = {};
+    if (folderPath.empty()) return false;
+
+    // Virtual sentinels are Jump-List / shell-namespace views, not directories.
+    // Nothing to timestamp, so the caller must always rescan them.
+    if (IsVirtualSentinel(folderPath)) return false;
+
+    WIN32_FILE_ATTRIBUTE_DATA fad = {};
+    if (!GetFileAttributesExW(folderPath.c_str(), GetFileExInfoStandard, &fad))
+        return false;
+    if (!(fad.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) return false;
+
+    outStamp = fad.ftLastWriteTime;
+    return true;
+}
+
 std::vector<FileItem> FileService::ScanFolder(const std::wstring& folderPath, int maxItems, bool includeDirs, const std::wstring& filterRegex, ConfigData::SortMode sortMode, bool resolveLnk) {
     std::vector<FileItem> items;
     if (folderPath.empty()) return items;
@@ -1040,11 +1057,18 @@ std::vector<FileItem> FileService::ScanFolder(const std::wstring& folderPath, in
             [](const FileItem& f) { return f.isDirectory; }), items.end());
     }
 
-    // Filter: regex (cached compilation — std::wregex construction is expensive)
+    // Filter: regex (cached compilation, std::wregex construction is expensive)
     if (!filterRegex.empty()) {
+        // ScanFolder runs on both the prewarm worker and the UI thread (drop
+        // handler), so this cache needs a lock: concurrent assignment to the
+        // std::wregex / std::wstring below would be a data race and could
+        // corrupt the string. Guarding only the compare-then-assign keeps the
+        // hot path (same pattern reused) a single uncontended lock.
+        static std::mutex sRegexCacheMutex;
+        static std::wstring sCachedPattern;
+        static std::wregex  sCachedRegex;
         try {
-            static std::wstring sCachedPattern;
-            static std::wregex  sCachedRegex;
+            std::lock_guard<std::mutex> lk(sRegexCacheMutex);
             if (filterRegex != sCachedPattern) {
                 sCachedRegex   = std::wregex(filterRegex, std::regex_constants::icase);
                 sCachedPattern = filterRegex;

@@ -12,6 +12,12 @@ struct ConfigData {
         sortMode = SortMode::DateModifiedDesc;
     enum class AnimStyle { Fan, Glide, Spring, None, Fade }
         animStyle = AnimStyle::Glide;
+
+    // Field-wise equality, used to decide whether a cached prewarm is still
+    // valid for the live config.  Defaulted deliberately: a hand-written
+    // compare silently ignores any setting added later, which would let a
+    // stale scan masquerade as fresh after e.g. a maxItems change.
+    bool operator==(const ConfigData&) const = default;
 };
 
 class Config {

@@ -30,6 +30,15 @@ public:
         bool                   ready    = false;
         int                    gen      = 0;   // matches _prewarmGen at post time
 
+        // Provenance of this scan, used by StartPrewarmIfFolderChanged() to
+        // decide whether a rescan is needed at all.  scanConfig is the config
+        // the items were produced with; folderStamp is the directory mtime
+        // read immediately BEFORE the scan started.  stampValid is false for
+        // virtual sentinels, where no directory exists to timestamp.
+        ConfigData scanConfig;
+        FILETIME   folderStamp = {};
+        bool       stampValid  = false;
+
         void FreeHandles() {
             for (auto h : bitmaps) if (h) DeleteObject(h);
             for (auto h : icons)   if (h) DestroyIcon(h);
@@ -82,6 +91,7 @@ private:
     void OpenFan();
     void CloseFan();
     void StartPrewarm(bool force = false);
+    void StartPrewarmIfFolderChanged();
     void SetTaskbarIcon(bool open);
     void InstallHooks();
     void UninstallHooks();
