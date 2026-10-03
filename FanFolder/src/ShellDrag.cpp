@@ -79,13 +79,21 @@ void DoShellDrag(HWND hwndOwner, const std::wstring& filePath, HBITMAP hIcon, in
     if (!pidl) return;
 
     PIDLIST_ABSOLUTE pidlParent = ILClone(pidl);
+    if (!pidlParent) {
+        ILFree(pidl);
+        return;
+    }
     ILRemoveLastID(pidlParent);
 
     IShellFolder* pDesktop = nullptr;
-    SHGetDesktopFolder(&pDesktop);
+    if (FAILED(SHGetDesktopFolder(&pDesktop)) || !pDesktop) {
+        ILFree(pidlParent);
+        ILFree(pidl);
+        return;
+    }
 
     IShellFolder* pParent = nullptr;
-    if (pidlParent && ILGetSize(pidlParent) > 2)
+    if (ILGetSize(pidlParent) > 2)
         pDesktop->BindToObject(pidlParent, nullptr, IID_PPV_ARGS(&pParent));
 
     IShellFolder* pFolder   = pParent ? pParent : pDesktop;

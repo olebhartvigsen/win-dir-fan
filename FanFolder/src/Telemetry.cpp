@@ -15,7 +15,10 @@ namespace {
     constexpr wchar_t kTelemetryHost[] = L"eu.aptabase.com";
     constexpr wchar_t kTelemetryPath[] = L"/api/v0/events";
     constexpr wchar_t kAptabaseAppKey[] = L"A-EU-8526773383";
-    constexpr char kFallbackAppVersion[] = "1.2.2";
+    // Must stay in lockstep with FILEVERSION/VALUE "FileVersion" in
+    // FanFolder/resources/app.rc. Used only when the version resource cannot
+    // be read at runtime, so a stale value reports the wrong app version.
+    constexpr char kFallbackAppVersion[] = "1.4.3";
 
 #if defined(_DEBUG)
     constexpr bool kIsDebugBuild = true;
