@@ -4,6 +4,7 @@
 
 #include <winhttp.h>
 #include <winver.h>
+#include <bcrypt.h>
 #include <random>
 #include <sstream>
 #include <iomanip>
@@ -51,13 +52,25 @@ namespace {
     }
 
     std::string GenerateId() {
-        std::random_device device;
-        std::mt19937_64 generator(device());
-        std::uniform_int_distribution<unsigned long long> distribution;
+        // A real CSPRNG. std::random_device returns a single 32-bit value on
+        // MSVC, so seeding mt19937_64 from it left the whole 128-bit ID
+        // predictable from 32 bits of entropy (and colliding across installs).
+        // BCryptGenRandom is the platform CSPRNG and needs no extra link: it
+        // lives in bcrypt.dll, which loads with the OS.
+        unsigned char bytes[16];
+        NTSTATUS st = BCryptGenRandom(nullptr, bytes, sizeof(bytes),
+                                      BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+        if (st != 0) {
+            // Fall back to whatever entropy we can get rather than sending a
+            // predictable identifier.
+            std::random_device device;
+            for (size_t i = 0; i < sizeof(bytes); ++i)
+                bytes[i] = static_cast<unsigned char>(device());
+        }
         std::ostringstream id;
         id << std::hex << std::setfill('0');
-        for (int i = 0; i < 2; ++i)
-            id << std::setw(16) << distribution(generator);
+        for (unsigned char b : bytes)
+            id << std::setw(2) << static_cast<unsigned>(b);
         return id.str();
     }
 
@@ -136,8 +149,17 @@ namespace {
 
     bool IsTelemetryEnabled() {
         HKEY key = nullptr;
-        if (RegOpenKeyExW(HKEY_CURRENT_USER, kRegistryPath, 0, KEY_QUERY_VALUE, &key) != ERROR_SUCCESS)
-            return true;
+        const LONG openResult =
+            RegOpenKeyExW(HKEY_CURRENT_USER, kRegistryPath, 0, KEY_QUERY_VALUE, &key);
+
+        if (openResult != ERROR_SUCCESS) {
+            // Distinguish the two failure modes. Telemetry is opt-OUT, so a key
+            // that simply does not exist yet means the user has not opted out:
+            // that is the normal state on a fresh install, so it stays enabled.
+            // Only a key we are forbidden to read (ACCESS_DENIED and friends)
+            // fails closed, because then we cannot know what the user chose.
+            return openResult == ERROR_FILE_NOT_FOUND;
+        }
 
         DWORD value = 1;
         DWORD valueSize = sizeof(value);
@@ -153,10 +175,22 @@ namespace {
                                REG_OPTION_NON_VOLATILE, access, nullptr, key, nullptr) == ERROR_SUCCESS;
     }
 
+    // Set when we discover we cannot honour the opt-out or persist the "sent"
+    // flag. Once set, no further reporting happens for the rest of the session.
+    std::atomic<bool> g_telemetryDisabled{ false };
+
     bool IsFirstRunAlreadySent() {
         HKEY key = nullptr;
-        if (RegOpenKeyExW(HKEY_CURRENT_USER, kRegistryPath, 0, KEY_QUERY_VALUE, &key) != ERROR_SUCCESS)
-            return false;
+        const LONG openResult =
+            RegOpenKeyExW(HKEY_CURRENT_USER, kRegistryPath, 0, KEY_QUERY_VALUE, &key);
+
+        if (openResult != ERROR_SUCCESS) {
+            // A missing key means the flag was never written, so this really is
+            // a first run. But if the key exists and we cannot read it, we
+            // cannot tell whether the event already went out, and re-sending it
+            // on every launch is worse than skipping one report.
+            return openResult != ERROR_FILE_NOT_FOUND;
+        }
 
         DWORD value = 0;
         DWORD valueSize = sizeof(value);
@@ -203,12 +237,22 @@ namespace {
 
     void MarkFirstRunSent() {
         HKEY key = nullptr;
-        if (!OpenTelemetryKey(&key, KEY_SET_VALUE)) return;
+        if (!OpenTelemetryKey(&key, KEY_SET_VALUE)) {
+            // Cannot persist the "sent" flag, so we would re-send on every
+            // launch. Disable for this session rather than repeat forever.
+            g_telemetryDisabled.store(true, std::memory_order_release);
+            return;
+        }
 
         constexpr DWORD sent = 1;
-        RegSetValueExW(key, kTelemetrySentValue, 0, REG_DWORD,
-                       reinterpret_cast<const BYTE*>(&sent), sizeof(sent));
+        const LONG result = RegSetValueExW(key, kTelemetrySentValue, 0, REG_DWORD,
+                                          reinterpret_cast<const BYTE*>(&sent), sizeof(sent));
         RegCloseKey(key);
+        if (result != ERROR_SUCCESS) {
+            // A write-protected key means the flag will never stick, so the same
+            // install event would go out on every single launch. Stop here.
+            g_telemetryDisabled.store(true, std::memory_order_release);
+        }
     }
 
     void SendFirstRun(const std::string& installationId) {
@@ -272,6 +316,7 @@ namespace {
 }
 
 void Telemetry::ReportFirstRun() {
+    if (g_telemetryDisabled.load(std::memory_order_acquire)) return;
     if (!IsTelemetryEnabled()) return;
     if (IsFirstRunAlreadySent()) return;
 

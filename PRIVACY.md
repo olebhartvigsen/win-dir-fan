@@ -14,7 +14,7 @@ Your file data stays on your device unless you open, move, or share it through W
 
 FanFolder sends one thing: an anonymous installation event, once, on the first successful launch for each user installation.
 
-- **Anonymous Installation Identifier** — a 128-bit random hex string, generated on your device by a cryptographic random number generator. It is not derived from your account, machine name, Windows SID, or hardware serial. It is stored only on your device under `HKEY_CURRENT_USER\SOFTWARE\FanFolder` and is not tied to your name, email, Microsoft account, or any other personal information. It is not combined with any other data that could identify you.
+- **Anonymous Installation Identifier** — a 128-bit random hex string, generated on your device using `BCryptGenRandom`, the Windows cryptographic random number generator. It is not derived from your account, machine name, Windows SID, or hardware serial. It is stored only on your device under `HKEY_CURRENT_USER\SOFTWARE\FanFolder` and is not tied to your name, email, Microsoft account, or any other personal information. It is not combined with any other data that could identify you.
 
 - **App Version** — the version number in the FanFolder executable (for example, "1.2.2"). Read from the binary's file version resource.
 

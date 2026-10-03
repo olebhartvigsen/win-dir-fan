@@ -31,7 +31,7 @@ target_precompile_headers(FanFolder PRIVATE src/pch.h)
 
 target_link_libraries(FanFolder PRIVATE
     shell32 user32 gdi32 ole32 oleaut32 comctl32 dwmapi shlwapi
-    uxtheme comdlg32 gdiplus advapi32 runtimeobject winhttp version
+    uxtheme comdlg32 gdiplus advapi32 runtimeobject winhttp version bcrypt
     lunasvg::lunasvg
 )
 
