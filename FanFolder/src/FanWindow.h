@@ -32,9 +32,6 @@ public:
     // ~750ms of per-open conversion work on the UI thread.  Thread-safe.
     static Gdiplus::Bitmap* HBitmapToGdiBitmap(HBITMAP hBmp);
 
-    // Message sent to hwndOwner when settings change (lParam = new ConfigData*)
-    static constexpr UINT WM_SETTINGS_CHANGED = WM_USER + 10;
-
 private:
     HINSTANCE _hInst;
     HWND      _hwndOwner;
@@ -51,7 +48,6 @@ private:
     std::vector<POINT> _iconPos;      // center positions in window coords
     std::vector<RECT>  _hitRects;
     std::vector<float> _labelWidths;
-    int                _labelOffsetX = 0;
 
     // Icons — raw handles (ownership) + one-time-cached GDI+ bitmaps (no per-frame alloc)
     std::vector<HBITMAP>          _bitmaps;
@@ -90,7 +86,6 @@ private:
     std::vector<float> _itemProgress;
     std::vector<float> _hoverScale;
     std::vector<float> _entryProgress;
-    bool  _entryDone  = false;
     int   _hoverIdx   = -1;
     bool  _hasExplorerButton = true;  // false for ::GraphRecent:: mode
     bool  _isPlaceholder = false;     // true when the folder is empty: _items[0]
@@ -154,9 +149,7 @@ private:
     void DrawArrowItem(Gdiplus::Graphics& g, float cx, float cy, float sz, float alpha);
     static void DrawCachedBitmapIA(Gdiplus::Graphics& g, Gdiplus::Bitmap* bmp,
                                    float x, float y, float size, Gdiplus::ImageAttributes* ia);
-    void PremultiplyBitmap(Gdiplus::BitmapData& data);
     Gdiplus::Bitmap* RenderShadow(Gdiplus::Bitmap* srcBmp, float drawSz, float hsc);
-    void InvalidateShadow();
     int  HitTest(int x, int y) const;
     void LaunchItem(int idx);
     void ShowContextMenu(int idx, POINT screenPt);

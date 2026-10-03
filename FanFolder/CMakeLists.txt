@@ -26,9 +26,7 @@ add_executable(FanFolder WIN32
     resources/app.rc
 )
 
-target_include_directories(FanFolder PRIVATE src resources
-    "C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/cppwinrt"
-)
+target_include_directories(FanFolder PRIVATE src resources)
 target_precompile_headers(FanFolder PRIVATE src/pch.h)
 
 target_link_libraries(FanFolder PRIVATE

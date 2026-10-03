@@ -34,9 +34,25 @@ public:
     static bool IsRecentFilesSentinel(const std::wstring& folderPath) {
         return folderPath == L"::RecentFiles::";
     }
-    static bool IsVirtualSentinel(const std::wstring& folderPath) {
-        return IsRecentDocsSentinel(folderPath) || IsRecentFilesSentinel(folderPath);
+    // Returns true when folderPath is the "Seneste Office 365" sentinel.
+    // Listed separately because GraphRecent is a Jump-List view, NOT a
+    // directory: there is no folder to timestamp, so callers must always
+    // rescan it rather than trusting a cached scan.
+    static bool IsGraphRecentSentinel(const std::wstring& folderPath) {
+        return folderPath == L"::GraphRecent::";
     }
+    static bool IsVirtualSentinel(const std::wstring& folderPath) {
+        return IsRecentDocsSentinel(folderPath) ||
+               IsRecentFilesSentinel(folderPath) ||
+               IsGraphRecentSentinel(folderPath);
+    }
+    // Reads the folder's last-write timestamp into outStamp.  A directory's
+    // mtime moves when an entry is added, removed, renamed, or moved in or
+    // out of it, so an unchanged value means a rescan would yield the same
+    // items as the cached scan.
+    // Returns false for a virtual sentinel, a non-directory, or an unreadable
+    // path — callers MUST treat that as "always rescan" rather than "skip".
+    static bool ReadFolderStamp(const std::wstring& folderPath, FILETIME& outStamp);
     static HBITMAP GetShellBitmap(const std::wstring& path, int size);
     static HBITMAP GetShellThumbnail(const std::wstring& path, int size);
     static HBITMAP GetImageThumbnail(const std::wstring& path, int size);
