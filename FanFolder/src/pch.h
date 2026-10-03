@@ -25,6 +25,7 @@
 #include <cmath>
 #include <fstream>
 #include <unordered_set>
+#include <unordered_map>
 
 #define NTDDI_VERSION NTDDI_WIN10
 #define _WIN32_WINNT  _WIN32_WINNT_WIN10

@@ -163,7 +163,12 @@ static HICON CreateAlphaIconAtSize(HINSTANCE hInst, LPCWSTR resId, int size) {
 #endif
 
 static constexpr UINT WM_MAIN_SHOW_MIN     = WM_USER + 20;
-static constexpr UINT WM_MAIN_PREWARM      = WM_USER + 3;
+// Messages carrying a raw pointer in lParam are restricted to the WM_APP
+// range (0x8000+), reserved for application-private use. These window classes
+// are findable by name (L"FanFolderMain", L"FanFolderFan"), so a WM_USER id
+// would let any same-session process post a chosen lParam and have us
+// reinterpret_cast it to a struct we then delete.
+static constexpr UINT WM_MAIN_PREWARM      = WM_APP + 1;
 static constexpr UINT WM_MAIN_CLOSE_FAN    = WM_USER + 4;
 // Sent BY the fan window to its owner when the fan wants to close itself
 // (context-menu command completed, or an item was dragged out to Explorer).
@@ -174,6 +179,41 @@ static constexpr UINT WM_MAIN_CLOSE_FAN    = WM_USER + 4;
 static constexpr UINT WM_MAIN_FAN_CLOSED   = WM_USER + 6;
 static constexpr UINT WM_TRAYICON          = WM_USER + 5;   // tray icon messages
 static constexpr int  TOGGLE_COOLDOWN_MS   = 250;
+
+// Provenance handoff for WM_MAIN_PREWARM, same reasoning as IconHandoff in
+// FanWindow.cpp: lParam carries a token, never a pointer, so a forged message
+// from another process cannot make us dereference or delete an address of its
+// choosing.
+namespace PrewarmHandoff {
+    std::mutex g_mutex;
+    std::unordered_map<UINT, MainWindow::PrewarmData*> g_pending;
+    UINT g_nextToken = 1;
+
+    UINT Register(MainWindow::PrewarmData* p) {
+        std::lock_guard<std::mutex> lk(g_mutex);
+        if (g_pending.size() >= 64) return 0;   // a handful of scans is the real range
+        UINT token = g_nextToken++;
+        if (g_nextToken == 0) g_nextToken = 1;
+        g_pending.emplace(token, p);
+        return token;
+    }
+
+    MainWindow::PrewarmData* Take(UINT token) {
+        if (!token) return nullptr;
+        std::lock_guard<std::mutex> lk(g_mutex);
+        auto it = g_pending.find(token);
+        if (it == g_pending.end()) return nullptr;
+        auto* p = it->second;
+        g_pending.erase(it);
+        return p;
+    }
+
+    void Forget(UINT token) {
+        if (!token) return;
+        std::lock_guard<std::mutex> lk(g_mutex);
+        g_pending.erase(token);
+    }
+}
 
 // Timer id for periodic virtual-desktop reconciliation (see ReconcileVirtualDesktop).
 static constexpr UINT_PTR TIMER_ID_VDM_RECONCILE = 1;
@@ -532,8 +572,27 @@ void MainWindow::StartPrewarm(bool force) {
     _prewarmInflight.fetch_add(1, std::memory_order_acq_rel);
 
     BOOL submitted = TrySubmitThreadpoolCallback([](PTP_CALLBACK_INSTANCE, PVOID ctx) {
-        auto* pw = static_cast<PrewarmWork*>(ctx);
-        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        // Own the work item for the callback's whole lifetime: the body has
+        // several early returns plus a throw path, and a leak or a missed
+        // decrement on any of them would strand _prewarmInflight and wedge
+        // prewarming for the rest of the session.
+        std::unique_ptr<PrewarmWork> workOwner(static_cast<PrewarmWork*>(ctx));
+        PrewarmWork* pw = workOwner.get();
+
+        // Nothing here may escape the callback. Scanning hostile Jump Lists and
+        // loading icons can throw (bad_alloc, length_error), and an exception
+        // crossing the threadpool boundary calls std::terminate.
+        try {
+        // Balanced COM teardown and inflight accounting on every exit path,
+        // including a throw.
+        struct ScopedPrewarmExit {
+            MainWindow* self;
+            bool comInited;
+            ~ScopedPrewarmExit() {
+                if (comInited) CoUninitialize();
+                self->_prewarmInflight.fetch_sub(1, std::memory_order_acq_rel);
+            }
+        } exitGuard{ pw->self, SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)) };
 
         // Calculate icon size using the same formula as FanWindow::CalculateLayout
         int iconSize = 64;
@@ -616,21 +675,21 @@ void MainWindow::StartPrewarm(bool force) {
         if (pw->myGen != pw->self->_prewarmGen.load()) {
             data->FreeHandles();
             delete data;
-            CoUninitialize();
-            pw->self->_prewarmInflight.fetch_sub(1, std::memory_order_acq_rel);
-            delete pw;
-            return;
+            return;   // exitGuard handles CoUninitialize, inflight and `delete pw`
         }
         data->gen = pw->myGen;
-        if (!PostMessageW(pw->hwnd, WM_MAIN_PREWARM, 0, (LPARAM)data)) {
-            // Window gone — free data ourselves so HBITMAP/HICON/GDI+ bitmaps
-            // don't leak.
+        const UINT token = PrewarmHandoff::Register(data);
+        if (!token || !PostMessageW(pw->hwnd, WM_MAIN_PREWARM, 0, (LPARAM)token)) {
+            // Window gone (or the registry was full) — free data ourselves so
+            // HBITMAP/HICON/GDI+ bitmaps don't leak.
+            PrewarmHandoff::Forget(token);
             data->FreeHandles();
             delete data;
         }
-        CoUninitialize();
-        pw->self->_prewarmInflight.fetch_sub(1, std::memory_order_acq_rel);
-        delete pw;
+        } catch (...) {
+            // Never let an exception escape a threadpool callback. exitGuard
+            // still balances COM and the inflight counter, workOwner frees `pw`.
+        }
     }, work, nullptr);
 
     if (!submitted) {
@@ -1169,7 +1228,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         return 0;
 
     case WM_MAIN_PREWARM: {
-        auto* data = reinterpret_cast<PrewarmData*>(lParam);
+        // Token, not pointer: an unknown token is a forged or stale message.
+        auto* data = PrewarmHandoff::Take((UINT)lParam);
         if (data) {
             std::lock_guard<std::mutex> lk(self->_prewarmMutex);
             // Discard if a newer prewarm was started after this one was posted

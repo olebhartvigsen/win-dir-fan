@@ -160,6 +160,31 @@ static std::wstring FilenameFromUrl(const wchar_t* url) {
     return encoded;
 }
 
+static constexpr DWORD kMaxJumpListBytes = 8u * 1024u * 1024u;
+
+// Expands %VAR% in a .lnk target and returns the result, or an empty string on
+// failure. ExpandEnvironmentStringsW returns the REQUIRED size (including the
+// terminating NUL) when the destination is too small and leaves the buffer
+// UNTERMINATED, so an unchecked caller would read past the end of a stack
+// array. Anything at or beyond the buffer size is therefore a failure.
+static std::wstring ExpandEnvChecked(const wchar_t* raw, size_t cap) {
+    if (!raw || !raw[0] || cap == 0) return {};
+    std::vector<wchar_t> buf(cap);
+    DWORD n = ExpandEnvironmentStringsW(raw, buf.data(), static_cast<DWORD>(cap));
+    if (n == 0 || n >= cap) return {};   // 0 = failed, >= cap = truncated
+    return std::wstring(buf.data());
+}
+
+// Same hazard for GetLongPathNameW: it returns the required size and leaves the
+// destination unterminated when the buffer is too small.
+static std::wstring LongPathChecked(const std::wstring& in, size_t cap) {
+    if (in.empty() || cap == 0) return {};
+    std::vector<wchar_t> buf(cap);
+    DWORD n = GetLongPathNameW(in.c_str(), buf.data(), static_cast<DWORD>(cap));
+    if (n == 0 || n >= cap) return {};
+    return std::wstring(buf.data());
+}
+
 // ---------------------------------------------------------------------------
 // Parses a single .customDestinations-ms file and appends resolved file paths.
 // The format is a plain binary stream containing embedded .lnk structures.
@@ -182,8 +207,17 @@ static void ParseCustomDestFile(
     const size_t sz = data.size();
     if (sz < 8) return;
 
+    // Bound the COM work. The scan below slides byte-by-byte and would build an
+    // SHCreateMemStream plus a full IShellLinkW::Load for every occurrence of
+    // the LNK signature. A crafted file repeating that 8-byte signature turns a
+    // few KB into thousands of COM parses, which stalls the prewarm worker and
+    // blocks the fan from opening.
+    constexpr size_t kMaxLnkCandidates = 64;
+    size_t candidates = 0;
+
     for (size_t i = 0; i + 8 <= sz; i++) {
         if (memcmp(&data[i], kLnkSig, 8) != 0) continue;
+        if (++candidates > kMaxLnkCandidates) break;
 
         // Sort key strategy:
         //  - Rank-0 item (most recently opened per app): use fileMtime (= autodest file
@@ -214,18 +248,16 @@ static void ParseCustomDestFile(
                     // --- Get the target path ---
                     wchar_t rawPath[MAX_PATH] = {};
                     pLink->GetPath(rawPath, MAX_PATH, nullptr, SLGP_RAWPATH);
-                    wchar_t target[MAX_PATH] = {};
-                    if (rawPath[0])
-                        ExpandEnvironmentStringsW(rawPath, target, MAX_PATH);
+                    std::wstring target = ExpandEnvChecked(rawPath, MAX_PATH);
 
                     std::wstring docPath;
                     std::wstring docName;
                     bool isOnline = false;
 
-                    if (target[0] && !IsApplicationExtension(target)) {
+                    if (target[0] && !IsApplicationExtension(target.c_str())) {
                         // Direct file target (local path)
                         docPath = target;
-                    } else if (IsApplicationExtension(target) || target[0] == L'\0') {
+                    } else if (IsApplicationExtension(target.c_str()) || target[0] == L'\0') {
                         // App target (e.g. WINWORD.EXE) — look for document URL in arguments.
                         // This is how Office stores SharePoint / OneDrive online documents.
                         wchar_t args[1024] = {};
@@ -255,8 +287,8 @@ static void ParseCustomDestFile(
                         && IsAllowedRecentDocExtension(docPath.c_str())) {
                         // Normalize to long path and lowercase for dedup
                         if (!isOnline) {
-                            wchar_t longPath[MAX_PATH] = {};
-                            if (GetLongPathNameW(docPath.c_str(), longPath, MAX_PATH) > 0)
+                            std::wstring longPath = LongPathChecked(docPath, MAX_PATH);
+                            if (!longPath.empty())
                                 docPath = longPath;
                         }
                         std::wstring key = docPath;
@@ -370,6 +402,10 @@ static void ScanCustomDestinations(
         if (hFile == INVALID_HANDLE_VALUE) continue;
 
         DWORD fileSize = GetFileSize(hFile, nullptr);
+        if (fileSize == INVALID_FILE_SIZE || fileSize > kMaxJumpListBytes) {
+            CloseHandle(hFile);
+            continue;
+        }
         std::vector<uint8_t> data(fileSize);
         DWORD bytesRead = 0;
         ReadFile(hFile, data.data(), fileSize, &bytesRead, nullptr);
@@ -401,7 +437,14 @@ static void ParseAutoDestFile(
         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (hf == INVALID_HANDLE_VALUE) return;
 
+    // Cap: a Jump List file is a few KB. Anything far larger is either
+    // corrupt or hostile, and GetFileSize has no upper bound, so refuse to
+    // allocate from it.
     DWORD fileSize = GetFileSize(hf, nullptr);
+    if (fileSize == INVALID_FILE_SIZE || fileSize > kMaxJumpListBytes) {
+        CloseHandle(hf);
+        return;
+    }
     std::vector<uint8_t> raw(fileSize);
     DWORD bytesRead = 0;
     ReadFile(hf, raw.data(), fileSize, &bytesRead, nullptr);
@@ -423,7 +466,17 @@ static void ParseAutoDestFile(
 
     size_t ss  = (size_t)1 << ssPow;  // regular sector size (512)
     size_t mss = (size_t)1 << msPow;  // mini-sector size (64)
+    // MSVC masks a 64-bit shift count to 6 bits, so ssPow of 0 or 64 both yield
+    // ss == 1. That passes a bare "ss > 4096" check and then makes ePerFat
+    // (ss / 4) zero, so fatEntry divides by zero. The spec-valid range is
+    // 512..4096 for regular sectors (pow 9..12) and 64 for mini sectors, but
+    // accept the wider documented set and let the arithmetic guards below
+    // handle the rest.
+    if (ssPow < 7 || ssPow > 12 || msPow < 2 || msPow > 7) return;
     if (ss == 0 || ss > 4096 || mss == 0 || mss > 512 || csectFAT == 0) return;
+    // Belt and braces: never let a caller divide by a zero entries-per-FAT.
+    const size_t entriesPerFat = ss / 4;
+    if (entriesPerFat == 0) return;
 
     // Collect FAT sector numbers from header DIFAT (up to 109)
     std::vector<DWORD> fatSectors;
@@ -437,7 +490,8 @@ static void ParseAutoDestFile(
         return (size_t)(sector + 1) * ss;
     };
     auto fatEntry = [&](DWORD sector) -> DWORD {
-        size_t ePerFat = ss / 4;
+        size_t ePerFat = entriesPerFat;  // validated non-zero above
+        if (ePerFat == 0) return 0xFFFFFFFF;
         size_t wf = sector / ePerFat;
         size_t oi = (sector % ePerFat) * 4;
         if (wf >= fatSectors.size()) return 0xFFFFFFFF;
@@ -449,7 +503,11 @@ static void ParseAutoDestFile(
     // Read a regular (large) stream by following the FAT chain
     auto readRegularStream = [&](DWORD startSector, size_t streamSize) -> std::vector<uint8_t> {
         std::vector<uint8_t> result;
-        result.reserve(streamSize > 0 ? streamSize : ss);
+        // streamSize comes from a directory entry, so it is attacker-controlled
+        // and can claim up to 4 GB. Cap what we pre-allocate; the chain walk
+        // below stops at the real end of file anyway.
+        result.reserve(std::min<size_t>(streamSize > 0 ? streamSize : ss,
+                                        kMaxJumpListBytes));
         DWORD s = startSector;
         for (int g = 0; g < 5000 && s < 0xFFFFFFFE; g++) {
             size_t off = sectorOffset(s);
@@ -525,7 +583,8 @@ static void ParseAutoDestFile(
     // Read a stream from the mini-stream
     auto readMiniStream = [&](DWORD startMs, size_t streamSize) -> std::vector<uint8_t> {
         std::vector<uint8_t> result;
-        result.reserve(streamSize > 0 ? streamSize : mss);
+        result.reserve(std::min<size_t>(streamSize > 0 ? streamSize : mss,
+                                        kMaxJumpListBytes));
         DWORD ms = startMs;
         for (int g = 0; g < 10000 && ms < 0xFFFFFFFE; g++) {
             size_t off = (size_t)ms * mss;
@@ -626,7 +685,14 @@ static void ParseAutoDestFile(
     }
 
     // --- Step 2: read each hex-named stream as a serialized LNK ---------------
+    // Each hex-named stream costs a COM LNK parse, and a crafted file can
+    // declare thousands of directory entries. Jump Lists hold tens of items,
+    // so cap well above any real list while keeping the work bounded.
+    constexpr size_t kMaxStreamsPerFile = 128;
+    size_t streamsParsed = 0;
+
     for (const auto& de : dirEntries) {
+        if (streamsParsed >= kMaxStreamsPerFile) break;
         if (deType(de) != 2) continue;
         std::wstring name = deName(de);
         if (name.empty()) continue;
@@ -634,6 +700,7 @@ static void ParseAutoDestFile(
         bool isHex = true;
         for (wchar_t c : name) if (!iswxdigit(c)) { isHex = false; break; }
         if (!isHex) continue;
+        ++streamsParsed;
 
         // Rank 0 = most recently opened item in this app.
         // Give it fileMtime as sort key so it always appears near the top,
@@ -760,14 +827,10 @@ static std::vector<FileItem> ScanRecentDocs(int maxItems, ConfigData::SortMode s
                         pLink->GetPath(rawPath, MAX_PATH, nullptr, SLGP_RAWPATH);
                         std::wstring docPath;
                         if (rawPath[0]) {
-                            wchar_t expanded[MAX_PATH] = {};
-                            ExpandEnvironmentStringsW(rawPath, expanded, MAX_PATH);
+                            std::wstring expanded = ExpandEnvChecked(rawPath, MAX_PATH);
                             // Normalize to long path so dedup matches AutoDest entries
-                            wchar_t longPath[MAX_PATH] = {};
-                            if (GetLongPathNameW(expanded, longPath, MAX_PATH) > 0)
-                                docPath = longPath;
-                            else
-                                docPath = expanded;
+                            std::wstring longPath = LongPathChecked(expanded, MAX_PATH);
+                            docPath = longPath.empty() ? expanded : longPath;
                         }
                         if (!docPath.empty()
                             && !IsApplicationExtension(docPath.c_str())
@@ -891,11 +954,8 @@ static std::vector<FileItem> ScanRecentFiles(int maxItems, ConfigData::SortMode 
                 pLink->GetPath(rawPath, MAX_PATH, nullptr, SLGP_RAWPATH);
 
                 std::wstring docPath;
-                if (rawPath[0]) {
-                    wchar_t expanded[MAX_PATH] = {};
-                    ExpandEnvironmentStringsW(rawPath, expanded, MAX_PATH);
-                    docPath = expanded;
-                }
+                if (rawPath[0])
+                    docPath = ExpandEnvChecked(rawPath, MAX_PATH);
 
                 // Online files (SharePoint/OneDrive) may store the URL in the description
                 if (docPath.empty()) {
