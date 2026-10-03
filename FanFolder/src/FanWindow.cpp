@@ -11,6 +11,32 @@
 // the window proc, so the disk I/O alone can burn significant CPU.
 static constexpr bool kTraceMessages = false;
 
+// True when a URL contains only RFC 3986 unreserved + reserved characters.
+// Used to vet a document URL taken from another application's Jump List before
+// it is spliced into an "ofe" protocol URI, whose pipe-delimited grammar would
+// otherwise let it inject or replace fields. Rejecting also covers control
+// characters, quotes, spaces, backslash, non-ASCII, and '|'.
+static bool IsSafeProtocolUrl(const std::wstring& url) {
+    for (wchar_t c : url) {
+        if (c > 0x7E || c < 0x20) return false;
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+            (c >= '0' && c <= '9'))
+            continue;
+        switch (c) {
+        case '-': case '_': case '.': case '~':
+        case ':': case '/': case '?': case '#':
+        case '[': case ']': case '@':
+        case '!': case '$': case '&': case '\'':
+        case '(': case ')': case '*': case '+':
+        case ',': case ';': case '=': case '%':
+            continue;
+        default:
+            return false;
+        }
+    }
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // IDropTarget implementation — receives files dragged from Explorer onto the fan
 // ---------------------------------------------------------------------------
@@ -1194,29 +1220,6 @@ void FanWindow::LaunchItem(int idx) {
             // percent-encoded, so anything outside this set is either malformed
             // or an injection attempt, and falling through to the plain
             // ShellExecuteW below still opens the document.
-            static bool IsSafeProtocolUrl(const std::wstring& url) {
-                // RFC 3986 unreserved + reserved characters only. This covers
-                // control chars, quotes, spaces, backslash, non-ASCII, and '|'.
-                for (wchar_t c : url) {
-                    if (c > 0x7E || c < 0x20) return false;
-                    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-                        (c >= '0' && c <= '9'))
-                        continue;
-                    switch (c) {
-                    case '-': case '_': case '.': case '~':
-                    case ':': case '/': case '?': case '#':
-                    case '[': case ']': case '@':
-                    case '!': case '$': case '&': case '\'':
-                    case '(': case ')': case '*': case '+':
-                    case ',': case ';': case '=': case '%':
-                        continue;
-                    default:
-                        return false;
-                    }
-                }
-                return true;
-            }
-
             if (proto) {
                 // ms-word:ofe|u|https://... opens the document for editing in the desktop app
                 std::wstring uri = std::wstring(proto) + L":ofe|u|" + path;
