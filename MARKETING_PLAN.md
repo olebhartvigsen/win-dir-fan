@@ -219,18 +219,28 @@ there instead.
 **Impact:** evergreen trickle, roughly 5 to 30 installs a month each once indexed. Never spikes, never
 stops.
 
-### 9. Build a real social card, then pitch creators and press
+### 9. Build a real social card, then pitch creators and press — CARD DONE, PITCHES NOT SENT
 
-Your `og:image` is `icon.png`, a square app icon. Every link you share on Reddit, HN or a forum renders a
+Your `og:image` was `icon.png`, a square app icon. Every link you shared on Reddit, HN or a forum rendered a
 square icon in the preview, and link previews with an app icon get a fraction of the clicks of one with a
 real image.
 
-1. Make a 1200x630 landscape PNG: the fan open over a taskbar, product name, one line of copy.
-2. Point `og:image` and `twitter:image` at it.
-3. Then pitch. The list is in `PROMOTION_IDEAS.md`: XDA, Windows Central, Neowin, and the YouTube
-   channels that make "make Windows 11 look like macOS" videos. Offer three facts and a GIF, not a press
-   release. The hook that works is the XDA story: Windows *might* get the dock animation, and the useful
-   half of it is already on the taskbar today, in 1.4 MB, free.
+Done 3 October 2026 (Pages commit `81a941d`):
+
+- `social-card.png` at the dist repo root, exactly 1200x630, flattened RGB, 140 KB. Real app art: the fan
+  open over a Windows taskbar, with the Wordmark, the line "Your recent files, one click away", and three
+  chips.
+- `og:image`, `twitter:image`, `og:image:width`, `og:image:height`, and alt text on the homepage and all
+  four guides. Each guide has its own alt text.
+- `twitter:card` changed from `summary` to `summary_large_image`. This was a second bug: `summary` renders a
+  small thumbnail and would have ignored the card even after the image was correct.
+- `scripts/make_social_card.py` and `assets/app-frame.png` are in the repo. Regenerating reproduces the
+  deployed PNG byte for byte.
+
+Still to do: the pitches. The list is in `PROMOTION_IDEAS.md`: XDA, Windows Central, Neowin, and the YouTube
+channels that make "make Windows 11 look like macOS" videos. Offer three facts and a GIF, not a press
+release. The hook that works is the XDA story: Windows *might* get the dock animation, and the useful
+half of it is already on the taskbar today, in 1.4 MB, free.
 
 **Impact:** the card multiplies the click rate on everything in actions 6, 7 and 11. The pitches
 themselves are one-off spikes, probably 10 to 100 installs each if they land.
@@ -305,7 +315,8 @@ Left to do:
 - [ ] Post the r/windowsapps draft (action 7)
 - [ ] Answer threads 1 and 5, the two Quick Launch threads (action 6), linking the new
       `/guides/quick-launch-windows-11/` page
-- [ ] Make the 1200x630 social card and repoint `og:image` (action 9)
+- [x] Make the 1200x630 social card and repoint `og:image` (action 9, card half)
+- [ ] Send the creator and press pitches (action 9, pitch half)
 - [ ] Decide on open source (action 10)
 
 Then: answer the remaining eight threads over the following fortnight.
