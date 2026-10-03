@@ -136,26 +136,33 @@ point people here.
 
 ## Tier 1: the two doors with the most installs behind them
 
-### 5. Ship the guides as four real pages, not four anchors
+### 5. Ship the guides as four real pages — DONE
 
-This is the biggest structural gap. The homepage has good guides (5,800 characters of honest text under
-`#guides`) and a clean meta description, but `sitemap.xml` contains exactly **one** URL. All that content
-competes for one page, so the homepage cannot rank for `quick launch windows 11`, `recent files taskbar
+This was the biggest structural gap. The homepage had good guides (5,800 characters of honest text under
+`#guides`) and a clean meta description, but `sitemap.xml` contained exactly **one** URL. All that content
+competed for one page, so the homepage could not rank for `quick launch windows 11`, `recent files taskbar
 windows 11` or `jump list not working windows 11` as a dedicated result.
 
-Do this in the `FanFolder` Pages repo:
+Shipped 3 October 2026 in the `FanFolder` Pages repo, commit `af83ce4`:
 
-1. Split into four pages: `/guides/quick-launch-windows-11/`, `/guides/recent-files-taskbar/`,
-   `/guides/jump-lists-windows-11/`, `/guides/macos-stacks-windows/`.
-2. Copy the existing guide text as the base. This is assembly, not writing.
-3. Add `FAQPage` JSON-LD to the pages that carry an FAQ block (the homepage has a `SoftwareApplication`
-   block but no `FAQPage`, so it cannot win FAQ rich results).
-4. Add all four URLs to `sitemap.xml`.
-5. Link them from the homepage guides section with the existing `#guides-*` anchors as jump links.
+- Four pages at `/guides/quick-launch-windows-11/`, `/guides/recent-files-taskbar/`,
+  `/guides/jump-lists-windows-11/` and `/guides/macos-stacks-windows/`. Each has a unique title, meta
+  description, canonical URL, table of contents, and a four-question FAQ block.
+- `FAQPage` JSON-LD on all four, so they can win FAQ rich results. The homepage has `SoftwareApplication`
+  but no `FAQPage`, so it never could.
+- The homepage stylesheet externalised to `assets/site.css` so the pages inherit the site design instead
+  of duplicating it. `index.html` still renders identically.
+- Each homepage guide card now links to its full page, and a fourth card was added for the macOS Stacks
+  angle, which previously only existed as the `#macos` band.
+- `sitemap.xml` now lists all five URLs.
 
-This is the only door that produces installs while you are asleep, and it is the only one that keeps
-producing them after you stop working on it. Forum threads are frozen in time; these pages can be updated
-and they age into the ranking.
+Verified live after Pages rebuilt: all four pages and `assets/site.css` return 200, every relative link on
+every page resolves over HTTP, all four FAQ blocks parse as `FAQPage` with 4 questions, the sitemap lists
+5 URLs, and the homepage shows no regression (9 details / 9 summaries, hero video, Store badge and winget
+command all intact).
+
+One thing not verified: the rendered appearance. No browser was available in the session, so layout and
+the FAQ accordion are confirmed only at the HTML level. Worth a glance.
 
 **Impact:** the largest total volume in this plan. Slow to start (weeks), permanent after that.
 
@@ -289,18 +296,19 @@ hours a month. This is what turns actions 5 and 6 from a campaign into a channel
 
 ## First 48 hours, in order
 
-Done 3 October 2026: action 1 (docs), action 2 (generator tags), action 3 (Store CSV), action 4 (dev tags).
+Done 3 October 2026: action 1 (docs), action 2 (generator tags), action 3 (Store CSV), action 4 (dev tags),
+action 5 (four guide pages live).
 Left to do:
 
 - [ ] Import the updated `FanFolderListing.csv` in Partner Center and submit (action 3)
 - [ ] Ask five people for a Store rating (action 3)
 - [ ] Post the r/windowsapps draft (action 7)
-- [ ] Answer threads 1 and 5, the two Quick Launch threads (action 6)
+- [ ] Answer threads 1 and 5, the two Quick Launch threads (action 6), linking the new
+      `/guides/quick-launch-windows-11/` page
 - [ ] Make the 1200x630 social card and repoint `og:image` (action 9)
 - [ ] Decide on open source (action 10)
 
-Then: four guide pages (action 5) as the main week's work, and the remaining eight threads over the
-following fortnight.
+Then: answer the remaining eight threads over the following fortnight.
 
 ## How to tell if it is working
 
