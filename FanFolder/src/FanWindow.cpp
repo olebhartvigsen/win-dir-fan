@@ -80,14 +80,19 @@ static constexpr float GlideOffsetPx        = 42.f;   // upward drift distance
 static constexpr float GlideStartScale      = 0.70f;  // start at 70% size
 static constexpr float kPI = 3.14159265358979f;
 
-static const UINT WM_ICON_BITMAP = WM_USER + 1;
-static const UINT WM_ICON_ICON   = WM_USER + 2;
 // WM_ICON_READY: lParam = heap-allocated IconReady* (owned by UI handler);
 // wParam unused.  Used when the worker thread has pre-converted the bitmap to
 // Gdiplus::Bitmap* — the UI handler just takes ownership and assigns the
 // slots, avoiding the ~50ms × 15 = ~750ms HBitmapToGdiBitmap cost on the UI
 // thread that otherwise stalls the animation timer on cached reopens.
 static const UINT WM_ICON_READY  = WM_USER + 4;
+
+// Sent to our owner (MainWindow) when the fan wants itself closed. Kept as a
+// bare literal here because FanWindow does not include MainWindow.cpp's
+// constants; MainWindow maps this to WM_MAIN_FAN_CLOSED. Do NOT reuse
+// WM_ICON_READY's value (WM_USER + 4): the owner reads that ID as a
+// hook-generation-stamped close request and would discard this post.
+static const UINT WM_FAN_ASK_OWNER_TO_CLOSE = WM_USER + 6;
 
 struct IconReady {
     int              idx;
@@ -96,10 +101,6 @@ struct IconReady {
     Gdiplus::Bitmap* gdiBmp;  // pre-converted on worker thread; may be null
 };
 static const UINT WM_ANIM_TICK   = WM_USER + 3;
-
-// TEMP DIAG: count per-frame conversion cost from DrawItem fallback path.
-thread_local DWORD g_dbgConvertMs  = 0;
-thread_local int   g_dbgConvertCnt = 0;
 
 // ---------------------------------------------------------------------------
 void FanWindow::Register(HINSTANCE hInst) {
@@ -595,30 +596,6 @@ void FanWindow::CalculateLayout() {
 }
 
 // ---------------------------------------------------------------------------
-void FanWindow::PremultiplyBitmap(Gdiplus::BitmapData& data) {
-    auto* p = static_cast<BYTE*>(data.Scan0);
-    for (UINT y = 0; y < data.Height; y++) {
-        BYTE* px = p + y * data.Stride;
-        for (UINT x = 0; x < data.Width; x++, px += 4) {
-            BYTE a = px[3];
-            if (a == 0) {
-                px[0] = px[1] = px[2] = 0;
-            } else if (a < 255) {
-                px[0] = (BYTE)((px[0] * a + 128) >> 8);
-                px[1] = (BYTE)((px[1] * a + 128) >> 8);
-                px[2] = (BYTE)((px[2] * a + 128) >> 8);
-            }
-        }
-    }
-}
-
-void FanWindow::InvalidateShadow() {
-    delete _shadowBmp;
-    _shadowBmp  = nullptr;
-    _shadowIdx  = -1;
-    _shadowHsc  = 0.f;
-}
-
 Gdiplus::Bitmap* FanWindow::RenderShadow(Gdiplus::Bitmap* srcBmp, float drawSz, float hsc) {
     if (!srcBmp) return nullptr;
     float hoverT = (hsc - 1.f) / (HoverScaleMax - 1.f);
@@ -667,10 +644,7 @@ void FanWindow::FreeBackBuffer() {
 void FanWindow::DrawToLayeredWindow() {
     if (!_hwnd || _winWidth <= 0 || _winHeight <= 0) return;
 
-    DWORD _dbg_t0 = GetTickCount();
-    DWORD _dbg_t_alloc = 0, _dbg_t_items = 0, _dbg_t_premul = 0, _dbg_t_ulw = 0;
-    g_dbgConvertMs  = 0;
-    g_dbgConvertCnt = 0;
+    const DWORD _drawT0 = GetTickCount();
 
     // Recreate backbuffer only when size changes
     if (_winWidth != _backW || _winHeight != _backH) {
@@ -703,32 +677,21 @@ void FanWindow::DrawToLayeredWindow() {
         _backW   = _winWidth;
         _backH   = _winHeight;
     }
-    _dbg_t_alloc = GetTickCount() - _dbg_t0;
-    DWORD _dbg_t1 = GetTickCount();
 
     // Clear and render into the DIB-backed GDI+ bitmap
-    int _dbg_placeholders = 0, _dbg_gdiDraws = 0, _dbg_conversions = 0;
-    DWORD _dbg_t_convert = 0, _dbg_t_drawImage = 0, _dbg_t_labels = 0;
-    DWORD _dbg_t_gctor = 0, _dbg_t_gset = 0, _dbg_t_gclear = 0, _dbg_t_gloop = 0, _dbg_t_gdtor = 0;
     {
         // Always clear DIB to transparent first — valid baseline even when
         // GDI+ Graphics construction fails (headless/sandboxed environments).
         if (_pBackBits)
             std::memset(_pBackBits, 0, (size_t)_winWidth * _winHeight * 4);
 
-        DWORD _gt0 = GetTickCount();
         Gdiplus::Graphics g(_backBmp);
-        _dbg_t_gctor = GetTickCount() - _gt0;
         const bool gdiOk = (g.GetLastStatus() == Gdiplus::Ok);
 
-        DWORD _gt1 = GetTickCount();
         if (gdiOk) {
             g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
             g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
         }
-        _dbg_t_gset = GetTickCount() - _gt1;
-        _dbg_t_gclear = 0;
-        DWORD _gt3 = GetTickCount();
 
         if (gdiOk) {
             int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
@@ -767,11 +730,7 @@ void FanWindow::DrawToLayeredWindow() {
             // so the frame is retried once the graphics subsystem recovers.
             _iconsDirty.store(true, std::memory_order_relaxed);
         }
-        _dbg_t_gloop = GetTickCount() - _gt3;
     }
-    _dbg_t_gdtor = 0;
-    _dbg_t_items = GetTickCount() - _dbg_t1;
-    DWORD _dbg_t2 = GetTickCount();
 
     // Premultiply alpha in-place on the DIB bits (no LockBits/memcpy needed)
     if (_pBackBits) {
@@ -791,8 +750,6 @@ void FanWindow::DrawToLayeredWindow() {
             }
         }
     }
-    _dbg_t_premul = GetTickCount() - _dbg_t2;
-    DWORD _dbg_t3 = GetTickCount();
 
     HDC hdcScreen = GetDC(nullptr);
     POINT ptSrc = {0, 0};
@@ -808,19 +765,17 @@ void FanWindow::DrawToLayeredWindow() {
         UpdateLayeredWindow(_hwnd, hdcScreen, &ptDst, &szWin, _hdcBack, &ptSrc, 0, &blend, ULW_ALPHA);
     }
     ReleaseDC(nullptr, hdcScreen);
-    _dbg_t_ulw = GetTickCount() - _dbg_t3;
 
-    DWORD _dbg_total = GetTickCount() - _dbg_t0;
-    if (kTraceMessages && _dbg_total > 50) {
+    // Slow-draw warning, gated behind kTraceMessages so it costs nothing in
+    // release builds (this runs on every animation frame).
+    const DWORD drawMs = GetTickCount() - _drawT0;
+    if (kTraceMessages && drawMs > 50) {
         wchar_t p[MAX_PATH] = {};
         GetTempPathW(MAX_PATH, p);
         wcscat_s(p, L"fanfolder_debug.log");
         wchar_t buf[256];
-        swprintf_s(buf, L"[FanFolder] DRAW slow: alloc=%u items=%u(gctor=%u,gset=%u,gclear=%u,gloop=%u) premul=%u ulw=%u TOTAL=%ums  convert[n=%d,ms=%u]\n",
-                   _dbg_t_alloc, _dbg_t_items,
-                   _dbg_t_gctor, _dbg_t_gset, _dbg_t_gclear, _dbg_t_gloop,
-                   _dbg_t_premul, _dbg_t_ulw, _dbg_total,
-                   g_dbgConvertCnt, g_dbgConvertMs);
+        swprintf_s(buf, L"[FanFolder] DRAW slow: TOTAL=%ums %dx%d items=%d\n",
+                   drawMs, _winWidth, _winHeight, (int)_items.size());
         HANDLE hh = CreateFileW(p, FILE_APPEND_DATA,
                                 FILE_SHARE_READ | FILE_SHARE_WRITE,
                                 nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -1083,12 +1038,8 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
     // Lazy-cache: convert HBITMAP/HICON → Gdiplus::Bitmap* once, reuse every frame.
     // This eliminates the ~65KB heap allocation that DrawShellBitmapIA did per frame.
     if (idx < (int)_gdiBitmaps.size() && !_gdiBitmaps[idx]) {
-        DWORD _cvt0 = GetTickCount();
         if (bmp)      _gdiBitmaps[idx].reset(HBitmapToGdiBitmap(bmp));
         else if (ico) _gdiBitmaps[idx].reset(Gdiplus::Bitmap::FromHICON(ico));
-        DWORD _cvt = GetTickCount() - _cvt0;
-        g_dbgConvertMs  += _cvt;
-        g_dbgConvertCnt += 1;
     }
     Gdiplus::Bitmap* gdiBmp = (idx < (int)_gdiBitmaps.size()) ? _gdiBitmaps[idx].get() : nullptr;
 
@@ -1333,7 +1284,7 @@ void FanWindow::ShowContextMenu(int idx, POINT screenPt) {
     if (pcm2) pcm2->Release();
     pcm->Release();
 
-    PostMessageW(_hwndOwner, WM_USER + 4, 0, 0);
+    PostMessageW(_hwndOwner, WM_FAN_ASK_OWNER_TO_CLOSE, 0, 0);
 }
 
 void FanWindow::StartIconLoad(int idx) {
@@ -1503,43 +1454,6 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     FanWindow* self = FromHWND(hwnd);
     if (!self) return DefWindowProcW(hwnd, msg, wParam, lParam);
 
-    // TEMP: trace every message + processing time during the first 1500 ms
-    // after window creation, to diagnose UI-thread stalls. Gated by the
-    // file-scope kTraceMessages flag; disabled in release builds.
-    struct TraceGuard {
-        HWND  hwnd; UINT msg; WPARAM wp; DWORD t0; bool active;
-        TraceGuard(HWND h, UINT m, WPARAM w, DWORD ct)
-            : hwnd(h), msg(m), wp(w), t0(GetTickCount()), active(false) {
-            if constexpr (!kTraceMessages) return;
-            // If _createTick is 0 we haven't had our first tick yet (still in
-            // the critical window); if >0 but within 1500 ms we're still in
-            // the diagnostic window.
-            if (ct != 0 && (t0 - ct) > 1500) return;
-            active = true;
-        }
-        ~TraceGuard() {
-            if (!active) return;
-            DWORD dt = GetTickCount() - t0;
-            // Log every message during the diagnostic window so we can
-            // identify stalls by gaps between entries.
-            wchar_t p[MAX_PATH] = {};
-            GetTempPathW(MAX_PATH, p);
-            wcscat_s(p, L"fanfolder_debug.log");
-            wchar_t buf[256];
-            swprintf_s(buf, L"[FanFolder]   msg 0x%04X wp=0x%X t=%u dt=%ums\n",
-                       msg, (unsigned)wp, t0, dt);
-            HANDLE h = CreateFileW(p, FILE_APPEND_DATA,
-                                   FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                   nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (h != INVALID_HANDLE_VALUE) {
-                char u[512];
-                int n = WideCharToMultiByte(CP_UTF8, 0, buf, -1, u, sizeof(u), nullptr, nullptr);
-                if (n > 1) { DWORD w = 0; WriteFile(h, u, n - 1, &w, nullptr); }
-                CloseHandle(h);
-            }
-        }
-    } _trace(hwnd, msg, wParam, self->_createTick);
-
     switch (msg) {
     // ── Animation tick (posted by threadpool timer; see StartAnimTimer) ────
     case WM_ANIM_TICK: {
@@ -1565,32 +1479,6 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             }
         }
         float elapsed = (float)(now - self->_createTick);
-
-        if constexpr (kTraceMessages) {
-            // TEMP diagnostic: log first 5 ticks per open to see elapsed progression
-            static thread_local int s_tickCount = 0;
-            static thread_local HWND s_tickHwnd = nullptr;
-            if (s_tickHwnd != hwnd) { s_tickHwnd = hwnd; s_tickCount = 0; }
-            if (s_tickCount < 5) {
-                wchar_t logPath2[MAX_PATH] = {};
-                GetTempPathW(MAX_PATH, logPath2);
-                wcscat_s(logPath2, L"fanfolder_debug.log");
-                wchar_t buf2[256];
-                swprintf_s(buf2, L"[FanFolder]   tick #%d elapsed=%.0fms entryAlpha=%.2f itemProg[0]=%.2f\n",
-                           s_tickCount, elapsed, self->_entryAlpha,
-                           self->_itemProgress.empty() ? 0.f : self->_itemProgress[0]);
-                HANDLE h2 = CreateFileW(logPath2, FILE_APPEND_DATA,
-                                       FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                       nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-                if (h2 != INVALID_HANDLE_VALUE) {
-                    char utf8b[512];
-                    int n = WideCharToMultiByte(CP_UTF8, 0, buf2, -1, utf8b, sizeof(utf8b), nullptr, nullptr);
-                    if (n > 1) { DWORD w = 0; WriteFile(h2, utf8b, n - 1, &w, nullptr); }
-                    CloseHandle(h2);
-                }
-                s_tickCount++;
-            }
-        }
 
         bool  dirty   = false;
 
@@ -1656,7 +1544,7 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 }
             }
 
-            // Coalesced icon-load invalidation (set by WM_USER + 1/+2 handlers)
+            // Coalesced icon-load invalidation (set by the WM_ICON_READY handler)
             if (self->_iconsDirty.exchange(false, std::memory_order_acq_rel))
                 dirty = true;
 
@@ -1680,7 +1568,7 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                             DoShellDrag(hwnd, self->_items[idx].fullPath, bmp, self->_iconSize);
                         }
                         self->_dragging = false;
-                        PostMessageW(self->_hwndOwner, WM_USER + 4, 0, 0);
+                        PostMessageW(self->_hwndOwner, WM_FAN_ASK_OWNER_TO_CLOSE, 0, 0);
                     }
                 } else {
                     // Button released without reaching drag threshold — cancel
