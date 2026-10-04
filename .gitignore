@@ -39,3 +39,9 @@ Desktop.ini
 ## Local bundle build output
 installer/*.exe
 
+## Directory-submission screenshots: rendered from the Product Hunt slides, which
+## are generated on macOS. These copies still show the old "Open source, MIT" and
+## "161 KB" text until the slides are re-rendered, and committing them would
+## publish a false licence claim. Re-add them after the re-render.
+installer/directories/screenshot-*.png
+
