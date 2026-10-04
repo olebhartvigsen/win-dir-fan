@@ -273,10 +273,26 @@ Done 3 October 2026 (Pages commit `81a941d`):
 - `scripts/make_social_card.py` and `assets/app-frame.png` are in the repo. Regenerating reproduces the
   deployed PNG byte for byte.
 
-Still to do: the pitches. The list is in `PROMOTION_IDEAS.md`: XDA, Windows Central, Neowin, and the YouTube
-channels that make "make Windows 11 look like macOS" videos. Offer three facts and a GIF, not a press
-release. The hook that works is the XDA story: Windows *might* get the dock animation, and the useful
-half of it is already on the taskbar today, in 1.4 MB, free.
+Still to do: the pitches. **`INFLUENCER_TARGETS.md` is the researched target list, ready to work from.** The
+press angle is weaker than it looked, and one warm audience is stronger:
+
+- **Windhawk is the bigger opportunity.** Its macOS-style taskbar mods have 428,460 users, and its taskbar
+  styler mod has 971,751. These people already installed a shell-tweaking tool and asked for macOS behaviour.
+  Pitch r/Windhawk and the Windhawk Discord, not a mod submission: FanFolder patches nothing, so it cannot be
+  a mod and should not be presented as one.
+- **Neowin has a documented public news submission form** and publishes small Windows utility news. That makes
+  it the best press target of the three, not the tier-two one. Its guidelines require original writing, so
+  submit it as news, not as promotion.
+- **XDA has already run the exact story** ("Windows 11's taskbar might get my favorite macOS Dock animation
+  soon", and a Modern Dock piece that faults it for not integrating with the taskbar). Do not re-pitch that
+  news. Pitch the app as the answer to the question their article raises.
+- **Chris Titus Tech** has a recurring "Windows 11 but make it macOS" video series, one at 233K views, and
+  rounds up dozens of small utilities per video. Channel verified live.
+- **Skip The Verge, Ars Technica, TechRadar and Guru3D.** All reachable, none cover small Windows utilities.
+  Reachable is not the same as relevant.
+
+Neowin and XDA block this container, so confirm their addresses from a browser before sending. Windows
+Central is reachable but has no confirmed public tip route, and is affiliate-heavy, so expect a link request.
 
 **Impact:** the card multiplies the click rate on everything in actions 6, 7 and 11. The pitches
 themselves are one-off spikes, probably 10 to 100 installs each if they land.
@@ -364,7 +380,10 @@ installs per hour, not by how satisfying it feels.
    `installer/directories/`, and `ALTERNATIVETO_LISTING.md` is ready. MajorGeeks is an email to
    `mgnews@majorgeeks.com`, FossHub needs a developer account. Regenerate the three Product Hunt PNGs on
    macOS first, they still show "Open source, MIT" and "161 KB".
-8. **Send the creator and press pitches** (action 9, second half).
+8. **Send the creator and press pitches** (action 9, second half). Work from `INFLUENCER_TARGETS.md`. Start
+   with r/Windhawk and the Windhawk Discord: that audience is already inside the macOS-taskbar corridor and is
+   reachable today. Then Neowin's news form, then Chris Titus Tech. Skip The Verge, Ars Technica and
+   TechRadar.
 9. **Decide on open source** (action 10). Everything in step 3, 4 and 8 gets weaker while this is undecided.
 
 Then: the monthly two-hour loop (action 14) turns this from a campaign into a channel.
