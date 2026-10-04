@@ -4,24 +4,37 @@ Ranked by expected installs. Written 3 October 2026 against live data, not the R
 
 ## Where the product actually stands
 
+Re-verified 3 October 2026, after actions 1 to 5 and the action 9 card shipped.
+
 | Measure | Live value | Checked |
 |---|---|---|
-| GitHub asset downloads, all time | 932 across 17 releases | GitHub releases API |
-| Downloads on v1.4.3 (latest) | 255 | GitHub releases API |
-| Approx. daily install rate | 5/day over 6 months | 932 / 180 days |
-| GitHub stars / forks | 3 / 0 | GitHub API |
+| GitHub asset downloads, all time | 946 across 14 releases | GitHub releases API |
+| Downloads on v1.4.3 (latest) | 270 | GitHub releases API |
+| Approx. daily install rate | ~5/day over 6 months | 946 / 180 days |
+| GitHub stars / forks | 1 / 0 | GitHub API |
 | Reddit mentions | 0 | repo notes + HN/Reddit checks |
 | Hacker News mentions | 0 | hn.algolia.com |
 | Microsoft Store ratings | 0 (`ratingCount: 0`) | store listing HTML |
+| Store listing mentions of "Stacks" / "macOS" | 0 / 0 | store listing HTML |
 | winget versions live | 1.2.2, 1.3.0, 1.4.3 | winget-pkgs master |
 | Store listing | live, `9P3VT115SBM1`, at 1.4.3 | store listing HTML |
+| Guide pages indexed | 0 of 4 | Bing, `quick launch windows 11` |
 
 Distribution is not the problem. winget, the Store, GitHub Releases and the homepage are all live and
 all working (both MSIs return HTTP 200, the Store page renders, the homepage is indexed). Five installs
 a day for a free taskbar utility is a discovery problem, not a product problem.
 
-Four doors produce installs for an app like this: intent search, peer answers, package-manager and
-store browsing, and shares. FanFolder is currently closed in all four. That is what the plan opens.
+Two things to read carefully in that table:
+
+- **Store keywords are still not live.** The listing HTML has zero occurrences of "Stacks" or "macOS", so
+  the action 3 CSV work is finished in the repo and has not reached the portal. This is the single cheapest
+  remaining item.
+- **The four guide pages are not indexed yet.** They are live, in the sitemap, and internally linked, but a
+  Bing probe for `quick launch windows 11` returns nothing from the domain. Action 5 was infrastructure;
+  the ranking arrives only after indexing, and nothing in this plan accelerates that except links (action 6).
+
+Distribution is closed in four doors: intent search, peer answers, package-manager and store browsing, and
+shares. Three of those four are still shut. That is what the plan opens.
 
 ---
 
@@ -114,6 +127,23 @@ submission starts from the current text instead of re-typing it. See the API not
 section if you want to automate it.
 
 **Impact:** the keyword half ships today. The ratings half is social proof you can only ask for.
+
+### 3b. Two live inconsistencies found on 3 October 2026 — fix before anything else ships
+
+Both are on pages that already rank in search, so both cost credibility with strangers today.
+
+- **The dist repo README still says "about 161 KB".** `olebhartvigsen/FanFolder/README.md` line 9. The real
+  x64 binary is 1,488,896 bytes (1.42 MB). The source repo README was corrected to 1.4 MB but the dist repo
+  is a separate file, and search results currently show the wrong number. The same wrong figure is baked
+  into Product Hunt slides 1, 4 and 5 (generators fixed, PNGs not yet re-rendered).
+- **The homepage claims Windows 10 version 1809; the Store requires 2004.** `index.html` says
+  "version 1809 and later" in the FAQ and the same claim appears twice. The MSIX manifest and the Store
+  listing both require 2004 (build 19041), which is a hard Store requirement, so 1809 is wrong and understates
+  the real minimum. Pick 2004 and say so in one place.
+
+Neither is a marketing action. Both are a visitor finding a contradiction and closing the tab.
+
+**Impact:** protects the conversion on traffic you already have.
 
 ### 4. Clean up the releases page — DONE
 
@@ -307,19 +337,31 @@ hours a month. This is what turns actions 5 and 6 from a campaign into a channel
 ## First 48 hours, in order
 
 Done 3 October 2026: action 1 (docs), action 2 (generator tags), action 3 (Store CSV), action 4 (dev tags),
-action 5 (four guide pages live).
-Left to do:
+action 5 (four guide pages live), action 9 card (social card live on all five pages).
 
-- [ ] Import the updated `FanFolderListing.csv` in Partner Center and submit (action 3)
-- [ ] Ask five people for a Store rating (action 3)
-- [ ] Post the r/windowsapps draft (action 7)
-- [ ] Answer threads 1 and 5, the two Quick Launch threads (action 6), linking the new
-      `/guides/quick-launch-windows-11/` page
-- [x] Make the 1200x630 social card and repoint `og:image` (action 9, card half)
-- [ ] Send the creator and press pitches (action 9, pitch half)
-- [ ] Decide on open source (action 10)
+Every item below needs a human with an account, so none of it can be automated from here. Ordered by
+installs per hour, not by how satisfying it feels.
 
-Then: answer the remaining eight threads over the following fortnight.
+1. **Fix the two contradictions in 3b** (about 20 minutes). The dist README says 161 KB, the homepage says
+   Windows 10 1809 while the Store needs 2004. Both are live on pages that rank. Cheapest conversion fix
+   available.
+2. **Import the Store CSV in Partner Center and submit** (about 30 minutes). The keywords are written and
+   verified at the seven-term policy limit; they are sitting in the repo doing nothing. Note this needs a
+   new package version to submit, so pair it with cutting v1.4.4.
+3. **Answer threads 1 and 5**, the two Quick Launch threads (about 30 minutes). Best effort-to-install ratio
+   in the whole plan, and they link `/guides/quick-launch-windows-11/`, which is the page most likely to earn
+   its first backlink and get indexed.
+4. **Post the r/windowsapps draft** (about 20 minutes plus a GIF). Zero Reddit mentions, so the surface is
+   completely open. Fix the draft's version reference first.
+5. **Ask five people for a Store rating.** Zero ratings converts worse than five.
+6. **Answer the remaining eight threads** over the following fortnight, two per weekday.
+7. **Submit MajorGeeks and FossHub.** Copy is written and fact-checked in `installer/directories/`; MajorGeeks
+   is an email to `mgnews@majorgeeks.com`, FossHub needs a developer account. Regenerate the three Product
+   Hunt PNGs on macOS first, they still show "Open source, MIT" and "161 KB".
+8. **Send the creator and press pitches** (action 9, second half).
+9. **Decide on open source** (action 10). Everything in step 3, 4 and 8 gets weaker while this is undecided.
+
+Then: the monthly two-hour loop (action 14) turns this from a campaign into a channel.
 
 ## How to tell if it is working
 
