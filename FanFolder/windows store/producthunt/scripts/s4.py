@@ -21,7 +21,7 @@ for i, ln in enumerate(["Light or dark. Big icons or small.",
 # stat strip
 layer = Image.new("RGBA", c.size, (0, 0, 0, 0))
 ld = ImageDraw.Draw(layer)
-STATS = [("29", "languages"), ("4", "directions"), ("161 KB", "installed")]
+STATS = [("29", "languages"), ("4", "directions"), ("1.4 MB", "installed")]
 sx = X
 for big, small in STATS:
     fb_, fs_ = bold(38), reg(19)

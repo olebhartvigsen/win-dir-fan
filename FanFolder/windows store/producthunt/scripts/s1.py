@@ -18,7 +18,7 @@ sub = reg(26)
 d.text((X * S, 496 * S), "Click the icon on your taskbar.", font=sub, fill=DIM)
 d.text((X * S, 538 * S), "Everything you opened lately fans out.", font=sub, fill=DIM)
 
-chips(c, ["Windows 10 & 11", "161 KB", "Free forever"], X, 620)
+chips(c, ["Windows 10 & 11", "1.4 MB", "Free forever"], X, 620)
 
 img = device(FRAME, 660, plain=True)
 clear_zone(c, 800, 60, img.size[0] / S, 660)

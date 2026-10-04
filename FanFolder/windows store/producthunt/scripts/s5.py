@@ -23,8 +23,8 @@ ld = ImageDraw.Draw(layer)
 POINTS = [
     ("Nothing to sign up for", "install it and it works"),
     ("Runs on your machine", "your file list never gets uploaded"),
-    ("161 KB on disk", "smaller than most photos"),
-    ("Open source, MIT", "read the code yourself"),
+    ("1.4 MB on disk", "smaller than most photos"),
+    ("Free for work too", "personal and commercial use"),
 ]
 
 # two columns of check rows

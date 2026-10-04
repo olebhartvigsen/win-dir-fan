@@ -86,7 +86,7 @@ A single article on any of these can drive thousands of downloads.
 ---
 
 ### 8. 📣 Post on social media with the demo video
-- **Twitter/X**: Short thread with the GIF, tag `#Windows`, `#WindowsTips`, `#opensource`
+- **Twitter/X**: Short thread with the GIF, tag `#Windows`, `#WindowsTips`, `#taskbar`, `#productivity` (do **not** tag `#opensource`: FanFolder is proprietary with source withheld)
 - **LinkedIn**: Frame it as a productivity story — "I built this small utility because Windows needed it..."
 - **TikTok / YouTube Shorts**: 30-second "did you know Windows can do this?" style video — these go viral organically in the tech niche
 
