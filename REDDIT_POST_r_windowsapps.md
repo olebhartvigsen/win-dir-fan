@@ -1,6 +1,6 @@
 # Reddit post for r/windowsapps
 
-Verified before writing: v1.4.3 is the latest release (Aug 2026), winget package `OleBhartvigsen.FanFolder` is live with 1.2.2/1.3.0/1.4.3 published, MSI installers are the most-downloaded assets, and the plain `releases/latest/download/FanFolder.exe` link 404s (use the homepage link instead, it resolves to the install options). README still says 161 KB; the x64 exe is actually ~1.4 MB, so the post says 1.4 MB.
+Verified before writing: v1.4.3 is the latest release (Aug 2026), winget package `OleBhartvigsen.FanFolder` is live with 1.2.2/1.3.0/1.4.3 published, MSI installers are the most-downloaded assets, and the plain `releases/latest/download/FanFolder.exe` link 404s (use the homepage link instead, it resolves to the install options). The stale size figure in the README is corrected to 1.4 MB in both repos; the x64 exe is actually ~1.4 MB, so the post says 1.4 MB.
 
 ## Title
 

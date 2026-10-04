@@ -16,7 +16,7 @@ Keep this exact text, it carries the search keywords:
 >
 > It reads recent documents from Windows Jump Lists (including recent Office/M365 documents), so it works as a Recents launcher, a Dock-stacks replacement, and a Quick Launch alternative in one.
 >
-> Technical: native Win32/C++, about 1.4 MB, no .NET runtime, no admin rights, per-user install. Windows 10 (1809+) and 11, x64 and ARM64. Free for personal and commercial use forever.
+> Technical: native Win32/C++, about 1.4 MB, no .NET runtime, no admin rights, per-user install. Windows 10 (2004+) and 11, x64 and ARM64. Free for personal and commercial use forever.
 
 ## Tags to select
 
