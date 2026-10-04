@@ -128,20 +128,26 @@ section if you want to automate it.
 
 **Impact:** the keyword half ships today. The ratings half is social proof you can only ask for.
 
-### 3b. Two live inconsistencies found on 3 October 2026 — fix before anything else ships
+### 3b. Two live inconsistencies — FIXED 3 October 2026
 
-Both are on pages that already rank in search, so both cost credibility with strangers today.
+Both were on pages that already rank in search, so both cost credibility with strangers.
 
-- **The dist repo README still says "about 161 KB".** `olebhartvigsen/FanFolder/README.md` line 9. The real
-  x64 binary is 1,488,896 bytes (1.42 MB). The source repo README was corrected to 1.4 MB but the dist repo
-  is a separate file, and search results currently show the wrong number. The same wrong figure is baked
-  into Product Hunt slides 1, 4 and 5 (generators fixed, PNGs not yet re-rendered).
-- **The homepage claims Windows 10 version 1809; the Store requires 2004.** `index.html` says
-  "version 1809 and later" in the FAQ and the same claim appears twice. The MSIX manifest and the Store
-  listing both require 2004 (build 19041), which is a hard Store requirement, so 1809 is wrong and understates
-  the real minimum. Pick 2004 and say so in one place.
+- **The dist repo README said "about 161 KB".** `olebhartvigsen/FanFolder/README.md` line 9. The real
+  x64 binary is 1,488,896 bytes (1.42 MB). The source repo README had been corrected earlier but the dist
+  repo is a separate file, and search results were showing the wrong number. Now says 1.4 MB in both.
+- **The homepage claimed Windows 10 version 1809; the Store requires 2004.** Two places: the JSON-LD
+  `softwareRequirements` and the FAQ answer. `AppxManifest.xml` sets `MinVersion="10.0.19041.0"`, which is
+  2004, so 1809 understated the real minimum. Both now say 2004.
 
-Neither is a marketing action. Both are a visitor finding a contradiction and closing the tab.
+Also fixed in the same pass, found while checking:
+
+- `ALTERNATIVETO_LISTING.md` said "Windows 10 (1809+)", the same contradiction in copy headed for a public
+  directory. Now 2004+.
+- The verification note at the top of `REDDIT_POST_r_windowsapps.md` still described the README bug as open.
+
+Verified after deploy: served homepage HTML contains no `1809` and two `version 2004` mentions, the JSON-LD
+still parses, and the live README reads "about 1.4 MB". A 30-check consistency script confirms no public
+surface in either repo still carries either wrong figure.
 
 **Impact:** protects the conversion on traffic you already have.
 
@@ -342,9 +348,8 @@ action 5 (four guide pages live), action 9 card (social card live on all five pa
 Every item below needs a human with an account, so none of it can be automated from here. Ordered by
 installs per hour, not by how satisfying it feels.
 
-1. **Fix the two contradictions in 3b** (about 20 minutes). The dist README says 161 KB, the homepage says
-   Windows 10 1809 while the Store needs 2004. Both are live on pages that rank. Cheapest conversion fix
-   available.
+1. ~~**Fix the two contradictions in 3b**~~ — done 3 October 2026 (`e69ebea`, `69c95e0`). The dist README and
+   homepage now agree with the release binary and the MSIX manifest. Nothing left here.
 2. **Import the Store CSV in Partner Center and submit** (about 30 minutes). The keywords are written and
    verified at the seven-term policy limit; they are sitting in the repo doing nothing. Note this needs a
    new package version to submit, so pair it with cutting v1.4.4.
@@ -352,12 +357,13 @@ installs per hour, not by how satisfying it feels.
    in the whole plan, and they link `/guides/quick-launch-windows-11/`, which is the page most likely to earn
    its first backlink and get indexed.
 4. **Post the r/windowsapps draft** (about 20 minutes plus a GIF). Zero Reddit mentions, so the surface is
-   completely open. Fix the draft's version reference first.
+   completely open. The draft is now fact-checked and ready.
 5. **Ask five people for a Store rating.** Zero ratings converts worse than five.
 6. **Answer the remaining eight threads** over the following fortnight, two per weekday.
-7. **Submit MajorGeeks and FossHub.** Copy is written and fact-checked in `installer/directories/`; MajorGeeks
-   is an email to `mgnews@majorgeeks.com`, FossHub needs a developer account. Regenerate the three Product
-   Hunt PNGs on macOS first, they still show "Open source, MIT" and "161 KB".
+7. **Submit MajorGeeks, FossHub and AlternativeTo.** Copy is written and fact-checked in
+   `installer/directories/`, and `ALTERNATIVETO_LISTING.md` is ready. MajorGeeks is an email to
+   `mgnews@majorgeeks.com`, FossHub needs a developer account. Regenerate the three Product Hunt PNGs on
+   macOS first, they still show "Open source, MIT" and "161 KB".
 8. **Send the creator and press pitches** (action 9, second half).
 9. **Decide on open source** (action 10). Everything in step 3, 4 and 8 gets weaker while this is undecided.
 
