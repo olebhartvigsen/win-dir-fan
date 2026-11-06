@@ -4,6 +4,7 @@
 #include "Config.h"
 #include "FanWindow.h"
 #include "FileService.h"
+#include "InfoScreen.h"
 
 class MainWindow {
 public:
@@ -56,6 +57,10 @@ private:
     NOTIFYICONDATAW _nid = {};     // system tray icon
 
     std::unique_ptr<FanWindow> _fanWindow;
+
+    // First-launch / on-launch info panel (lazily created, hidden by default)
+    std::unique_ptr<InfoScreen> _infoScreen;
+
     DWORD  _lastToggleTick = 0;
     DWORD  _fanOpenTick    = 0;
     DWORD  _hookCloseTick  = 0;   // set when mouse/keyboard hook closes the fan
@@ -100,6 +105,8 @@ private:
     void RemoveTrayIcon();
     void ShowTrayMenu();
     void ReconcileVirtualDesktop();
+    void ShowInfoScreen();
+    void CloseInfoScreen();
 
     static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
     static MainWindow* FromHWND(HWND hwnd);

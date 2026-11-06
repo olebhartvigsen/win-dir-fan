@@ -1,11 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
   <!--
-    FanFolder app icon — OPEN STATE
-    Three file cards fanning upward from a bottom-left hinge.
-    Back   : Blue document (text lines)
-    Middle : Purple image (photo with sun + mountains)
-    Front  : Green spreadsheet (grid) — largest, most prominent
-    Colors match the FanFolder website brand gradient.
+    FanFolder app icon — OPEN STATE (transparent, no blue card)
+    Two file cards fanning upward from a bottom-center hinge.
+    Back  : Purple image (photo with sun + mountains)
+    Front : Green spreadsheet (grid) — largest, most prominent
+    No blue card. Transparent background.
   -->
   <defs>
     <linearGradient id="gGreen" x1="0" y1="0" x2="0" y2="1">
@@ -15,10 +14,6 @@
     <linearGradient id="gPurple" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#C8A5FF"/>
       <stop offset="100%" stop-color="#7C3AED"/>
-    </linearGradient>
-    <linearGradient id="gBlue" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#7DAEFF"/>
-      <stop offset="100%" stop-color="#2563EB"/>
     </linearGradient>
     <linearGradient id="cardGloss" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#ffffff" stop-opacity="0.28"/>
@@ -34,23 +29,9 @@
       </feMerge>
     </filter>
   </defs>
+<g transform="translate(-78.66490,-15.67169) scale(1.357617,1.372157)">
 
-  <!-- Back: Blue document -->
-  <g transform="translate(100,250) rotate(-18)" filter="url(#cardShadow)">
-    <rect x="-44" y="-205" width="88" height="120" rx="10" fill="url(#gBlue)"/>
-    <rect x="-44" y="-205" width="88" height="120" rx="10" fill="url(#cardGloss)"/>
-    <rect x="-44" y="-205" width="88" height="120" rx="10" fill="none" stroke="#1e3a8a" stroke-opacity="0.45" stroke-width="1.5"/>
-    <g fill="#ffffff">
-      <rect x="-30" y="-191" width="44" height="6" rx="3" opacity="0.95"/>
-      <rect x="-30" y="-178" width="58" height="6" rx="3" opacity="0.8"/>
-      <rect x="-30" y="-165" width="50" height="6" rx="3" opacity="0.8"/>
-      <rect x="-30" y="-152" width="58" height="6" rx="3" opacity="0.65"/>
-      <rect x="-30" y="-139" width="38" height="6" rx="3" opacity="0.65"/>
-      <rect x="-30" y="-120" width="58" height="6" rx="3" opacity="0.5"/>
-    </g>
-  </g>
-
-  <!-- Middle: Purple image -->
+  <!-- Back: Purple image -->
   <g transform="translate(100,250) rotate(4)" filter="url(#cardShadow)">
     <rect x="-48" y="-218" width="96" height="130" rx="11" fill="url(#gPurple)"/>
     <rect x="-48" y="-218" width="96" height="130" rx="11" fill="url(#cardGloss)"/>
@@ -78,4 +59,5 @@
       <line x1="-46" y1="-120" x2="46"  y2="-120" stroke-width="5" opacity="0.92"/>
     </g>
   </g>
+</g>
 </svg>

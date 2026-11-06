@@ -3,6 +3,7 @@
 #include "Config.h"
 #include "MainWindow.h"
 #include "FanWindow.h"
+#include "InfoScreen.h"
 #include "Telemetry.h"
 #include <gdiplus.h>
 
@@ -83,6 +84,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
     MainWindow::Register(hInstance);
     FanWindow::Register(hInstance);
+    InfoScreen::Register(hInstance);
 
     MainWindow mainWnd(hInstance, config);
     if (!mainWnd.Create()) return 1;

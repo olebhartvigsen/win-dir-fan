@@ -190,6 +190,8 @@ After building, always restart the running process if it is already running.
 | `ShowExtensions` | REG_DWORD | `0` | `1` = show file extensions in labels |
 | `FilterRegex` | REG_SZ | *(empty)* | Optional filename filter regex |
 | `AnimationStyle` | REG_SZ | `Spring` | `Fan`, `Glide`, `Spring`, `Fade`, `None` |
+| `ShowInfoOnLaunch` | REG_DWORD | `0` | `1` = show the info panel on every app start (tray-menu toggle) |
+| `InfoScreenShown` | REG_DWORD | `0` | One-time marker: the first-run info panel has been shown |
 
 ---
 

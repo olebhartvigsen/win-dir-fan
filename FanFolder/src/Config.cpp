@@ -92,6 +92,24 @@ ConfigData Config::Load() {
                     else                                   cfg.animStyle = ConfigData::AnimStyle::Glide;
                 }
             }
+            // ShowInfoOnLaunch (tray toggle, default off)
+            {
+                DWORD val = 0;
+                DWORD size = sizeof(val);
+                DWORD type = REG_DWORD;
+                if (RegQueryValueExW(hKey, L"ShowInfoOnLaunch", nullptr, &type, (LPBYTE)&val, &size) == ERROR_SUCCESS && type == REG_DWORD) {
+                    cfg.showInfoOnLaunch = (val != 0);
+                }
+            }
+            // InfoScreenShown (first-run marker)
+            {
+                DWORD val = 0;
+                DWORD size = sizeof(val);
+                DWORD type = REG_DWORD;
+                if (RegQueryValueExW(hKey, L"InfoScreenShown", nullptr, &type, (LPBYTE)&val, &size) == ERROR_SUCCESS && type == REG_DWORD) {
+                    cfg.infoScreenShown = (val != 0);
+                }
+            }
             RegCloseKey(hKey);
         }
     }
@@ -195,6 +213,14 @@ void Config::Save(const ConfigData& cfg) {
     }
     RegSetValueExW(hKey, L"AnimationStyle", 0, REG_SZ,
                    (const BYTE*)animStr, (DWORD)((wcslen(animStr) + 1) * sizeof(wchar_t)));
+
+    // ShowInfoOnLaunch (tray toggle, default off)
+    DWORD showInfo = cfg.showInfoOnLaunch ? 1 : 0;
+    RegSetValueExW(hKey, L"ShowInfoOnLaunch", 0, REG_DWORD, (const BYTE*)&showInfo, sizeof(showInfo));
+
+    // InfoScreenShown (first-run marker)
+    DWORD infoShown = cfg.infoScreenShown ? 1 : 0;
+    RegSetValueExW(hKey, L"InfoScreenShown", 0, REG_DWORD, (const BYTE*)&infoShown, sizeof(infoShown));
 
     RegCloseKey(hKey);
 }
