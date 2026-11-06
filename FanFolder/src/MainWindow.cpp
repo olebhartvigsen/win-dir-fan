@@ -1107,8 +1107,83 @@ LRESULT CALLBACK MainWindow::MouseHookProc(int nCode, WPARAM wParam, LPARAM lPar
 LRESULT CALLBACK MainWindow::KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode >= 0 && s_instance && s_instance->_fanOpen && wParam == WM_KEYDOWN) {
         KBDLLHOOKSTRUCT* kb = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
-        if (kb->vkCode == VK_ESCAPE)
+        UINT vk = kb->vkCode;
+
+        // Escape — if a filter is active, forward to the fan to clear it
+        // (fan stays open).  If no filter, close the fan (existing behavior).
+        if (vk == VK_ESCAPE) {
+            HWND fanHwnd = (s_instance->_fanWindow) ? s_instance->_fanWindow->Handle() : nullptr;
+            if (fanHwnd && s_instance->_fanWindow->IsFilterActive()) {
+                PostMessageW(fanHwnd, FanWindow::WM_FAN_FILTER_KEY, (WPARAM)VK_ESCAPE, 0);
+                return 1;  // swallow — don't leak to the app underneath
+            }
             PostMessageW(s_instance->_hwnd, WM_MAIN_CLOSE_FAN, (WPARAM)t_hookGen, 2/*keyboard*/);
+            return CallNextHookEx(nullptr, nCode, wParam, lParam);
+        }
+
+        // Phase 4: when filterAsYouType is disabled, don't forward any
+        // printable/Backspace/Enter keys — the fan behaves as it did before
+        // the feature (all keystrokes pass through to the app underneath).
+        if (!s_instance->_config.filterAsYouType)
+            return CallNextHookEx(nullptr, nCode, wParam, lParam);
+
+        // Only forward when the fan window exists and is visible.
+        HWND fanHwnd = (s_instance->_fanWindow) ? s_instance->_fanWindow->Handle() : nullptr;
+        if (fanHwnd && IsWindow(fanHwnd) && IsWindowVisible(fanHwnd)) {
+            // Backspace — forward as a sentinel; the fan pops one char.
+            if (vk == VK_BACK) {
+                PostMessageW(fanHwnd, FanWindow::WM_FAN_FILTER_KEY, (WPARAM)VK_BACK, 0);
+                return 1;  // swallow — don't leak to the app underneath
+            }
+
+            // Enter — forward for future Phase 3 (launch top match).  Phase 0
+            // fan handler ignores it, but we still swallow so the keystroke
+            // doesn't hit whatever window has focus behind the fan.
+            if (vk == VK_RETURN) {
+                PostMessageW(fanHwnd, FanWindow::WM_FAN_FILTER_KEY, (WPARAM)VK_RETURN, 0);
+                return 1;
+            }
+
+            // Printable keys — translate VK → wchar using the current keyboard
+            // layout/state, then forward the character to the fan.
+            //   We read the real keyboard state (shift/caps/altgr) so diacritics
+            // and shifted symbols come through correctly.  ToUnicodeEx with
+            // flags=0 consumes dead-key state; since we swallow the key it is
+            // important we are the sole consumer (the fan never calls ToUnicode).
+            BYTE kbState[256] = {};
+            GetKeyboardState(kbState);
+            // LL hook can fire before the async key-state table is updated, so
+            // force the modifier bits from GetAsyncKeyState as a reliable source.
+            // (LLKHF_SHIFT is not available under WIN32_LEAN_AND_MEAN.)
+            if (GetAsyncKeyState(VK_SHIFT) & 0x8000)
+                kbState[VK_SHIFT] = 0x80;
+            if (GetKeyState(VK_CAPITAL) & 1) kbState[VK_CAPITAL] = 0x01;
+            // Ctrl/Alt suppress printable translation (shortcuts stay with the app).
+            // Must use GetAsyncKeyState here too — GetKeyboardState lags behind the
+            // hook, so a Ctrl+C would see 'c' without Ctrl and get swallowed.
+            bool hasCtrl  = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+            bool hasAlt   = (GetAsyncKeyState(VK_MENU)    & 0x8000) != 0;
+            if (hasCtrl || hasAlt)
+                return CallNextHookEx(nullptr, nCode, wParam, lParam);
+
+            // Only attempt translation for keys that can produce a character.
+            bool isPrintableRange =
+                (vk >= '0' && vk <= '9') ||          // 0x30–0x39
+                (vk >= 'A' && vk <= 'Z') ||          // 0x41–0x5A
+                (vk >= VK_NUMPAD0 && vk <= VK_NUMPAD9) ||
+                (vk >= VK_OEM_1 && vk <= VK_OEM_102) ||
+                vk == VK_SPACE;
+            if (!isPrintableRange)
+                return CallNextHookEx(nullptr, nCode, wParam, lParam);
+
+            wchar_t buf[8] = {};
+            int n = ToUnicodeEx(vk, kb->scanCode, kbState, buf, 7, 0, nullptr);
+            if (n == 1 && buf[0] >= L' ') {
+                PostMessageW(fanHwnd, FanWindow::WM_FAN_FILTER_KEY, (WPARAM)buf[0], 0);
+                return 1;  // swallow
+            }
+            // n==0 (no translation) or n<0 (dead key): let it pass through.
+        }
     }
     return CallNextHookEx(nullptr, nCode, wParam, lParam);
 }

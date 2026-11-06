@@ -16,6 +16,10 @@ public:
     bool Create();
     void Show();
     void Close();
+    // Rebuild the visible-item view from _items using _filterText (case-insensitive
+    // substring match against ItemLabel). Then re-layout and redraw. Safe to call
+    // from the UI thread at any time after Show().
+    void ApplyFilter();
     void AcceptPrewarmIcons(std::vector<HBITMAP>&& bitmaps,
                             std::vector<HICON>&&   icons,
                             std::vector<std::shared_ptr<Gdiplus::Bitmap>>&& gdiBitmaps,
@@ -38,6 +42,9 @@ private:
     HWND      _hwnd = nullptr;
     ConfigData _config;
     std::vector<FileItem> _items;
+    // Phase 2: original items before any full-folder-scan extension. Saved
+    // on Show() so we can restore _items when the filter is cleared.
+    std::vector<FileItem> _originalItems;
 
     // Layout
     int   _winWidth  = 0, _winHeight  = 0;
@@ -55,6 +62,11 @@ private:
     std::vector<bool>             _iconLoaded;
     std::vector<std::shared_ptr<Gdiplus::Bitmap>> _gdiBitmaps;  // prewarm-filled or lazy on UI thread; owns lifetime
     std::mutex                    _iconMutex;
+    // Phase 2: bumped whenever _items is replaced (full-folder scan or
+    // restore on filter-clear). In-flight icon loads carry the gen they
+    // were started with; WM_ICON_READY drops messages whose gen doesn't
+    // match, preventing stale loads from writing into resized arrays.
+    std::atomic<int>              _iconGen{0};
     Gdiplus::ImageAttributes*     _drawIA = nullptr;  // reused per draw call
 
     // Pre-rendered shadow cache — rebuilt only when hover target or scale changes
@@ -94,6 +106,40 @@ private:
     DWORD _createTick = 0;
     int _arcOriginX = 0;
     int _arcOriginY = 0;
+
+    // Filter-as-you-type. Phase 0 only captures the typed text (no filtering of
+    // the item list yet — that is Phase 1). Rendered as a debug overlay pill so
+    // we can confirm the keyboard-hook → fan input path works end to end.
+    std::wstring _filterText;
+
+    // Filter-as-you-type view (Phase 1). Slot→real-index mapping.
+    std::vector<int> _visible;
+    // True when the filter is active and finds nothing. The fan renders a
+    // single "no matches" slot in place of items + arrow. Layout/draw use
+    // this to branch to the text-only rendering path.
+    bool _noMatchesActive = false;
+
+    // Helpers used by layout/draw/hit-test to iterate the fan's slots.
+    // Returns the number of slots to render.
+    //   - non-empty visible: visible items + arrow (if shown)
+    //   - no matches placeholder: 1
+    //   - empty folder placeholder: _items.size() (= 1) + arrow (if shown)
+    int TotalSlots() const {
+        if (_noMatchesActive) return 1;
+        return (int)_visible.size() + (_hasExplorerButton ? 1 : 0);
+    }
+    // Returns the real index for a slot, or -1 if the slot is the arrow,
+    // the no-matches synthetic slot, or out of range.
+    int RealIndexForSlot(int slot) const {
+        if (slot < 0 || slot >= (int)_visible.size()) return -1;
+        return _visible[slot];
+    }
+    // True for the arrow slot (last slot, only if explorer button is shown
+    // AND no-matches placeholder is not active).
+    bool IsArrowSlot(int slot) const {
+        return _hasExplorerButton && !_noMatchesActive
+            && slot == TotalSlots() - 1;
+    }
 
     // Set by async icon-load handlers (WM_USER + 1 / + 2) to request a single
     // coalesced redraw on the next animation tick.  BEFORE this coalescing,

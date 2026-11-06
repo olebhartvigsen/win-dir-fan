@@ -127,6 +127,7 @@ struct IconReady {
     HBITMAP          hBmp;    // may be null (then hIcon is used)
     HICON            hIcon;   // may be null
     Gdiplus::Bitmap* gdiBmp;  // pre-converted on worker thread; may be null
+    int              gen;     // icon generation — stale loads are dropped
 };
 
 // Provenance handoff for WM_ICON_READY. The window classes are findable by name,
@@ -259,6 +260,18 @@ void FanWindow::AcceptPrewarmIcons(std::vector<HBITMAP>&& bitmaps,
 void FanWindow::Show() {
     if (!_hwnd) return;
 
+    // Fresh open starts unfiltered (Phase 0: just the captured-text overlay).
+    _filterText.clear();
+    // Restore the visible view to the full item list. ApplyFilter rebuilds it
+    // from _filterText (empty here = identity mapping).
+    _visible.clear();
+    _noMatchesActive = false;
+    _visible.reserve(_items.size());
+    for (int i = 0; i < (int)_items.size(); i++) _visible.push_back(i);
+    // Phase 2: save the original items so we can restore when the filter
+    // is cleared after a full-folder-scan extension.
+    _originalItems = _items;
+
     _hasExplorerButton = (_config.folderPath != L"::GraphRecent::" && _config.folderPath != L"::RecentDocs::");
     int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
     _itemProgress.assign(total, 0.f);
@@ -319,7 +332,7 @@ void FanWindow::Show() {
 
     // Convert any HBITMAP/HICON that wasn't pre-converted by prewarm (e.g.
     // size-mismatch fallback path).  When prewarm supplies a cached
-    // Gdiplus::Bitmap we skip this — it saves ~750ms on the UI thread per open.
+    // GDI+ Bitmap we skip this — it saves ~750ms on the UI thread per open.
     for (int i = 0; i < (int)_items.size(); i++) {
         if (_gdiBitmaps[i]) continue;
         HBITMAP bmp = _bitmaps[i];
@@ -327,6 +340,13 @@ void FanWindow::Show() {
         if (bmp)      _gdiBitmaps[i].reset(HBitmapToGdiBitmap(bmp));
         else if (ico) _gdiBitmaps[i].reset(Gdiplus::Bitmap::FromHICON(ico));
     }
+
+    // Phase 1: CalculateLayout() was already called in Create(), but at that
+    // point _visible was still empty (it's populated above) — so the layout's
+    // slot count was wrong. Recompute it now that _visible + _hasExplorerButton
+    // are final. Without this, _iconPos/_hitRects are too short and every
+    // item draws at (0,0), producing a stacked mess.
+    CalculateLayout();
 
     DrawToLayeredWindow();
     ShowWindow(_hwnd, SW_SHOWNOACTIVATE);
@@ -352,6 +372,171 @@ void FanWindow::Close() {
         DestroyWindow(_hwnd);
         _hwnd = nullptr;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1: rebuild _visible from _items using _filterText.
+// Case-insensitive substring match against ItemLabel (the display name).
+// When _filterText is empty, _visible becomes the identity mapping.
+// Empty match set (no filter on an empty folder) → _visible stays empty,
+// and the layout/draw paths render "no matches" via the placeholder path.
+// Must run on the UI thread. Re-layouts and redraws.
+void FanWindow::ApplyFilter() {
+    if (!_hwnd) return;
+
+    // Phase 2: when the filter is cleared, restore _items from _originalItems
+    // (which may have been extended by a full-folder scan).
+    if (_filterText.empty()) {
+        // Bump the icon generation so any in-flight loads from the full scan
+        // are dropped by WM_ICON_READY (their gen won't match).
+        _iconGen.fetch_add(1, std::memory_order_release);
+
+        _items = _originalItems;
+        // Resize (don't nullify) icon arrays back to the original size.
+        // The first _originalItems.size() entries are still valid — their
+        // icons were loaded in Show() and survived the full-scan extension
+        // (the extension only appended beyond the original count). resize()
+        // truncates the extra entries from the full scan; it does NOT touch
+        // the valid original entries.
+        int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
+        {
+            std::lock_guard<std::mutex> lk(_iconMutex);
+            _bitmaps.resize(total, nullptr);
+            _icons.resize(total, nullptr);
+            _gdiBitmaps.resize(total, nullptr);
+            _iconLoaded.resize(total, false);
+        }
+        _itemProgress.assign(total, 0.f);
+        _hoverScale.assign(total, 1.f);
+        _entryProgress.assign(total, 0.f);
+        _labelCache.resize(_items.size());
+        RebuildLabelCache();
+        // Arrow doesn't need an icon load.
+        if (_hasExplorerButton && total > 0) _iconLoaded[total - 1] = true;
+        // Only re-start icon loads for items that are actually missing icons
+        // (shouldn't happen if the original icons survived, but defensive).
+        for (int i = 0; i < (int)_items.size(); i++) {
+            if (!_isPlaceholder && i < (int)_iconLoaded.size() && !_iconLoaded[i])
+                StartIconLoad(i);
+        }
+        if (_isPlaceholder && !_iconLoaded.empty()) _iconLoaded[0] = true;
+    }
+
+    // Lowercase copy of the filter text (case-insensitive substring match).
+    std::wstring needle = _filterText;
+    for (auto& c : needle) c = (wchar_t)towlower(c);
+
+    // First pass: in-memory match against the current _items.
+    _visible.clear();
+    _noMatchesActive = false;
+    if (!_filterText.empty() && !needle.empty()) {
+        _visible.reserve(_items.size());
+        for (int i = 0; i < (int)_items.size(); i++) {
+            if (_isPlaceholder && i == 0) continue;
+            std::wstring label = (i < (int)_labelCache.size()) ? _labelCache[i]
+                                                              : ItemLabel(i);
+            std::wstring lower = label;
+            for (auto& c : lower) c = (wchar_t)towlower(c);
+            if (lower.find(needle) != std::wstring::npos)
+                _visible.push_back(i);
+        }
+    } else {
+        _visible.reserve(_items.size());
+        for (int i = 0; i < (int)_items.size(); i++) _visible.push_back(i);
+    }
+
+    // Phase 2: cheap full-folder search. If the in-memory match set is small
+    // (<= 3) AND we hit the maxItems cap, do a full-folder scan so matches
+    // beyond the cap are findable. This is the "cheap fix" — works for small
+    // folders; large folders will be slow. Skip for virtual folder sentinels.
+    bool isVirtual = (_config.folderPath == L"::RecentDocs::" ||
+                      _config.folderPath == L"::RecentFiles::" ||
+                      _config.folderPath == L"::GraphRecent::");
+    const int kFullScanThreshold = 3;
+    bool needFullScan = !_filterText.empty() && !isVirtual
+        && (int)_items.size() >= _config.maxItems
+        && (int)_originalItems.size() >= _config.maxItems
+        && (int)_visible.size() <= kFullScanThreshold;
+
+    if (needFullScan) {
+        // Bump the icon generation so in-flight loads from the original
+        // Show() are dropped — they'd write into the wrong-sized arrays.
+        _iconGen.fetch_add(1, std::memory_order_release);
+
+        // Full-folder scan (cap = 10000). Includes the original items plus
+        // any beyond the cap.
+        std::vector<FileItem> fullScan = FileService::ScanFolder(
+            _config.folderPath, 10000, _config.includeDirs,
+            _config.filterRegex, _config.sortMode);
+        _items = std::move(fullScan);
+        // Resize icon arrays to match the new item count + arrow slot.
+        int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
+        {
+            std::lock_guard<std::mutex> lk(_iconMutex);
+            _bitmaps.assign(total, nullptr);
+            _icons.assign(total, nullptr);
+            _gdiBitmaps.assign(total, nullptr);
+        }
+        _itemProgress.assign(total, 0.f);
+        _hoverScale.assign(total, 1.f);
+        _entryProgress.assign(total, 0.f);
+        _iconLoaded.assign(total, false);
+        _labelCache.resize(_items.size());
+        RebuildLabelCache();
+        // Kick off async icon loads for the new items beyond the cap.
+        for (int i = 0; i < (int)_items.size(); i++) {
+            if (i >= _config.maxItems) StartIconLoad(i);
+        }
+        // Convert any pre-loaded icons for the first maxItems items (should
+        // already be done in Show, but re-check in case the bitmap was null).
+        for (int i = 0; i < std::min((int)_items.size(), _config.maxItems); i++) {
+            if (i < (int)_gdiBitmaps.size() && !_gdiBitmaps[i]) {
+                HBITMAP bmp = _bitmaps[i];
+                HICON   ico = _icons[i];
+                if (bmp)      _gdiBitmaps[i].reset(HBitmapToGdiBitmap(bmp));
+                else if (ico) _gdiBitmaps[i].reset(Gdiplus::Bitmap::FromHICON(ico));
+            }
+        }
+        // Re-match against the full scan.
+        _visible.clear();
+        _visible.reserve(_items.size());
+        for (int i = 0; i < (int)_items.size(); i++) {
+            if (_isPlaceholder && i == 0) continue;
+            std::wstring label = (i < (int)_labelCache.size()) ? _labelCache[i]
+                                                              : ItemLabel(i);
+            std::wstring lower = label;
+            for (auto& c : lower) c = (wchar_t)towlower(c);
+            if (lower.find(needle) != std::wstring::npos)
+                _visible.push_back(i);
+        }
+    }
+
+    // Phase 2: cap the visible set to maxItems so the arc layout (designed for
+    // ~15 items) never gets an unbounded match set. Without this, filtering
+    // into a large folder can produce dozens of icons crammed into the arc.
+    if ((int)_visible.size() > _config.maxItems)
+        _visible.resize(_config.maxItems);
+
+    // No matches + filter active + folder has items → no-matches placeholder
+    if (_visible.empty() && !_filterText.empty() && !_items.empty())
+        _noMatchesActive = true;
+
+    // Phase 2: highlight the top match (slot 0) when a filter is active and
+    // there are matches. This is the Enter target. When the filter is cleared,
+    // reset hover so the previous top-match highlight doesn't linger.
+    if (!_filterText.empty() && !_noMatchesActive && !_visible.empty()) {
+        _hoverIdx = 0;
+    } else if (_filterText.empty()) {
+        _hoverIdx = -1;
+    }
+
+    // Reset hover/drag state when the slot under the pointer is no longer visible.
+    if (_hoverIdx >= TotalSlots()) _hoverIdx = -1;
+    if (_dragIdx  >= TotalSlots()) _dragIdx  = -1;
+
+    // Re-layout (arc tightens to matches) and redraw.
+    CalculateLayout();
+    DrawToLayeredWindow();
 }
 
 bool FanWindow::IsVisible() const {
@@ -503,19 +688,35 @@ void FanWindow::CalculateLayout() {
     if (_iconSize * 0.22f != _cachedFontSize || !_labelFont)
         RebuildFontCache();
 
-    int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
+    // Phase 1: layout is driven by visible slots (filtered items + arrow),
+    // not by the full _items list. The arc tightens to matches.
+    int total = TotalSlots();
     _labelWidths.resize(total);
     float maxLabelW = 0.f;
 
-    for (int i = 0; i < (int)_items.size(); i++) {
+    // The "no matches" synthetic slot lives at slot 0 when _noMatchesActive is
+    // set. It's rendered as a single text-only slot (no icon, no arrow).
+    const std::wstring noMatchesLabel = L"no matches";
+
+    auto measureLabelAt = [&](int slot, const std::wstring& label) {
         Gdiplus::RectF bounds;
-        const std::wstring& label = (i < (int)_labelCache.size()) ? _labelCache[i] : ItemLabel(i);
         tmpG.MeasureString(label.c_str(), -1, _labelFont,
                            Gdiplus::PointF(0,0), _measureSF, &bounds);
-        _labelWidths[i] = bounds.Width + 20.f;
-        maxLabelW = std::max(maxLabelW, _labelWidths[i]);
+        _labelWidths[slot] = bounds.Width + 20.f;
+        maxLabelW = std::max(maxLabelW, _labelWidths[slot]);
+    };
+
+    // Measure labels for visible item slots.
+    for (int slot = 0; slot < (int)_visible.size(); slot++) {
+        int realIdx = _visible[slot];
+        const std::wstring& label = (realIdx < (int)_labelCache.size())
+            ? _labelCache[realIdx] : ItemLabel(realIdx);
+        measureLabelAt(slot, label);
     }
-    if (_hasExplorerButton) {
+    if (_noMatchesActive) {
+        measureLabelAt(0, noMatchesLabel);
+    }
+    if (_hasExplorerButton && !_noMatchesActive) {
         Gdiplus::RectF bounds;
         tmpG.MeasureString(GetStrings().openInExplorer, -1, _labelFont,
                            Gdiplus::PointF(0,0), _measureSF, &bounds);
@@ -581,6 +782,21 @@ void FanWindow::CalculateLayout() {
     else                     { originX = (float)tbRect.left;  originY = (float)anchorY; }
 
     float halfIcon = _iconSize / 2.f;
+
+    // Defensive: with the filter view, it's theoretically possible for the
+    // visible set to be empty AND the explorer button to be hidden (virtual
+    // folders). Avoid FLT_MAX sentinels in the bounding box loop below.
+    if (total == 0) {
+        _winWidth  = 2 * FormMargin;
+        _winHeight = 2 * FormMargin;
+        _iconPos.clear();
+        _hitRects.clear();
+        _labelWidths.clear();
+        _winX = (int)tbRect.left;
+        _winY = (int)tbRect.top;
+        if (_hwnd) SetWindowPos(_hwnd, HWND_TOPMOST, _winX, _winY, _winWidth, _winHeight, SWP_NOACTIVATE);
+        return;
+    }
 
     // Item spacing: baseline of 15 items filling maxStackHeight — same density always
     float itemSpacing = (_maxStackHeight - StartDistance - halfIcon) / (float)(BaselineItems - 1);
@@ -762,28 +978,50 @@ void FanWindow::DrawToLayeredWindow() {
         }
 
         if (gdiOk) {
-            int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
-            auto getItemAlpha = [&](int i) -> float {
+            int total = TotalSlots();
+            // Returns alpha for a *slot*. Real-index animation vectors are
+            // sized by items.size() + 1 (arrow). For the arrow slot the real
+            // index would be out of range, so we look up by the arrow's
+            // reserved slot (last element of the per-item vectors). For
+            // real-item slots we use the mapped real index.
+            auto getItemAlpha = [&](int slot) -> float {
+                int realIdx = RealIndexForSlot(slot);
+                bool isArrow = IsArrowSlot(slot);
                 switch (_config.animStyle) {
                 case ConfigData::AnimStyle::Spring: {
-                    float ip = (i < (int)_itemProgress.size()) ? _itemProgress[i] : 0.f;
+                    float ip;
+                    if (isArrow)
+                        ip = (_itemProgress.empty()) ? 1.f : _itemProgress.back();
+                    else
+                        ip = (realIdx < (int)_itemProgress.size()) ? _itemProgress[realIdx] : 1.f;
                     return std::clamp(ip, 0.f, 1.f) * _entryAlpha;
                 }
                 case ConfigData::AnimStyle::Fan:
-                case ConfigData::AnimStyle::Glide:
-                    // Per-item alpha tied to entryProgress (no separate window fade)
-                    return (i < (int)_entryProgress.size()) ? _entryProgress[i] : 0.f;
-                case ConfigData::AnimStyle::Fade:
-                    return (i < (int)_entryProgress.size()) ? _entryProgress[i] * _entryAlpha : 0.f;
+                case ConfigData::AnimStyle::Glide: {
+                    float ep;
+                    if (isArrow)
+                        ep = (_entryProgress.empty()) ? 1.f : _entryProgress.back();
+                    else
+                        ep = (realIdx < (int)_entryProgress.size()) ? _entryProgress[realIdx] : 1.f;
+                    return ep;
+                }
+                case ConfigData::AnimStyle::Fade: {
+                    float ep;
+                    if (isArrow)
+                        ep = (_entryProgress.empty()) ? 1.f : _entryProgress.back();
+                    else
+                        ep = (realIdx < (int)_entryProgress.size()) ? _entryProgress[realIdx] : 1.f;
+                    return ep * _entryAlpha;
+                }
                 case ConfigData::AnimStyle::None:
                     return 1.f;
                 }
                 return 1.f;
             };
 
-            for (int i = 0; i < total; i++) {
-                if (i == _hoverIdx) continue;
-                DrawItem(g, i, getItemAlpha(i));
+            for (int slot = 0; slot < total; slot++) {
+                if (slot == _hoverIdx) continue;
+                DrawItem(g, slot, getItemAlpha(slot));
             }
             if (_hoverIdx >= 0 && _hoverIdx < total)
                 DrawItem(g, _hoverIdx, getItemAlpha(_hoverIdx));
@@ -792,6 +1030,24 @@ void FanWindow::DrawToLayeredWindow() {
             if (_dropHovering) {
                 Gdiplus::SolidBrush overlay(Gdiplus::Color(55, 80, 160, 255));
                 g.FillRectangle(&overlay, 0, 0, _winWidth, _winHeight);
+            }
+
+            // Phase 2: filter text-capture overlay. Shows the typed text near
+            // the arc hinge so it doesn't overlap items. Drawn last so it
+            // sits on top of everything.
+            if (!_filterText.empty()) {
+                std::wstring overlay_text = L"\u2328 " + _filterText + L"_";  // keyboard + text + caret
+                float pillH = _iconSize * 0.5f;
+                float pillW = std::min((float)_winWidth - 16.f,
+                                       32.f + (float)overlay_text.size() * _iconSize * 0.18f);
+                // Position at the bottom of the fan (near the hinge for a
+                // bottom taskbar). Use _arcOriginY/Y to find the hinge.
+                float ox = 8.f;
+                float oy = (float)_winHeight - pillH - 8.f;
+                // Keep on-screen if the fan is very small.
+                if (oy < 0) oy = 8.f;
+                DrawLabelPill(g, ox, oy, pillW, pillH, pillH / 2.f,
+                              overlay_text, 1.f);
             }
         } else {
             // GDI+ unavailable — request a redraw on the next animation tick
@@ -1044,19 +1300,51 @@ std::wstring FanWindow::ItemLabel(int idx) const {
     return displayName;
 }
 
-void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
+void FanWindow::DrawItem(Gdiplus::Graphics& g, int slot, float itemAlpha) {
     if (itemAlpha <= 0.f) return;
-    if (idx >= (int)_iconPos.size()) return;
+    if (slot < 0 || slot >= TotalSlots()) return;
 
-    float hsc    = (idx < (int)_hoverScale.size()) ? _hoverScale[idx] : 1.f;
-    float cx     = (float)_iconPos[idx].x;
-    float cy     = (float)_iconPos[idx].y;
+    // Phase 1: the drawing loop iterates over *slots*.  Map slot→real index,
+    // and treat the arrow slot (last slot, only if shown) as a special case.
+    int realIdx = RealIndexForSlot(slot);
+    bool isArrow = IsArrowSlot(slot);
+
+    // "no matches" synthetic slot — text only, no icon, no arrow.
+    if (_noMatchesActive) {
+        int total = TotalSlots();
+        // _labelWidths and _iconPos for slot 0 were set by CalculateLayout.
+        // Compute the centre the same way the polar arc did.
+        float cx = (slot < (int)_iconPos.size()) ? (float)_iconPos[slot].x : 0.f;
+        float cy = (slot < (int)_iconPos.size()) ? (float)_iconPos[slot].y : 0.f;
+        float drawSz = _iconSize;
+        float pillW = (slot < (int)_labelWidths.size()) ? _labelWidths[slot] : 100.f;
+        float pillH = drawSz * 0.45f;
+        if (pillH < 20.f) pillH = 20.f;
+        float pillLeft = cx - pillW / 2.f;
+        float pillTop  = cy - pillH / 2.f;
+        DrawLabelPill(g, pillLeft, pillTop, pillW, pillH, pillH / 2.f,
+                      L"no matches", itemAlpha);
+        return;
+    }
+
+    float hsc    = isArrow
+        ? ((int)_hoverScale.size() > 0 ? _hoverScale.back() : 1.f)
+        : ((realIdx < (int)_hoverScale.size()) ? _hoverScale[realIdx] : 1.f);
+    float cx     = (slot < (int)_iconPos.size()) ? (float)_iconPos[slot].x : 0.f;
+    float cy     = (slot < (int)_iconPos.size()) ? (float)_iconPos[slot].y : 0.f;
     float drawSz = (float)_iconSize * hsc;
-    float entryP = (idx < (int)_entryProgress.size()) ? _entryProgress[idx] : 1.f;
+    // For the arrow, realIdx is -1 (RealIndexForSlot returns -1 for the arrow
+    // slot). Indexing _entryProgress[-1] is undefined behavior — use the
+    // arrow's reserved slot at the back of the array instead.
+    float entryP = isArrow
+        ? ((int)_entryProgress.size() > 0 ? _entryProgress.back() : 1.f)
+        : ((realIdx < (int)_entryProgress.size()) ? _entryProgress[realIdx] : 1.f);
 
     switch (_config.animStyle) {
     case ConfigData::AnimStyle::Spring: {
-        float ip = (idx < (int)_itemProgress.size()) ? _itemProgress[idx] : 1.f;
+        float ip = isArrow
+            ? ((int)_itemProgress.size() > 0 ? _itemProgress.back() : 1.f)
+            : ((realIdx < (int)_itemProgress.size()) ? _itemProgress[realIdx] : 1.f);
         float scale = std::max(ip, 0.01f);
         drawSz = _iconSize * scale * hsc;
         break;
@@ -1077,13 +1365,11 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
         break;
     }
 
-    int total    = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
-    bool isArrow = (_hasExplorerButton && idx == total - 1);
     if (isArrow) {
         DrawArrowItem(g, cx, cy, drawSz, itemAlpha);
         float pillH = drawSz * 0.45f;
         if (pillH < 20.f) pillH = 20.f;
-        float pillW = (idx < (int)_labelWidths.size()) ? _labelWidths[idx] : 100.f;
+        float pillW = (slot < (int)_labelWidths.size()) ? _labelWidths[slot] : 100.f;
         float pillLeft = cx - drawSz / 2.f - LabelGap - pillW;
         float pillTop  = cy - pillH / 2.f;
         DrawLabelPill(g, pillLeft, pillTop, pillW, pillH, pillH / 2.f,
@@ -1099,8 +1385,8 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
     HICON   ico  = nullptr;
     {
         std::lock_guard<std::mutex> lk(_iconMutex);
-        if (idx < (int)_bitmaps.size()) bmp = _bitmaps[idx];
-        if (idx < (int)_icons.size())   ico = _icons[idx];
+        if (realIdx < (int)_bitmaps.size()) bmp = _bitmaps[realIdx];
+        if (realIdx < (int)_icons.size())   ico = _icons[realIdx];
     }
 
     // Lazy-cache: convert HBITMAP/HICON → Gdiplus::Bitmap* once, reuse every frame.
@@ -1109,16 +1395,16 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
         if (bmp)      _gdiBitmaps[idx].reset(HBitmapToGdiBitmap(bmp));
         else if (ico) _gdiBitmaps[idx].reset(Gdiplus::Bitmap::FromHICON(ico));
     }
-    Gdiplus::Bitmap* gdiBmp = (idx < (int)_gdiBitmaps.size()) ? _gdiBitmaps[idx].get() : nullptr;
+    Gdiplus::Bitmap* gdiBmp = (realIdx < (int)_gdiBitmaps.size()) ? _gdiBitmaps[realIdx].get() : nullptr;
 
-    bool hoverActive = (idx < (int)_hoverScale.size() && _hoverScale[idx] > 1.01f);
+    bool hoverActive = (realIdx < (int)_hoverScale.size() && _hoverScale[realIdx] > 1.01f);
     if (!isArrow && hoverActive && gdiBmp != nullptr) {
         // Rebuild shadow bitmap only when hover target or scale changes significantly
         float quantHsc = floorf(hsc * 20.f + 0.5f) / 20.f;  // quantize to avoid thrashing
-        if (_shadowIdx != idx || _shadowHsc != quantHsc) {
+        if (_shadowIdx != realIdx || _shadowHsc != quantHsc) {
             delete _shadowBmp;
             _shadowBmp  = RenderShadow(gdiBmp, drawSz, hsc);
-            _shadowIdx  = idx;
+            _shadowIdx  = realIdx;
             _shadowHsc  = quantHsc;
         }
         if (_shadowBmp) {
@@ -1145,11 +1431,11 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int idx, float itemAlpha) {
     }
 
     // Label pill
-    const std::wstring& name = (idx < (int)_labelCache.size())
-        ? _labelCache[idx] : _items[idx].name;
+    const std::wstring& name = (realIdx < (int)_labelCache.size())
+        ? _labelCache[realIdx] : _items[realIdx].name;
     float pillH = drawSz * 0.45f;
     if (pillH < 20.f) pillH = 20.f;
-    float pillW    = (idx < (int)_labelWidths.size()) ? _labelWidths[idx] : 100.f;
+    float pillW    = (slot < (int)_labelWidths.size()) ? _labelWidths[slot] : 100.f;
     float pillLeft = cx - drawSz / 2.f - LabelGap - pillW;
     float pillTop  = cy - pillH / 2.f;
     DrawLabelPill(g, pillLeft, pillTop, pillW, pillH, pillH / 2.f, name, itemAlpha);
@@ -1168,9 +1454,10 @@ int FanWindow::HitTest(int x, int y) const {
     return -1;
 }
 
-void FanWindow::LaunchItem(int idx) {
-    int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
-    if (_hasExplorerButton && idx == total - 1) {
+void FanWindow::LaunchItem(int slot) {
+    // Phase 1: caller passes a SLOT. Map to a real index for the item launch
+    // path; the arrow slot opens Explorer.
+    if (IsArrowSlot(slot)) {
         // "Open in Explorer" — for RecentDocs sentinel, open the Recent folder
         const std::wstring& fp = _config.folderPath;
         if (!fp.empty()) {
@@ -1182,8 +1469,13 @@ void FanWindow::LaunchItem(int idx) {
                 ShellExecuteW(nullptr, L"open", L"explorer.exe", fp.c_str(), nullptr, SW_SHOWNORMAL);
             }
         }
-    } else if (idx >= 0 && idx < (int)_items.size()) {
-        const std::wstring& path = _items[idx].fullPath;
+        Close();
+        return;
+    }
+
+    int realIdx = RealIndexForSlot(slot);
+    if (realIdx >= 0 && realIdx < (int)_items.size()) {
+        const std::wstring& path = _items[realIdx].fullPath;
 
         // For online Office documents (SharePoint/OneDrive), use the Office
         // URI protocol handlers so the file opens in the desktop app, not the browser.
@@ -1193,9 +1485,9 @@ void FanWindow::LaunchItem(int idx) {
              _wcsnicmp(path.c_str(), L"http://",  7) == 0))
         {
             // Determine protocol from file extension stored in targetPath / name
-            const std::wstring& extSource = _items[idx].targetPath.empty()
-                                          ? _items[idx].name
-                                          : _items[idx].targetPath;
+            const std::wstring& extSource = _items[realIdx].targetPath.empty()
+                                          ? _items[realIdx].name
+                                          : _items[realIdx].targetPath;
             const wchar_t* dot = PathFindExtensionW(extSource.c_str());
             const wchar_t* proto = nullptr;
             if (dot && *dot) {
@@ -1320,6 +1612,18 @@ void FanWindow::HandleFileDrop(IDataObject* pDataObj) {
         }
         _iconSize = _prewarmIconSize > 0 ? _prewarmIconSize : 64;
 
+        // Phase 1: reset the visible view — _items was just replaced, so the
+        // old _visible indices are stale. Start unfiltered (ApplyFilter with
+        // empty _filterText = identity mapping).
+        _filterText.clear();
+        _visible.clear();
+        _noMatchesActive = false;
+        _visible.reserve(_items.size());
+        for (int i = 0; i < (int)_items.size(); i++) _visible.push_back(i);
+        // Phase 2: update _originalItems so future filter clears restore
+        // the new item list, not the pre-drop list.
+        _originalItems = _items;
+
         RebuildLabelCache();
         CalculateLayout();
         if (!_isPlaceholder)
@@ -1331,9 +1635,18 @@ void FanWindow::HandleFileDrop(IDataObject* pDataObj) {
     }
 }
 
-void FanWindow::ShowContextMenu(int idx, POINT screenPt) {
-    const std::wstring& path = (idx >= 0 && idx < (int)_items.size())
-        ? _items[idx].fullPath : _config.folderPath;
+void FanWindow::ShowContextMenu(int slot, POINT screenPt) {
+    // Phase 1: caller passes a SLOT.  Map to a real index for the item path.
+    // The arrow slot has no context menu — open the folder's context menu.
+    if (IsArrowSlot(slot)) {
+        ShellExecuteW(nullptr, L"open", L"explorer.exe",
+                      _config.folderPath.c_str(), nullptr, SW_SHOWNORMAL);
+        PostMessageW(_hwndOwner, WM_USER + 4, 0, 0);  // close fan
+        return;
+    }
+    int realIdx = RealIndexForSlot(slot);
+    const std::wstring& path = (realIdx >= 0 && realIdx < (int)_items.size())
+        ? _items[realIdx].fullPath : _config.folderPath;
     if (path.empty()) return;
 
     PIDLIST_ABSOLUTE pidl = ILCreateFromPathW(path.c_str());
@@ -1384,9 +1697,10 @@ void FanWindow::StartIconLoad(int idx) {
     std::wstring p  = _items[idx].fullPath;
     std::wstring tp = _items[idx].targetPath; // may be empty if fast-scan was used
     int       sz   = _iconSize;
+    int       gen  = _iconGen.load();  // stamp so WM_ICON_READY can drop stale loads
 
-    struct IconWork { HWND hwnd; int idx; std::wstring p, tp; int sz; };
-    auto* work = new IconWork{hwnd, idx, std::move(p), std::move(tp), sz};
+    struct IconWork { HWND hwnd; int idx; std::wstring p, tp; int sz; int gen; };
+    auto* work = new IconWork{hwnd, idx, std::move(p), std::move(tp), sz, gen};
 
     TrySubmitThreadpoolCallback([](PTP_CALLBACK_INSTANCE, PVOID ctx) {
         // Own the work item for the callback's whole lifetime, so it is freed on
@@ -1595,19 +1909,47 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
         bool  dirty   = false;
 
-            int total = (int)self->_items.size() + (self->_hasExplorerButton ? 1 : 0);
+            // Phase 1: iterate over *slots* (visible items + arrow). The arrow
+            // slot's animation lives at the last index of the per-item vectors
+            // (which are sized by items.size() + 1).
+            int total = self->TotalSlots();
+            int arrowRealIdx = self->_hasExplorerButton
+                ? (int)self->_items.size() : -1;
+
+            // Build a list of real indices to animate (one per visible slot).
+            // For real-item slots, that's _visible[slot]; for the arrow slot,
+            // it's the arrow's reserved index at items.size().
+            std::vector<int> realIndices;
+            realIndices.reserve(total);
+            for (int slot = 0; slot < total; slot++) {
+                if (self->IsArrowSlot(slot) && arrowRealIdx >= 0)
+                    realIndices.push_back(arrowRealIdx);
+                else
+                    realIndices.push_back(self->RealIndexForSlot(slot));
+            }
+
+            // The animation's stagger order is by SLOT position, so that
+            // filtering the list naturally re-orders the cascade. We use the
+            // slot's position in the realIndices array as the stagger index.
+            auto slotIdxOf = [&](int real) -> int {
+                for (int k = 0; k < (int)realIndices.size(); k++)
+                    if (realIndices[k] == real) return k;
+                return 0;
+            };
 
             switch (self->_config.animStyle) {
             case ConfigData::AnimStyle::Spring: {
                 float newAlpha = std::min(elapsed / EntryFadeDurationMs, 1.f);
                 if (newAlpha != self->_entryAlpha) { self->_entryAlpha = newAlpha; dirty = true; }
-                for (int i = 0; i < total && i < (int)self->_itemProgress.size(); i++) {
-                    float stagger = i * ItemStageDurationMs;
+                for (int real : realIndices) {
+                    if (real < 0 || real >= (int)self->_itemProgress.size()) continue;
+                    int s = slotIdxOf(real);
+                    float stagger = s * ItemStageDurationMs;
                     float t = std::clamp((elapsed - stagger) / ItemAnimDurationMs, 0.f, 1.f);
                     float u = 1.f - t;
                     float easedT = 1.f - u * u * u;
                     float prog = easedT + sinf(t * kPI) * 0.12f;
-                    if (prog != self->_itemProgress[i]) { self->_itemProgress[i] = prog; dirty = true; }
+                    if (prog != self->_itemProgress[real]) { self->_itemProgress[real] = prog; dirty = true; }
                 }
                 break;
             }
@@ -1615,12 +1957,14 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 // Per-item: position + scale + alpha all tied to entryProgress
                 // _entryAlpha unused for Fan (set to 1 so getItemAlpha works)
                 self->_entryAlpha = 1.f;
-                for (int i = 0; i < total && i < (int)self->_entryProgress.size(); i++) {
-                    float stagger = i * FanStageDurationMs;
+                for (int real : realIndices) {
+                    if (real < 0 || real >= (int)self->_entryProgress.size()) continue;
+                    int s = slotIdxOf(real);
+                    float stagger = s * FanStageDurationMs;
                     float t = std::clamp((elapsed - stagger) / FanItemDurationMs, 0.f, 1.f);
                     float u = 1.f - t;
                     float eased = 1.f - u * u * u * u * u;  // EaseOutQuint
-                    if (eased != self->_entryProgress[i]) { self->_entryProgress[i] = eased; dirty = true; }
+                    if (eased != self->_entryProgress[real]) { self->_entryProgress[real] = eased; dirty = true; }
                 }
                 break;
             }
@@ -1629,12 +1973,14 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 // EaseOutQuart curve. Alpha is per-item (tied to progress), no
                 // separate window fade needed.
                 self->_entryAlpha = 1.f;
-                for (int i = 0; i < total && i < (int)self->_entryProgress.size(); i++) {
-                    float stagger = i * GlideStageDurationMs;
+                for (int real : realIndices) {
+                    if (real < 0 || real >= (int)self->_entryProgress.size()) continue;
+                    int s = slotIdxOf(real);
+                    float stagger = s * GlideStageDurationMs;
                     float t = std::clamp((elapsed - stagger) / GlideItemDurationMs, 0.f, 1.f);
                     float u = 1.f - t;
                     float eased = 1.f - u * u * u * u;  // EaseOutQuart
-                    if (eased != self->_entryProgress[i]) { self->_entryProgress[i] = eased; dirty = true; }
+                    if (eased != self->_entryProgress[real]) { self->_entryProgress[real] = eased; dirty = true; }
                 }
                 break;
             }
@@ -1647,13 +1993,16 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             }
             }
 
-            for (int i = 0; i < total && i < (int)self->_hoverScale.size(); i++) {
-                float target = (i == self->_hoverIdx) ? HoverScaleMax : 1.f;
-                float speed  = (i == self->_hoverIdx) ? AnimSpeed_In  : AnimSpeed_Out;
-                float ns     = self->_hoverScale[i] + speed * (target - self->_hoverScale[i]);
+            // Phase 1: hover scale is keyed by slot. _hoverIdx is a slot.
+            for (int slot = 0; slot < total; slot++) {
+                int real = realIndices[slot];
+                if (real < 0 || real >= (int)self->_hoverScale.size()) continue;
+                float target = (slot == self->_hoverIdx) ? HoverScaleMax : 1.f;
+                float speed  = (slot == self->_hoverIdx) ? AnimSpeed_In  : AnimSpeed_Out;
+                float ns     = self->_hoverScale[real] + speed * (target - self->_hoverScale[real]);
                 ns = std::clamp(ns, 1.f, HoverScaleMax);
-                if (std::abs(ns - self->_hoverScale[i]) > 0.001f) {
-                    self->_hoverScale[i] = ns; dirty = true;
+                if (std::abs(ns - self->_hoverScale[real]) > 0.001f) {
+                    self->_hoverScale[real] = ns; dirty = true;
                 }
             }
 
@@ -1674,11 +2023,13 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     int dy = pt.y - self->_dragStart.y;
                     if (dx * dx + dy * dy > 25) {
                         self->_dragging = true;
-                        int idx = self->_dragIdx;
+                        int slot = self->_dragIdx;
                         self->_dragIdx = -1;
-                        if (idx < (int)self->_items.size()) {
-                            HBITMAP bmp = (idx < (int)self->_bitmaps.size()) ? self->_bitmaps[idx] : nullptr;
-                            DoShellDrag(hwnd, self->_items[idx].fullPath, bmp, self->_iconSize);
+                        // Phase 1: _dragIdx is a slot. Map to real index.
+                        int realIdx = self->RealIndexForSlot(slot);
+                        if (realIdx >= 0 && realIdx < (int)self->_items.size()) {
+                            HBITMAP bmp = (realIdx < (int)self->_bitmaps.size()) ? self->_bitmaps[realIdx] : nullptr;
+                            DoShellDrag(hwnd, self->_items[realIdx].fullPath, bmp, self->_iconSize);
                         }
                         self->_dragging = false;
                         PostMessageW(self->_hwndOwner, WM_FAN_ASK_OWNER_TO_CLOSE, 0, 0);
@@ -1759,6 +2110,14 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         // so there is nothing to dereference or free.
         std::unique_ptr<IconReady> r(IconHandoff::Take((UINT)lParam));
         if (!r) return 0;
+        // Phase 2: drop stale icon loads from a previous _items generation
+        // (e.g. a full-folder scan that was superseded by a filter-clear
+        // restore). The gen won't match, so we free the handles and return.
+        if (r->gen != self->_iconGen.load(std::memory_order_acquire)) {
+            if (r->hBmp)  DeleteObject(r->hBmp);
+            if (r->hIcon) DestroyIcon(r->hIcon);
+            return 0;
+        }
         int idx = r->idx;
         {
             std::lock_guard<std::mutex> lk(self->_iconMutex);
@@ -1780,6 +2139,42 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             self->_gdiBitmaps[idx].reset(bmp);
         }
         self->_iconsDirty.store(true, std::memory_order_release);
+        return 0;
+    }
+
+    // ── Filter-as-you-type key capture (Phase 0/1) ───────────────────────
+    // Posted by MainWindow's LL keyboard hook while the fan is open. The hook
+    // has already translated the keystroke to a character (layout/modifier
+    // aware), so wParam is either the VK_BACK sentinel or a literal wchar_t to
+    // append.  Phase 1 wires this to ApplyFilter() so each keystroke
+    // re-filters the visible view and tightens the arc to matches.
+    case WM_FAN_FILTER_KEY: {
+        wchar_t ch = (wchar_t)wParam;
+        if (ch == VK_ESCAPE) {
+            // Phase 3: Escape clears the filter (fan stays open).
+            // The hook only forwards Escape here when the filter is active;
+            // if the filter is empty, the hook closes the fan directly.
+            if (!self->_filterText.empty()) {
+                self->_filterText.clear();
+                self->ApplyFilter();
+            }
+        } else if (ch == VK_BACK) {
+            if (!self->_filterText.empty()) {
+                self->_filterText.pop_back();
+                self->ApplyFilter();
+            }
+        } else if (ch == VK_RETURN) {
+            // Phase 3: launch the top match (slot 0).  Only when a filter is
+            // active and there are matches — guards against _noMatchesActive
+            // and empty _visible.
+            if (!self->_filterText.empty() && !self->_noMatchesActive
+                && !self->_visible.empty()) {
+                self->LaunchItem(0);
+            }
+        } else if (ch >= L' ') {
+            self->_filterText.push_back(ch);
+            self->ApplyFilter();
+        }
         return 0;
     }
 
