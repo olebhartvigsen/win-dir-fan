@@ -9,6 +9,9 @@ class FanDropTarget;   // forward declaration for friend access
 class FanWindow {
     friend class FanDropTarget;
 public:
+    // Shared with MainWindow's keyboard hook; +1 and +2 carry icon results.
+    static constexpr UINT WM_FAN_FILTER_KEY = WM_APP + 3;
+
     FanWindow(HINSTANCE hInst, HWND hwndOwner, const ConfigData& config,
               std::vector<FileItem> items = {});
     ~FanWindow();
@@ -27,6 +30,7 @@ public:
     HWND Handle() const { return _hwnd; }
     bool IsVisible() const;
     bool IsDragging() const { return _dragging; }
+    bool IsFilterActive() const { return !_filterText.empty(); }
     void Reposition();
 
     static const wchar_t* ClassName() { return L"FanFolderFan"; }
@@ -184,6 +188,7 @@ private:
 
     void RebuildFontCache();
     void RebuildLabelCache();
+    void RebuildItemCaches();
     void CalculateLayout();
     static HWND FindTaskbarOnMonitor(HMONITOR hMon, RECT& outRect);
     static int  FindTaskbarButtonCenter(HWND hTaskbar, RECT taskbarRect);

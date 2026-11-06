@@ -1320,6 +1320,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         break;
     }
 
+    case InfoScreen::WM_INFO_DISMISSED:
+        // Body clicks use zero; hook messages carry their thread generation.
+        if (wParam == 0 || static_cast<int>(wParam) == self->_hookGen.load())
+            self->CloseInfoScreen();
+        return 0;
+
     case WM_MAIN_SHOW_MIN:
         ShowWindow(hwnd, SW_SHOWMINNOACTIVE);
         return 0;

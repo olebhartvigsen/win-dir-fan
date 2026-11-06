@@ -392,34 +392,7 @@ void FanWindow::ApplyFilter() {
         _iconGen.fetch_add(1, std::memory_order_release);
 
         _items = _originalItems;
-        // Resize (don't nullify) icon arrays back to the original size.
-        // The first _originalItems.size() entries are still valid — their
-        // icons were loaded in Show() and survived the full-scan extension
-        // (the extension only appended beyond the original count). resize()
-        // truncates the extra entries from the full scan; it does NOT touch
-        // the valid original entries.
-        int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
-        {
-            std::lock_guard<std::mutex> lk(_iconMutex);
-            _bitmaps.resize(total, nullptr);
-            _icons.resize(total, nullptr);
-            _gdiBitmaps.resize(total, nullptr);
-            _iconLoaded.resize(total, false);
-        }
-        _itemProgress.assign(total, 0.f);
-        _hoverScale.assign(total, 1.f);
-        _entryProgress.assign(total, 0.f);
-        _labelCache.resize(_items.size());
-        RebuildLabelCache();
-        // Arrow doesn't need an icon load.
-        if (_hasExplorerButton && total > 0) _iconLoaded[total - 1] = true;
-        // Only re-start icon loads for items that are actually missing icons
-        // (shouldn't happen if the original icons survived, but defensive).
-        for (int i = 0; i < (int)_items.size(); i++) {
-            if (!_isPlaceholder && i < (int)_iconLoaded.size() && !_iconLoaded[i])
-                StartIconLoad(i);
-        }
-        if (_isPlaceholder && !_iconLoaded.empty()) _iconLoaded[0] = true;
+        RebuildItemCaches();
     }
 
     // Lowercase copy of the filter text (case-insensitive substring match).
@@ -469,34 +442,7 @@ void FanWindow::ApplyFilter() {
             _config.folderPath, 10000, _config.includeDirs,
             _config.filterRegex, _config.sortMode);
         _items = std::move(fullScan);
-        // Resize icon arrays to match the new item count + arrow slot.
-        int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
-        {
-            std::lock_guard<std::mutex> lk(_iconMutex);
-            _bitmaps.assign(total, nullptr);
-            _icons.assign(total, nullptr);
-            _gdiBitmaps.assign(total, nullptr);
-        }
-        _itemProgress.assign(total, 0.f);
-        _hoverScale.assign(total, 1.f);
-        _entryProgress.assign(total, 0.f);
-        _iconLoaded.assign(total, false);
-        _labelCache.resize(_items.size());
-        RebuildLabelCache();
-        // Kick off async icon loads for the new items beyond the cap.
-        for (int i = 0; i < (int)_items.size(); i++) {
-            if (i >= _config.maxItems) StartIconLoad(i);
-        }
-        // Convert any pre-loaded icons for the first maxItems items (should
-        // already be done in Show, but re-check in case the bitmap was null).
-        for (int i = 0; i < std::min((int)_items.size(), _config.maxItems); i++) {
-            if (i < (int)_gdiBitmaps.size() && !_gdiBitmaps[i]) {
-                HBITMAP bmp = _bitmaps[i];
-                HICON   ico = _icons[i];
-                if (bmp)      _gdiBitmaps[i].reset(HBitmapToGdiBitmap(bmp));
-                else if (ico) _gdiBitmaps[i].reset(Gdiplus::Bitmap::FromHICON(ico));
-            }
-        }
+        RebuildItemCaches();
         // Re-match against the full scan.
         _visible.clear();
         _visible.reserve(_items.size());
@@ -537,6 +483,36 @@ void FanWindow::ApplyFilter() {
     // Re-layout (arc tightens to matches) and redraw.
     CalculateLayout();
     DrawToLayeredWindow();
+}
+
+// Replacing _items can reorder even the original prefix. Rebuild all caches
+// rather than attaching old icons to different files or losing owned handles.
+// The caller bumps _iconGen first so pending results cannot refill old slots.
+void FanWindow::RebuildItemCaches() {
+    int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
+    {
+        std::lock_guard<std::mutex> lk(_iconMutex);
+        for (auto h : _bitmaps) if (h) DeleteObject(h);
+        for (auto h : _icons)   if (h) DestroyIcon(h);
+        _bitmaps.assign(total, nullptr);
+        _icons.assign(total, nullptr);
+        _gdiBitmaps.assign(total, nullptr);
+        _iconLoaded.assign(total, false);
+    }
+    delete _shadowBmp;
+    _shadowBmp = nullptr;
+    _shadowIdx = -1;
+    _itemProgress.assign(total, 0.f);
+    _hoverScale.assign(total, 1.f);
+    const bool atFinalPosition = _config.animStyle == ConfigData::AnimStyle::Fade
+        || _config.animStyle == ConfigData::AnimStyle::None;
+    _entryProgress.assign(total, atFinalPosition ? 1.f : 0.f);
+    RebuildLabelCache();
+    if (_hasExplorerButton) _iconLoaded.back() = true;
+    for (int i = 0; i < (int)_items.size(); i++) {
+        if (_isPlaceholder) _iconLoaded[i] = true;
+        else StartIconLoad(i);
+    }
 }
 
 bool FanWindow::IsVisible() const {
@@ -985,6 +961,8 @@ void FanWindow::DrawToLayeredWindow() {
             // reserved slot (last element of the per-item vectors). For
             // real-item slots we use the mapped real index.
             auto getItemAlpha = [&](int slot) -> float {
+                // The text-only synthetic slot has no per-item animation state.
+                if (_noMatchesActive) return _entryAlpha;
                 int realIdx = RealIndexForSlot(slot);
                 bool isArrow = IsArrowSlot(slot);
                 switch (_config.animStyle) {
@@ -993,7 +971,7 @@ void FanWindow::DrawToLayeredWindow() {
                     if (isArrow)
                         ip = (_itemProgress.empty()) ? 1.f : _itemProgress.back();
                     else
-                        ip = (realIdx < (int)_itemProgress.size()) ? _itemProgress[realIdx] : 1.f;
+                        ip = (realIdx >= 0 && realIdx < (int)_itemProgress.size()) ? _itemProgress[realIdx] : 1.f;
                     return std::clamp(ip, 0.f, 1.f) * _entryAlpha;
                 }
                 case ConfigData::AnimStyle::Fan:
@@ -1002,7 +980,7 @@ void FanWindow::DrawToLayeredWindow() {
                     if (isArrow)
                         ep = (_entryProgress.empty()) ? 1.f : _entryProgress.back();
                     else
-                        ep = (realIdx < (int)_entryProgress.size()) ? _entryProgress[realIdx] : 1.f;
+                        ep = (realIdx >= 0 && realIdx < (int)_entryProgress.size()) ? _entryProgress[realIdx] : 1.f;
                     return ep;
                 }
                 case ConfigData::AnimStyle::Fade: {
@@ -1010,7 +988,7 @@ void FanWindow::DrawToLayeredWindow() {
                     if (isArrow)
                         ep = (_entryProgress.empty()) ? 1.f : _entryProgress.back();
                     else
-                        ep = (realIdx < (int)_entryProgress.size()) ? _entryProgress[realIdx] : 1.f;
+                        ep = (realIdx >= 0 && realIdx < (int)_entryProgress.size()) ? _entryProgress[realIdx] : 1.f;
                     return ep * _entryAlpha;
                 }
                 case ConfigData::AnimStyle::None:
@@ -1391,9 +1369,9 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int slot, float itemAlpha) {
 
     // Lazy-cache: convert HBITMAP/HICON → Gdiplus::Bitmap* once, reuse every frame.
     // This eliminates the ~65KB heap allocation that DrawShellBitmapIA did per frame.
-    if (idx < (int)_gdiBitmaps.size() && !_gdiBitmaps[idx]) {
-        if (bmp)      _gdiBitmaps[idx].reset(HBitmapToGdiBitmap(bmp));
-        else if (ico) _gdiBitmaps[idx].reset(Gdiplus::Bitmap::FromHICON(ico));
+    if (realIdx < (int)_gdiBitmaps.size() && !_gdiBitmaps[realIdx]) {
+        if (bmp)      _gdiBitmaps[realIdx].reset(HBitmapToGdiBitmap(bmp));
+        else if (ico) _gdiBitmaps[realIdx].reset(Gdiplus::Bitmap::FromHICON(ico));
     }
     Gdiplus::Bitmap* gdiBmp = (realIdx < (int)_gdiBitmaps.size()) ? _gdiBitmaps[realIdx].get() : nullptr;
 
@@ -1765,7 +1743,7 @@ void FanWindow::StartIconLoad(int idx) {
         // lock and concurrent worker conversions stall the UI thread's
         // Graphics::Clear / DrawImage calls for hundreds of milliseconds.
         auto postReady = [&](HBITMAP hBmp, HICON hIco) {
-            auto* r = new IconReady{ w->idx, hBmp, hIco, nullptr };
+            auto* r = new IconReady{ w->idx, hBmp, hIco, nullptr, w->gen };
             const UINT token = IconHandoff::Register(r);
             if (!token) {                      // registry full: drop and free
                 if (r->hBmp)  DeleteObject(r->hBmp);

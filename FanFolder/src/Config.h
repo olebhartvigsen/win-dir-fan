@@ -8,6 +8,8 @@ struct ConfigData {
     bool includeDirs    = true;
     bool showExtensions = false;
     bool filterAsYouType = true;   // Phase 4: typing in an open fan live-filters items
+    bool showInfoOnLaunch = false;
+    bool infoScreenShown = false;
     std::wstring filterRegex;
     enum class SortMode { DateModifiedDesc, DateModifiedAsc, NameAsc, NameDesc, DateCreatedDesc, DateCreatedAsc }
         sortMode = SortMode::DateModifiedDesc;
