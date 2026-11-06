@@ -163,6 +163,9 @@ Write-OK "AppxManifest.xml copied"
 $manifestPath = Join-Path $staging "AppxManifest.xml"
 [xml]$manifest = Get-Content $manifestPath
 $manifest.Package.Identity.Version = $Version
+$manifest.Package.Identity.SetAttribute("ProcessorArchitecture", $Arch)
+# This script builds a local-test package, not the Store package.
+$manifest.Package.Identity.Publisher = "CN=FanFolder Test Signing"
 $manifest.Save($manifestPath)
 Write-OK "Version set to $Version"
 

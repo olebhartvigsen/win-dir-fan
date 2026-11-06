@@ -31,7 +31,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$root = Split-Path -Parent $scriptDir  # win-dir-fan root
+$root = Split-Path -Parent (Split-Path -Parent $scriptDir)  # repository root
 
 # ── Locate FanFolder.exe ─────────────────────────────────────
 if ($ExePath) {
@@ -57,7 +57,7 @@ Write-Host "  Source EXE: $exe" -ForegroundColor Gray
 $sdkRoot = "C:\Program Files (x86)\Windows Kits\10\bin"
 
 # Find latest SDK
-$sdks = Get-ChildItem $sdkRoot -Directory | Where-Name -like "10.0.*" | Sort-Object Name -Descending
+$sdks = Get-ChildItem $sdkRoot -Directory | Where-Object Name -like "10.0.*" | Sort-Object Name -Descending
 if ($sdks.Count -eq 0) {
     Write-Error "Windows 10 SDK not found at $sdkRoot"
     exit 1
@@ -176,6 +176,11 @@ if (-not $assetsReady) {
 $manifestPath = Join-Path $staging "AppxManifest.xml"
 [xml]$manifest = Get-Content $manifestPath
 $manifest.Package.Identity.Version = $Version
+$manifest.Package.Identity.SetAttribute("ProcessorArchitecture", $Arch)
+if ($Sign) {
+    # Keep the Store publisher in unsigned packages; use a test identity for signing.
+    $manifest.Package.Identity.Publisher = "CN=FanFolder Test Signing"
+}
 $manifest.Save($manifestPath)
 
 # ── Build MSIX package ────────────────────────────────────────
