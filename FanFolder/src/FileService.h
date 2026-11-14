@@ -6,6 +6,7 @@
 struct FileItem {
     std::wstring name;
     std::wstring fullPath;
+    std::wstring relativeDir;  // "" at root, "Sub\Deeper" for nested files
     std::wstring targetPath;  // resolved target if fullPath is a .lnk shortcut
     bool isDirectory = false;
     FILETIME lastWriteTime  = {};
@@ -20,7 +21,8 @@ public:
         bool includeDirs = true,
         const std::wstring& filterRegex = L"",
         ConfigData::SortMode sortMode = ConfigData::SortMode::DateModifiedDesc,
-        bool resolveLnk = true);
+        bool resolveLnk = true,
+        bool includeSubfolderFiles = false);
 
     // Resolves a .lnk shortcut file to its target path.
     // Returns the target path, or empty if resolution fails or target doesn't exist.
@@ -52,7 +54,8 @@ public:
     // items as the cached scan.
     // Returns false for a virtual sentinel, a non-directory, or an unreadable
     // path — callers MUST treat that as "always rescan" rather than "skip".
-    static bool ReadFolderStamp(const std::wstring& folderPath, FILETIME& outStamp);
+    static bool ReadFolderStamp(const std::wstring& folderPath, FILETIME& outStamp,
+                                bool recursive = false);
     static HBITMAP GetShellBitmap(const std::wstring& path, int size);
     static HBITMAP GetShellThumbnail(const std::wstring& path, int size);
     static HBITMAP GetImageThumbnail(const std::wstring& path, int size);

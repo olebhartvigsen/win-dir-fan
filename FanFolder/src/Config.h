@@ -6,6 +6,7 @@ struct ConfigData {
     std::wstring folderPath;
     int  maxItems       = 15;
     bool includeDirs    = true;
+    bool includeSubfolderFiles = false;   // list files found in subfolders too
     bool showExtensions = false;
     bool filterAsYouType = true;   // Phase 4: typing in an open fan live-filters items
     bool showInfoOnLaunch = false;

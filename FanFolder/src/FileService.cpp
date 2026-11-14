@@ -1019,7 +1019,94 @@ static std::vector<FileItem> ScanRecentFiles(int maxItems, ConfigData::SortMode 
     return out;
 }
 
-bool FileService::ReadFolderStamp(const std::wstring& folderPath, FILETIME& outStamp) {
+namespace {
+
+constexpr int    kMaxSubfolderDepth = 8;      // root = 0
+constexpr size_t kMaxRecursiveItems = 20000;  // safety valve
+
+struct DirJob {
+    std::wstring path;
+    std::wstring relDir;
+    int depth;
+};
+
+// Enumerates one directory. Root directories are added as items when
+// includeDirs is true. Non-reparse child directories are queued when
+// recurse is true. Nested directories are never added as items.
+void CollectDirectory(const std::wstring& dir, const std::wstring& relDir,
+                      int depth, bool isRoot, bool includeDirs, bool resolveLnk,
+                      bool recurse, std::vector<FileItem>& items,
+                      std::vector<DirJob>& pending)
+{
+    std::wstring prefix = dir;
+    if (!prefix.empty() && prefix.back() != L'\\') prefix += L'\\';
+
+    WIN32_FIND_DATAW fd = {};
+    HANDLE hFind = FindFirstFileW((prefix + L'*').c_str(), &fd);
+    if (hFind == INVALID_HANDLE_VALUE) return;
+
+    do {
+        if (recurse && items.size() >= kMaxRecursiveItems) break;
+        if (fd.cFileName[0] == L'.') continue;
+        if (fd.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) continue;
+
+        const bool isDir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        const bool isReparse = (fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+
+        if (isDir) {
+            if (isRoot && includeDirs) {
+                FileItem item;
+                item.name = fd.cFileName;
+                item.fullPath = prefix + fd.cFileName;
+                item.isDirectory = true;
+                item.lastWriteTime = fd.ftLastWriteTime;
+                item.creationTime  = fd.ftCreationTime;
+                items.push_back(std::move(item));
+            }
+            // Never follow junctions or symlinked directories: cycles and duplicate trees.
+            if (!isReparse && recurse && depth < kMaxSubfolderDepth) {
+                std::wstring childRel = relDir;
+                if (!childRel.empty()) childRel += L'\\';
+                childRel += fd.cFileName;
+                pending.push_back({ prefix + fd.cFileName, std::move(childRel), depth + 1 });
+            }
+            continue;
+        }
+
+        FileItem item;
+        item.name = fd.cFileName;
+        item.fullPath = prefix + fd.cFileName;
+        item.relativeDir = relDir;
+        item.lastWriteTime = fd.ftLastWriteTime;
+        item.creationTime  = fd.ftCreationTime;
+
+        // Resolve .lnk shortcuts — use target for dir-check, extension, and thumbnails
+        if (resolveLnk) {
+            auto dot = item.name.rfind(L'.');
+            if (dot != std::wstring::npos) {
+                std::wstring ext = item.name.substr(dot);
+                for (auto& c : ext) c = (wchar_t)towlower(c);
+                if (ext == L".lnk") {
+                    bool targetIsDir = false;
+                    std::wstring target = FileService::ResolveLnk(item.fullPath, targetIsDir);
+                    if (target.empty()) continue; // skip unresolvable / dead shortcuts
+                    item.targetPath  = target;
+                    item.isDirectory = targetIsDir;
+                }
+            }
+        }
+
+        if (!item.isDirectory || (isRoot && includeDirs))
+            items.push_back(std::move(item));
+    } while (FindNextFileW(hFind, &fd));
+
+    FindClose(hFind);
+}
+
+} // namespace
+
+bool FileService::ReadFolderStamp(const std::wstring& folderPath, FILETIME& outStamp,
+                                  bool recursive) {
     outStamp = {};
     if (folderPath.empty()) return false;
 
@@ -1033,10 +1120,43 @@ bool FileService::ReadFolderStamp(const std::wstring& folderPath, FILETIME& outS
     if (!(fad.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) return false;
 
     outStamp = fad.ftLastWriteTime;
+    if (!recursive) return true;
+
+    // Directory mtimes catch add, remove, and rename anywhere in the tree.
+    // In-place file edits do not move a directory mtime, same limitation as
+    // the existing single-folder stamp.
+    std::vector<DirJob> pending;
+    pending.push_back({ folderPath, L"", 0 });
+
+    while (!pending.empty()) {
+        DirJob job = std::move(pending.back());
+        pending.pop_back();
+
+        std::wstring prefix = job.path;
+        if (!prefix.empty() && prefix.back() != L'\\') prefix += L'\\';
+
+        WIN32_FIND_DATAW fd = {};
+        HANDLE hFind = FindFirstFileW((prefix + L'*').c_str(), &fd);
+        if (hFind == INVALID_HANDLE_VALUE) continue;
+
+        do {
+            if (fd.cFileName[0] == L'.') continue;
+            if (fd.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) continue;
+            if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) continue;
+
+            if (CompareFileTime(&fd.ftLastWriteTime, &outStamp) > 0)
+                outStamp = fd.ftLastWriteTime;
+
+            if (job.depth < kMaxSubfolderDepth)
+                pending.push_back({ prefix + fd.cFileName, L"", job.depth + 1 });
+        } while (FindNextFileW(hFind, &fd));
+        FindClose(hFind);
+    }
     return true;
 }
 
-std::vector<FileItem> FileService::ScanFolder(const std::wstring& folderPath, int maxItems, bool includeDirs, const std::wstring& filterRegex, ConfigData::SortMode sortMode, bool resolveLnk) {
+std::vector<FileItem> FileService::ScanFolder(const std::wstring& folderPath, int maxItems, bool includeDirs, const std::wstring& filterRegex, ConfigData::SortMode sortMode, bool resolveLnk, bool includeSubfolderFiles) {
     std::vector<FileItem> items;
     if (folderPath.empty()) return items;
 
@@ -1064,57 +1184,21 @@ std::vector<FileItem> FileService::ScanFolder(const std::wstring& folderPath, in
         return out;
     }
 
-    // Pre-build path prefix once; reserve to avoid reallocations
-    std::wstring prefix = folderPath;
-    if (!prefix.empty() && prefix.back() != L'\\')
-        prefix += L'\\';
-
     items.reserve(64);
 
-    WIN32_FIND_DATAW fd = {};
-    std::wstring pattern = prefix + L'*';
+    std::vector<DirJob> pending;
+    pending.push_back({ folderPath, L"", 0 });
 
-    HANDLE hFind = FindFirstFileW(pattern.c_str(), &fd);
-    if (hFind == INVALID_HANDLE_VALUE) return items;
+    while (!pending.empty() && items.size() < kMaxRecursiveItems) {
+        DirJob job = std::move(pending.back());
+        pending.pop_back();
+        CollectDirectory(job.path, job.relDir, job.depth, job.depth == 0,
+                         includeDirs, resolveLnk, includeSubfolderFiles,
+                         items, pending);
+    }
 
-    do {
-        if (fd.cFileName[0] == L'.') continue; // skip . and ..
-        // Skip hidden and system files
-        if (fd.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) continue;
-
-        FileItem item;
-        item.name = fd.cFileName;
-        item.fullPath = prefix;
-        item.fullPath += fd.cFileName;
-        item.isDirectory = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-        item.lastWriteTime = fd.ftLastWriteTime;
-        item.creationTime  = fd.ftCreationTime;
-
-        // Resolve .lnk shortcuts — use target for dir-check, extension, and thumbnails
-        if (resolveLnk && !item.isDirectory) {
-            auto dot = item.name.rfind(L'.');
-            if (dot != std::wstring::npos) {
-                std::wstring ext = item.name.substr(dot);
-                for (auto& c : ext) c = (wchar_t)towlower(c);
-                if (ext == L".lnk") {
-                    bool targetIsDir = false;
-                    std::wstring target = ResolveLnk(item.fullPath, targetIsDir);
-                    if (target.empty()) continue; // skip unresolvable / dead shortcuts
-                    item.targetPath  = target;
-                    item.isDirectory = targetIsDir;
-                }
-            }
-        }
-
-        items.push_back(std::move(item));
-    } while (FindNextFileW(hFind, &fd));
-
-    FindClose(hFind);
-
-    // Filter: exclude directories if not wanted
-    if (!includeDirs) {
-        items.erase(std::remove_if(items.begin(), items.end(),
-            [](const FileItem& f) { return f.isDirectory; }), items.end());
+    if (!pending.empty() || (includeSubfolderFiles && items.size() >= kMaxRecursiveItems)) {
+        OutputDebugStringW(L"[FanFolder] subfolder scan hit the item cap\n");
     }
 
     // Filter: regex (cached compilation, std::wregex construction is expensive)
@@ -1148,38 +1232,50 @@ std::vector<FileItem> FileService::ScanFolder(const std::wstring& folderPath, in
         std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
             if (a.lastWriteTime.dwHighDateTime != b.lastWriteTime.dwHighDateTime)
                 return a.lastWriteTime.dwHighDateTime > b.lastWriteTime.dwHighDateTime;
-            return a.lastWriteTime.dwLowDateTime > b.lastWriteTime.dwLowDateTime;
+            if (a.lastWriteTime.dwLowDateTime != b.lastWriteTime.dwLowDateTime)
+                return a.lastWriteTime.dwLowDateTime > b.lastWriteTime.dwLowDateTime;
+            return _wcsicmp(a.fullPath.c_str(), b.fullPath.c_str()) < 0;
         });
         break;
     case ConfigData::SortMode::DateModifiedAsc:
         std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
             if (a.lastWriteTime.dwHighDateTime != b.lastWriteTime.dwHighDateTime)
                 return a.lastWriteTime.dwHighDateTime < b.lastWriteTime.dwHighDateTime;
-            return a.lastWriteTime.dwLowDateTime < b.lastWriteTime.dwLowDateTime;
+            if (a.lastWriteTime.dwLowDateTime != b.lastWriteTime.dwLowDateTime)
+                return a.lastWriteTime.dwLowDateTime < b.lastWriteTime.dwLowDateTime;
+            return _wcsicmp(a.fullPath.c_str(), b.fullPath.c_str()) < 0;
         });
         break;
     case ConfigData::SortMode::NameAsc:
         std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
-            return _wcsicmp(a.name.c_str(), b.name.c_str()) < 0;
+            int c = _wcsicmp(a.name.c_str(), b.name.c_str());
+            if (c != 0) return c < 0;
+            return _wcsicmp(a.fullPath.c_str(), b.fullPath.c_str()) < 0;
         });
         break;
     case ConfigData::SortMode::NameDesc:
         std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
-            return _wcsicmp(a.name.c_str(), b.name.c_str()) > 0;
+            int c = _wcsicmp(a.name.c_str(), b.name.c_str());
+            if (c != 0) return c > 0;
+            return _wcsicmp(a.fullPath.c_str(), b.fullPath.c_str()) > 0;
         });
         break;
     case ConfigData::SortMode::DateCreatedDesc:
         std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
             if (a.creationTime.dwHighDateTime != b.creationTime.dwHighDateTime)
                 return a.creationTime.dwHighDateTime > b.creationTime.dwHighDateTime;
-            return a.creationTime.dwLowDateTime > b.creationTime.dwLowDateTime;
+            if (a.creationTime.dwLowDateTime != b.creationTime.dwLowDateTime)
+                return a.creationTime.dwLowDateTime > b.creationTime.dwLowDateTime;
+            return _wcsicmp(a.fullPath.c_str(), b.fullPath.c_str()) < 0;
         });
         break;
     case ConfigData::SortMode::DateCreatedAsc:
         std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
             if (a.creationTime.dwHighDateTime != b.creationTime.dwHighDateTime)
                 return a.creationTime.dwHighDateTime < b.creationTime.dwHighDateTime;
-            return a.creationTime.dwLowDateTime < b.creationTime.dwLowDateTime;
+            if (a.creationTime.dwLowDateTime != b.creationTime.dwLowDateTime)
+                return a.creationTime.dwLowDateTime < b.creationTime.dwLowDateTime;
+            return _wcsicmp(a.fullPath.c_str(), b.fullPath.c_str()) < 0;
         });
         break;
     }

@@ -56,6 +56,11 @@ const Strings& GetStrings();
 // don't all need editing.
 const wchar_t* EmptyFolderLabel();
 
+// Label for the tray-menu toggle that includes files from subfolders.
+// Kept separate from the positional Strings tables, following the
+// EmptyFolderLabel pattern, so the 29 locale initializers stay untouched.
+const wchar_t* IncludeSubfolderFilesLabel();
+
 // Strings for the first-launch info panel (and its tray toggle).  Keyed
 // struct instead of positional, so adding a locale later means adding one
 // initializer, not re-aligning 29 tables.  Field order: aboutText,
