@@ -170,6 +170,9 @@ static constexpr UINT WM_MAIN_SHOW_MIN     = WM_USER + 20;
 // would let any same-session process post a chosen lParam and have us
 // reinterpret_cast it to a struct we then delete.
 static constexpr UINT WM_MAIN_PREWARM      = WM_APP + 1;
+// Posted by FolderWatcher's worker thread.  Carries no payload, so a forged
+// message can at most trigger a harmless stamp check.
+static constexpr UINT WM_MAIN_FOLDER_CHANGED = WM_APP + 4;
 static constexpr UINT WM_MAIN_CLOSE_FAN    = WM_USER + 4;
 // Sent BY the fan window to its owner when the fan wants to close itself
 // (context-menu command completed, or an item was dragged out to Explorer).
@@ -219,6 +222,15 @@ namespace PrewarmHandoff {
 // Timer id for periodic virtual-desktop reconciliation (see ReconcileVirtualDesktop).
 static constexpr UINT_PTR TIMER_ID_VDM_RECONCILE = 1;
 static constexpr UINT     TIMER_VDM_INTERVAL_MS  = 400;
+// Coalesces a burst of filesystem notifications (copying a folder, extracting
+// an archive) into one rescan.
+static constexpr UINT_PTR TIMER_ID_FOLDER_REFRESH = 2;
+static constexpr UINT     TIMER_FOLDER_REFRESH_MS  = 500;
+// Fallback freshness check for shares and cloud folders where the OS watcher
+// can miss notifications.  The directory walk runs on the threadpool, never on
+// the UI thread.
+static constexpr UINT_PTR TIMER_ID_FOLDER_VERIFY = 3;
+static constexpr UINT     TIMER_FOLDER_VERIFY_MS  = 60000;
 
 MainWindow* MainWindow::s_instance = nullptr;
 
@@ -243,6 +255,9 @@ MainWindow::MainWindow(HINSTANCE hInst, const ConfigData& config)
 }
 
 MainWindow::~MainWindow() {
+    // Join the watcher before the window disappears: its worker may still be
+    // blocked in ReadDirectoryChangesW and must be woken by the stop event.
+    _folderWatcher.Stop();
     RemoveTrayIcon();
     UninstallHooks();
     if (_hookThread.joinable()) {
@@ -252,6 +267,8 @@ MainWindow::~MainWindow() {
     }
     if (_hwnd) {
         KillTimer(_hwnd, TIMER_ID_VDM_RECONCILE);
+        KillTimer(_hwnd, TIMER_ID_FOLDER_REFRESH);
+        KillTimer(_hwnd, TIMER_ID_FOLDER_VERIFY);
     }
     if (_vdm) {
         _vdm->Release();
@@ -301,6 +318,7 @@ bool MainWindow::Create() {
     SetTaskbarIcon(false);
 
     StartPrewarm(/*force*/ true);
+    StartFolderWatch();
     AddTrayIcon();
 
     // Virtual-desktop reconciliation.  The hidden main window is bound to
@@ -443,6 +461,10 @@ void MainWindow::OpenFan() {
         return;
     }
 
+    // The watcher normally keeps the prewarm current, but a change can race
+    // with the click.  Do not check the folder here: even a directory walk
+    // would add latency to every open.  The watcher and the background verifier
+    // catch the change; an open fan is refreshed when the scan completes.
     // Drain any stale close messages queued by old (detached) hook threads
     MSG drain;
     while (PeekMessageW(&drain, _hwnd, WM_MAIN_CLOSE_FAN, WM_MAIN_CLOSE_FAN, PM_REMOVE)) {}
@@ -509,27 +531,84 @@ void MainWindow::OpenFan() {
     }
 }
 
-// Cheap staleness gate.  A folder's mtime changes when an entry is added,
-// removed, or renamed, so if the mtime still matches the one recorded with the
-// cached prewarm, a rescan would only re-derive the same list.  Skipping it
-// keeps the cached icons warm, so the next open reuses them instead of paying
-// a fresh scan plus N shell thumbnail lookups.
-//
-// Returns without starting anything when the cache is provably current.  Any
-// case we cannot reason about (no cache yet, different config, virtual
-// sentinel, unreadable path) falls through to a full forced prewarm.
-void MainWindow::StartPrewarmIfFolderChanged() {
-    FILETIME now = {};
-    const bool stampValid = FileService::ReadFolderStamp(_config.folderPath, now);
+// Off-UI freshness check.  The caller only snapshots the current provenance
+// and hands the directory walk to the threadpool, so closing the fan never
+// waits on disk I/O.  A stamp mismatch posts WM_MAIN_FOLDER_CHANGED, which
+// starts the debounced rescan.
+void MainWindow::VerifyFolderChangedAsync() {
+    if (FileService::IsVirtualSentinel(_config.folderPath))
+        return;
 
+    ConfigData cfg;
+    FILETIME expected = {};
     {
         std::lock_guard<std::mutex> lk(_prewarmMutex);
-        if (_prewarm.ready && stampValid && _prewarm.stampValid &&
-            _prewarm.scanConfig == _config &&
-            _prewarm.folderStamp.dwLowDateTime  == now.dwLowDateTime &&
-            _prewarm.folderStamp.dwHighDateTime == now.dwHighDateTime) {
-            return;  // folder unchanged and config identical — cache is current
+        if (!_prewarm.ready || !_prewarm.stampValid ||
+            !(_prewarm.scanConfig == _config))
+            return;
+        cfg      = _prewarm.scanConfig;
+        expected = _prewarm.folderStamp;
+    }
+
+    struct VerifyWork {
+        ConfigData cfg;
+        FILETIME   expected;
+        HWND       hwnd;
+        UINT       msg;
+    };
+    auto* work = new VerifyWork{std::move(cfg), expected, _hwnd, WM_MAIN_FOLDER_CHANGED};
+
+    BOOL submitted = TrySubmitThreadpoolCallback([](PTP_CALLBACK_INSTANCE, PVOID ctx) {
+        std::unique_ptr<VerifyWork> w(static_cast<VerifyWork*>(ctx));
+        try {
+            FILETIME now = {};
+            if (!FileService::ReadFolderStamp(w->cfg.folderPath, now,
+                                              w->cfg.includeSubfolderFiles))
+                return;
+            if (now.dwLowDateTime  != w->expected.dwLowDateTime ||
+                now.dwHighDateTime != w->expected.dwHighDateTime) {
+                PostMessageW(w->hwnd, w->msg, 0, 0);
+            }
+        } catch (...) {
+            // A verifier failure is not fatal: the next close or timer tick
+            // tries again, and the watcher covers normal local-folder changes.
         }
+    }, work, nullptr);
+
+    if (!submitted)
+        delete work;
+}
+
+// Start (or restart) the filesystem watch for the selected folder.  The
+// watcher follows subdirectories only when IncludeSubfolderFiles is on, so the
+// notification volume matches what the scan actually shows.
+void MainWindow::StartFolderWatch() {
+    if (!_hwnd) return;
+
+    const bool isVirtual = FileService::IsVirtualSentinel(_config.folderPath);
+    _folderWatcher.Start(_config.folderPath, _config.includeSubfolderFiles,
+                         _hwnd, WM_MAIN_FOLDER_CHANGED);
+
+    // A virtual sentinel has no directory to stamp, so the periodic verifier
+    // has nothing to do.  For a real folder it is a safety net, not the main
+    // trigger; the watcher handles normal changes immediately.
+    if (isVirtual)
+        KillTimer(_hwnd, TIMER_ID_FOLDER_VERIFY);
+    else
+        SetTimer(_hwnd, TIMER_ID_FOLDER_VERIFY, TIMER_FOLDER_VERIFY_MS, nullptr);
+}
+
+// Debounced handler for a filesystem notification.  Skip the scan while one is
+// already running; its completion will schedule another pass if changes
+// arrived during the scan.  StartPrewarm only queues a worker, so this returns
+// without waiting on the folder.
+void MainWindow::RefreshFromFolderChange() {
+    if (!_folderDirty.exchange(false, std::memory_order_acq_rel))
+        return;
+
+    if (_prewarmInflight.load(std::memory_order_acquire) > 0) {
+        _folderDirty.store(true, std::memory_order_release);
+        return;
     }
 
     StartPrewarm(/*force*/ true);
@@ -550,9 +629,10 @@ void MainWindow::CloseFan() {
     SetTaskbarIcon(false);
     ShowWindow(_hwnd, SW_SHOWMINNOACTIVE);
     // Refresh so the fan reflects files added/removed/renamed while it was
-    // open (e.g. via the right-click shell menu), but only pay for a rescan
-    // when the folder actually changed.
-    StartPrewarmIfFolderChanged();
+    // open (e.g. via the right-click shell menu).  The check itself runs on a
+    // threadpool worker: closing must not wait on a directory walk, and the
+    // next open should not inherit a busy UI thread.
+    VerifyFolderChangedAsync();
 }
 
 // ---------------------------------------------------------------------------
@@ -628,10 +708,13 @@ void MainWindow::StartPrewarm(bool force) {
         // change that lands mid-scan still leaves us with the older stamp, so
         // the next open rescans rather than trusting a scan that raced.
         FILETIME stamp = {};
-        const bool stampValid = FileService::ReadFolderStamp(pw->cfg.folderPath, stamp);
+        const bool stampValid = FileService::ReadFolderStamp(
+            pw->cfg.folderPath, stamp, pw->cfg.includeSubfolderFiles);
 
         auto items = FileService::ScanFolder(pw->cfg.folderPath, pw->cfg.maxItems,
-                                             pw->cfg.includeDirs, pw->cfg.filterRegex, pw->cfg.sortMode);
+                                             pw->cfg.includeDirs, pw->cfg.filterRegex,
+                                             pw->cfg.sortMode, /*resolveLnk=*/true,
+                                             pw->cfg.includeSubfolderFiles);
         auto* data      = new MainWindow::PrewarmData;
         data->items     = items;
         data->iconSize  = iconSize;
@@ -777,6 +860,7 @@ void MainWindow::ShowTrayMenu() {
         ID_MAX_5, ID_MAX_10, ID_MAX_15, ID_MAX_20, ID_MAX_25,
         ID_ANIM_FAN, ID_ANIM_GLIDE, ID_ANIM_SPRING, ID_ANIM_NONE, ID_ANIM_FADE,
         ID_INCLUDE_DIRS,
+        ID_INCLUDE_SUBFOLDER_FILES,
         ID_SHOW_EXTENSIONS,
         ID_FOLDER_DOWNLOADS,
         ID_FOLDER_DESKTOP,
@@ -870,6 +954,10 @@ void MainWindow::ShowTrayMenu() {
     AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hMax,    s.maxItems);
     AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hAnim,   s.animation);
     AppendMenuW(hMenu, MF_STRING | (_config.includeDirs    ? MF_CHECKED : 0), ID_INCLUDE_DIRS,    s.includeFolders);
+    AppendMenuW(hMenu,
+        MF_STRING | (isRecentMode ? MF_GRAYED : 0) |
+        (_config.includeSubfolderFiles ? MF_CHECKED : 0),
+        ID_INCLUDE_SUBFOLDER_FILES, IncludeSubfolderFilesLabel());
     AppendMenuW(hMenu, MF_STRING | (_config.showExtensions ? MF_CHECKED : 0), ID_SHOW_EXTENSIONS, s.showExtensions);
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hFolder, s.folderSubmenu);
@@ -888,6 +976,8 @@ void MainWindow::ShowTrayMenu() {
 
     if (!cmd) return;
 
+    const std::wstring oldFolderPath = _config.folderPath;
+    const bool oldIncludeSubfolderFiles = _config.includeSubfolderFiles;
     bool changed = true;
     switch (cmd) {
     case ID_SORT_DATE_DESC:    _config.sortMode  = ConfigData::SortMode::DateModifiedDesc; break;
@@ -907,6 +997,7 @@ void MainWindow::ShowTrayMenu() {
     case ID_ANIM_FADE:      _config.animStyle = ConfigData::AnimStyle::Fade;   break;
     case ID_ANIM_NONE:      _config.animStyle = ConfigData::AnimStyle::None;   break;
     case ID_INCLUDE_DIRS:   _config.includeDirs    = !_config.includeDirs;    break;
+    case ID_INCLUDE_SUBFOLDER_FILES: _config.includeSubfolderFiles = !_config.includeSubfolderFiles; break;
     case ID_SHOW_EXTENSIONS:_config.showExtensions = !_config.showExtensions; break;
     case ID_FOLDER_DOWNLOADS: {
         PWSTR p = nullptr;
@@ -994,6 +1085,12 @@ void MainWindow::ShowTrayMenu() {
         // This ensures the fan still shows something if opened before the new prewarm finishes.
         PostMessageW(_hwnd, WM_MAIN_SHOW_MIN, 0, 0); // ensure minimized
         StartPrewarm(/*force*/ true);
+        // The watch parameters only change with the folder and the subfolder
+        // toggle; sort/filter/limit changes do not need a watcher restart.
+        if (_config.folderPath != oldFolderPath ||
+            _config.includeSubfolderFiles != oldIncludeSubfolderFiles) {
+            StartFolderWatch();
+        }
     }
 }
 
@@ -1335,6 +1432,15 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             self->ReconcileVirtualDesktop();
             return 0;
         }
+        if (wParam == TIMER_ID_FOLDER_REFRESH) {
+            KillTimer(hwnd, TIMER_ID_FOLDER_REFRESH);
+            self->RefreshFromFolderChange();
+            return 0;
+        }
+        if (wParam == TIMER_ID_FOLDER_VERIFY) {
+            self->VerifyFolderChangedAsync();
+            return 0;
+        }
         break;
 
     case WM_POWERBROADCAST:
@@ -1346,6 +1452,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if (wParam == PBT_APMRESUMEAUTOMATIC || wParam == PBT_APMRESUMESUSPEND) {
             DebugLog(L"[FanFolder] WM_POWERBROADCAST resume — forcing prewarm\n");
             self->StartPrewarm(/*force*/ true);
+            // A directory handle can go stale across sleep, especially on a
+            // network share.  Re-open the watch instead of trusting the old one.
+            self->StartFolderWatch();
         }
         return TRUE;
 
@@ -1374,22 +1483,53 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             ShowWindow(hwnd, SW_SHOWMINNOACTIVE);  // SW_MINIMIZE would activate the next window → cursor jump
         return 0;
 
+    case WM_MAIN_FOLDER_CHANGED:
+        // A filesystem change arrived.  Coalesce a burst into one scan.
+        // The watcher is started on Create, on a folder/subfolder setting
+        // change, and after resume.  If its thread dies, the 60 s background
+        // verifier still detects changes; do not re-open it here, because
+        // CreateFileW on a dead network path would block the UI thread.
+        self->_folderDirty.store(true, std::memory_order_release);
+        SetTimer(hwnd, TIMER_ID_FOLDER_REFRESH, TIMER_FOLDER_REFRESH_MS, nullptr);
+        return 0;
+
     case WM_MAIN_PREWARM: {
         // Token, not pointer: an unknown token is a forged or stale message.
         auto* data = PrewarmHandoff::Take((UINT)lParam);
+        std::vector<FileItem> liveItems;
+        bool refreshLive = false;
         if (data) {
-            std::lock_guard<std::mutex> lk(self->_prewarmMutex);
-            // Discard if a newer prewarm was started after this one was posted
-            if (data->gen == self->_prewarmGen.load()) {
-                self->_prewarm.FreeHandles();
-                self->_prewarm = std::move(*data);
-                // Keep a copy of the item list as fallback for fast open
-                self->_cachedItems = self->_prewarm.items;
-            } else {
-                data->FreeHandles();
+            {
+                std::lock_guard<std::mutex> lk(self->_prewarmMutex);
+                // Discard if a newer prewarm was started after this one was posted
+                if (data->gen == self->_prewarmGen.load()) {
+                    self->_prewarm.FreeHandles();
+                    self->_prewarm = std::move(*data);
+                    // Keep a copy of the item list as fallback for fast open
+                    self->_cachedItems = self->_prewarm.items;
+                    // An open fan keeps its old snapshot; replace it with the
+                    // fresh list so a file added while the fan was visible
+                    // appears without closing and reopening.
+                    if (self->_fanOpen && self->_fanWindow &&
+                        !self->_fanWindow->IsDragging()) {
+                        liveItems = self->_prewarm.items;
+                        refreshLive = true;
+                    }
+                } else {
+                    data->FreeHandles();
+                }
             }
             delete data;
         }
+        if (refreshLive && self->_fanWindow)
+            self->_fanWindow->ReplaceItems(std::move(liveItems));
+
+        // If a change arrived while this scan was running, the scan may have
+        // read its stamp before that change.  Schedule one more pass; a scan
+        // that already covered the change yields an identical item list, and
+        // ReplaceItems drops that without a repaint.
+        if (self->_folderDirty.load(std::memory_order_acquire))
+            SetTimer(hwnd, TIMER_ID_FOLDER_REFRESH, TIMER_FOLDER_REFRESH_MS, nullptr);
         return 0;
     }
 

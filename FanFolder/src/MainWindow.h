@@ -4,6 +4,7 @@
 #include "Config.h"
 #include "FanWindow.h"
 #include "FileService.h"
+#include "FolderWatcher.h"
 #include "InfoScreen.h"
 
 class MainWindow {
@@ -31,7 +32,7 @@ public:
         bool                   ready    = false;
         int                    gen      = 0;   // matches _prewarmGen at post time
 
-        // Provenance of this scan, used by StartPrewarmIfFolderChanged() to
+        // Provenance of this scan, used by VerifyFolderChangedAsync() to
         // decide whether a rescan is needed at all.  scanConfig is the config
         // the items were produced with; folderStamp is the directory mtime
         // read immediately BEFORE the scan started.  stampValid is false for
@@ -73,6 +74,13 @@ private:
     std::atomic<int>     _prewarmInflight{0};  // number of queued/running prewarm workers
     std::atomic<bool>    _gdiPlusFullyWarmed{false};  // true after first fan open (second-pass warmup done)
 
+    // Watches the selected folder while the app is idle, so the prewarm stays
+    // current even when the user adds a file between two fan opens.  A change
+    // sets _folderDirty and starts a short debounce timer; the timer refreshes
+    // the prewarm once the writes settle.
+    FolderWatcher        _folderWatcher;
+    std::atomic<bool>    _folderDirty{false};
+
     // Taskbar icon handles (loaded once, switched on fan open/close)
     HICON  _icoSmall     = nullptr;
     HICON  _icoBig       = nullptr;
@@ -96,7 +104,9 @@ private:
     void OpenFan();
     void CloseFan();
     void StartPrewarm(bool force = false);
-    void StartPrewarmIfFolderChanged();
+    void VerifyFolderChangedAsync();
+    void StartFolderWatch();
+    void RefreshFromFolderChange();
     void SetTaskbarIcon(bool open);
     void InstallHooks();
     void UninstallHooks();

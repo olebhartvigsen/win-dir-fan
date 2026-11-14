@@ -18,6 +18,7 @@ add_executable(FanFolder WIN32
     src/main.cpp
     src/Config.cpp
     src/FileService.cpp
+    src/FolderWatcher.cpp
     src/FanWindow.cpp
     src/InfoScreen.cpp
     src/MainWindow.cpp

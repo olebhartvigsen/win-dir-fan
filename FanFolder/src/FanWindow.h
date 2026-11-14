@@ -23,6 +23,10 @@ public:
     // substring match against ItemLabel). Then re-layout and redraw. Safe to call
     // from the UI thread at any time after Show().
     void ApplyFilter();
+    // Replace the item snapshot while the fan is open (the folder watcher
+    // found a change).  Preserves the active filter, rebuilds icons/layout,
+    // and returns immediately when the list is identical.
+    void ReplaceItems(std::vector<FileItem>&& items);
     void AcceptPrewarmIcons(std::vector<HBITMAP>&& bitmaps,
                             std::vector<HICON>&&   icons,
                             std::vector<std::shared_ptr<Gdiplus::Bitmap>>&& gdiBitmaps,

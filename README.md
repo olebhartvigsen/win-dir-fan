@@ -30,6 +30,8 @@ If you find FanFolder useful, an optional "buy me a coffee" donation is apprecia
 - Right-click any item for the full Windows context menu (open, copy, delete, rename...)
 - Drag items out of the menu and drop them into other applications
 - Drop files from Explorer onto the fan menu to move them into the watched folder
+- Optionally include files from subfolders
+- Watches the selected folder and updates the fan when files are added, removed, or renamed, even while the fan is closed
 - Show or hide file extensions
 - All settings live in the Windows registry. Change them from the tray icon menu
 
@@ -178,6 +180,21 @@ Whether sub-folders appear alongside files. `1` = include, `0` = files only.
 
 ```powershell
 Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "IncludeDirectories" -Value 0
+```
+
+---
+
+### IncludeSubfolderFiles
+
+**Type:** `REG_DWORD` | **Default:** `0`
+
+Whether files inside subfolders of the selected folder also appear in the fan.
+`1` = include, `0` = only files directly in the selected folder.
+
+This does not add subfolders as items. Use `IncludeDirectories` for that.
+
+```powershell
+Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "IncludeSubfolderFiles" -Value 1
 ```
 
 ---

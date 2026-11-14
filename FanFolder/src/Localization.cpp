@@ -1453,3 +1453,41 @@ const wchar_t* EmptyFolderLabel() {
     default:   return L"This folder is empty";   // en
     }
 }
+
+// ---------------------------------------------------------------------------
+// Subfolder-files toggle label (see Localization.h)
+// ---------------------------------------------------------------------------
+const wchar_t* IncludeSubfolderFilesLabel() {
+    const LANGID lang = PRIMARYLANGID(GetUserDefaultUILanguage());
+    switch (lang) {
+    case 0x06: return L"Medtag filer i undermapper";                 // da
+    case 0x1D: return L"Inkludera filer i undermappar";              // sv
+    case 0x14: return L"Inkluder filer i undermapper";               // no
+    case 0x07: return L"Dateien in Unterordnern einbeziehen";        // de
+    case 0x13: return L"Bestanden in submappen meenemen";            // nl
+    case 0x15: return L"Uwzgl\u0119dnij pliki w podfolderach";       // pl
+    case 0x01: return L"\u062a\u0636\u0645\u064a\u0646 \u0627\u0644\u0645\u0644\u0641\u0627\u062a \u0641\u064a \u0627\u0644\u0645\u062c\u0644\u062f\u0627\u062a \u0627\u0644\u0641\u0631\u0639\u064a\u0629"; // ar
+    case 0x04: return L"\u5305\u542b\u5b50\u6587\u4ef6\u5939\u4e2d\u7684\u6587\u4ef6"; // zh
+    case 0x11: return L"\u30b5\u30d6\u30d5\u30a9\u30eb\u30c0\u30fc\u5185\u306e\u30d5\u30a1\u30a4\u30eb\u3092\u542b\u3081\u308b"; // ja
+    case 0x12: return L"\ud558\uc704 \ud3f4\ub354\uc758 \ud30c\uc77c \ud3ec\ud568"; // ko
+    case 0x41: return L"Jumuisha faili katika folda ndogo";          // sw
+    case 0x0C: return L"Inclure les fichiers des sous-dossiers";     // fr
+    case 0x10: return L"Includi i file nelle sottocartelle";         // it
+    case 0x0A: return L"Incluir archivos de las subcarpetas";        // es
+    case 0x16: return L"Incluir ficheiros das subpastas";            // pt
+    case 0x19: return L"\u0412\u043a\u043b\u044e\u0447\u0430\u0442\u044c \u0444\u0430\u0439\u043b\u044b \u0438\u0437 \u043f\u043e\u0434\u043f\u0430\u043f\u043e\u043a"; // ru
+    case 0x39: return L"\u0909\u092a\u092b\u093c\u094b\u0932\u094d\u0921\u0930\u094b\u0902 \u0915\u0940 \u092b\u093c\u093e\u0907\u0932\u0947\u0902 \u0936\u093e\u092e\u093f\u0932 \u0915\u0930\u0947\u0902"; // hi
+    case 0x1F: return L"Alt klas\u00f6rlerdeki dosyalar\u0131 dahil et"; // tr
+    case 0x0D: return L"\u05db\u05dc\u05d5\u05dc \u05e7\u05d1\u05e6\u05d9\u05dd \u05d1\u05ea\u05d9\u05e7\u05d9\u05d5\u05ea \u05de\u05e9\u05e0\u05d4"; // he
+    case 0x05: return L"Zahrnout soubory v podslo\u017ek\u00e1ch";   // cs
+    case 0x0B: return L"Sis\u00e4llyt\u00e4 tiedostot alikansioista"; // fi
+    case 0x0E: return L"F\u00e1jlok bevon\u00e1sa az almapp\u00e1kb\u00f3l"; // hu
+    case 0x08: return L"\u03a3\u03c5\u03bc\u03c0\u03b5\u03c1\u03af\u03bb\u03b7\u03c8\u03b7 \u03b1\u03c1\u03c7\u03b5\u03af\u03c9\u03bd \u03b1\u03c0\u03cc \u03c5\u03c0\u03bf\u03c6\u03b1\u03ba\u03ad\u03bb\u03bf\u03c5\u03c2"; // el
+    case 0x2A: return L"Bao g\u1ed3m t\u1ec7p trong th\u01b0 m\u1ee5c con"; // vi
+    case 0x21: return L"Sertakan file di subfolder";                 // id
+    case 0x22: return L"\u0412\u043a\u043b\u044e\u0447\u0430\u0442\u0438 \u0444\u0430\u0439\u043b\u0438 \u0437 \u043f\u0456\u0434\u043f\u0430\u043f\u043e\u043a"; // uk
+    case 0x18: return L"Include fi\u0219ierele din subfoldere";      // ro
+    case 0x1E: return L"\u0e23\u0e27\u0e21\u0e44\u0e1f\u0e25\u0e4c\u0e43\u0e19\u0e42\u0e1f\u0e25\u0e40\u0e14\u0e2d\u0e23\u0e4c\u0e22\u0e48\u0e2d\u0e22"; // th
+    default:   return L"Include files in subfolders";                // en
+    }
+}

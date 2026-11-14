@@ -60,6 +60,15 @@ ConfigData Config::Load() {
                     cfg.includeDirs = (val != 0);
                 }
             }
+            // IncludeSubfolderFiles (default: false)
+            {
+                DWORD val = 0;
+                DWORD size = sizeof(val);
+                DWORD type = REG_DWORD;
+                if (RegQueryValueExW(hKey, L"IncludeSubfolderFiles", nullptr, &type, (LPBYTE)&val, &size) == ERROR_SUCCESS && type == REG_DWORD) {
+                    cfg.includeSubfolderFiles = (val != 0);
+                }
+            }
             // FilterRegex
             {
                 wchar_t buf[512] = {};
@@ -201,6 +210,10 @@ void Config::Save(const ConfigData& cfg) {
     // IncludeDirectories
     DWORD includeDirs = cfg.includeDirs ? 1 : 0;
     RegSetValueExW(hKey, L"IncludeDirectories", 0, REG_DWORD, (const BYTE*)&includeDirs, sizeof(includeDirs));
+
+    // IncludeSubfolderFiles
+    DWORD includeSubFiles = cfg.includeSubfolderFiles ? 1 : 0;
+    RegSetValueExW(hKey, L"IncludeSubfolderFiles", 0, REG_DWORD, (const BYTE*)&includeSubFiles, sizeof(includeSubFiles));
 
     // ShowExtensions
     DWORD showExt = cfg.showExtensions ? 1 : 0;

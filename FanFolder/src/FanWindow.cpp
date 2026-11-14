@@ -440,7 +440,8 @@ void FanWindow::ApplyFilter() {
         // any beyond the cap.
         std::vector<FileItem> fullScan = FileService::ScanFolder(
             _config.folderPath, 10000, _config.includeDirs,
-            _config.filterRegex, _config.sortMode);
+            _config.filterRegex, _config.sortMode, /*resolveLnk=*/true,
+            _config.includeSubfolderFiles);
         _items = std::move(fullScan);
         RebuildItemCaches();
         // Re-match against the full scan.
@@ -481,6 +482,93 @@ void FanWindow::ApplyFilter() {
     if (_dragIdx  >= TotalSlots()) _dragIdx  = -1;
 
     // Re-layout (arc tightens to matches) and redraw.
+    CalculateLayout();
+    DrawToLayeredWindow();
+}
+
+// True when the new snapshot would render exactly like the current one.
+// Avoids a needless relayout/redraw when a prewarm arrives after a scan that
+// found no actual change.
+static bool SameItemList(const std::vector<FileItem>& a,
+                         const std::vector<FileItem>& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i) {
+        const FileItem& x = a[i];
+        const FileItem& y = b[i];
+        if (x.fullPath != y.fullPath || x.name != y.name ||
+            x.relativeDir != y.relativeDir || x.targetPath != y.targetPath ||
+            x.isDirectory != y.isDirectory)
+            return false;
+        if (CompareFileTime(&x.lastWriteTime, &y.lastWriteTime) != 0)
+            return false;
+    }
+    return true;
+}
+
+// Replace the open fan's snapshot in place.  The caller (MainWindow's
+// WM_MAIN_PREWARM handler) has already built a fresh item list; this method
+// keeps the fan geometry and filter, rebuilds the icon/label caches, and
+// redraws.  The identity check keeps watcher noise (a temp file that vanished)
+// from causing a visible repaint.
+void FanWindow::ReplaceItems(std::vector<FileItem>&& items) {
+    if (!_hwnd) return;
+
+    // Both sides empty: the existing placeholder is already correct.
+    if (items.empty() && _isPlaceholder && _items.size() == 1)
+        return;
+    if (SameItemList(_items, items))
+        return;
+
+    // Drop in-flight icon loads from the old snapshot before the arrays are
+    // resized; their generation no longer matches, so WM_ICON_READY discards
+    // them instead of writing into slots for different files.
+    _iconGen.fetch_add(1, std::memory_order_release);
+
+    _items = std::move(items);
+    _isPlaceholder = false;
+    if (_items.empty()) {
+        FileItem ph;
+        ph.name = EmptyFolderLabel();
+        _items.push_back(std::move(ph));
+        _isPlaceholder = true;
+    }
+    _originalItems = _items;
+
+    // Rebuild icons, labels, and entry state for the new list.  Then put the
+    // entry progress at its final value: this refresh happens while the fan is
+    // already open, so replaying the arc animation would be noise.
+    RebuildItemCaches();
+    const int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
+    _entryProgress.assign(total, 1.f);
+
+    // Preserve the filter and recompute the visible slots against the new
+    // labels.  Reset hover/drag: the slot under the pointer may now be a
+    // different file.
+    std::wstring needle = _filterText;
+    for (auto& c : needle) c = (wchar_t)towlower(c);
+
+    _visible.clear();
+    _noMatchesActive = false;
+    _hoverIdx = -1;
+    _dragIdx = -1;
+    _visible.reserve(_items.size());
+    for (int i = 0; i < (int)_items.size(); i++) {
+        // With a filter active, the empty-folder placeholder is not a match
+        // candidate; the "no matches" path renders instead.  Without a filter,
+        // slot 0 must stay in _visible so the placeholder still draws.
+        if (!_filterText.empty() && _isPlaceholder && i == 0) continue;
+        std::wstring label = (i < (int)_labelCache.size()) ? _labelCache[i]
+                                                          : ItemLabel(i);
+        std::wstring lower = label;
+        for (auto& c : lower) c = (wchar_t)towlower(c);
+        if (needle.empty() || lower.find(needle) != std::wstring::npos)
+            _visible.push_back(i);
+    }
+    if ((int)_visible.size() > _config.maxItems)
+        _visible.resize(_config.maxItems);
+    if (_visible.empty() && !_filterText.empty() && !_items.empty())
+        _noMatchesActive = true;
+
     CalculateLayout();
     DrawToLayeredWindow();
 }
@@ -1242,6 +1330,27 @@ void FanWindow::DrawArrowItem(Gdiplus::Graphics& g, float cx, float cy, float sz
     g.DrawLine(&pen, cx + arm * 0.5f, cy,        cx - arm * 0.5f, cy + arm);
 }
 
+namespace {
+// Keeps the file name visible when a nested item's relative folder makes the
+// label too long. Root items keep the old head-truncation behavior.
+std::wstring FitItemLabel(const std::wstring& name, const std::wstring& relativeDir) {
+    constexpr size_t kMaxLabel = 42;
+    if (relativeDir.empty()) {
+        if (name.size() > kMaxLabel) return name.substr(0, 40) + L"\u2026";
+        return name;
+    }
+    if (name.size() >= kMaxLabel) return name.substr(0, 40) + L"\u2026";
+
+    const size_t prefixBudget = kMaxLabel - name.size() - 1;  // 1 for the backslash
+    std::wstring prefix = relativeDir;
+    if (prefix.size() > prefixBudget) {
+        if (prefixBudget <= 1) prefix.clear();
+        else prefix = L"\u2026" + prefix.substr(prefix.size() - (prefixBudget - 1));
+    }
+    return prefix.empty() ? name : prefix + L"\\" + name;
+}
+} // namespace
+
 // Returns the display name for item idx, respecting the ShowExtensions setting.
 // Directories always show their name as-is.
 std::wstring FanWindow::ItemLabel(int idx) const {
@@ -1261,21 +1370,13 @@ std::wstring FanWindow::ItemLabel(int idx) const {
         }
     }
 
-    if (_config.showExtensions) {
-        if (displayName.size() > 42)
-            displayName = displayName.substr(0, 40) + L"\u2026";
-        return displayName;
+    if (!_config.showExtensions) {
+        auto dot = displayName.rfind(L'.');
+        if (dot != std::wstring::npos && dot != 0)
+            displayName = displayName.substr(0, dot);
     }
-    auto dot = displayName.rfind(L'.');
-    if (dot == std::wstring::npos || dot == 0) {
-        if (displayName.size() > 42)
-            displayName = displayName.substr(0, 40) + L"\u2026";
-        return displayName;
-    }
-    displayName = displayName.substr(0, dot);
-    if (displayName.size() > 42)
-        displayName = displayName.substr(0, 40) + L"\u2026";
-    return displayName;
+
+    return FitItemLabel(displayName, item.relativeDir);
 }
 
 void FanWindow::DrawItem(Gdiplus::Graphics& g, int slot, float itemAlpha) {
@@ -1565,7 +1666,8 @@ void FanWindow::HandleFileDrop(IDataObject* pDataObj) {
         // Reload items and icons so the fan reflects the new file immediately
         _items = FileService::ScanFolder(_config.folderPath, _config.maxItems,
                                          _config.includeDirs, _config.filterRegex,
-                                         _config.sortMode);
+                                         _config.sortMode, /*resolveLnk=*/true,
+                                         _config.includeSubfolderFiles);
         _hasExplorerButton = (_config.folderPath != L"::GraphRecent::" && _config.folderPath != L"::RecentDocs::");
         // A drop only happens in a real (non-virtual) folder and after a
         // successful copy, so _items now has real content — clear any prior
