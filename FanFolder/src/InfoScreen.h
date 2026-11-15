@@ -5,8 +5,8 @@
 // First-launch information panel.  A small layered popup in the same visual
 // family as the fan menu (dark rounded card, Segoe UI text, accent links).
 // Shown once on the very first app start, or on every launch when the user
-// enables "Show info on launch" in the tray menu.  Clicking anywhere outside
-// the three link rows closes it; the links open in the default browser.
+// enables "Show info on launch" in the tray menu.  Links open in the default
+// browser; clicking anywhere else, including the close button, dismisses it.
 class InfoScreen {
 public:
     InfoScreen(HINSTANCE hInst) : _hInst(hInst) {}
@@ -47,22 +47,28 @@ private:
 
     // Layout, all recomputed by CalculateLayout()
     Gdiplus::RectF                _cardRect;
+    Gdiplus::RectF                _appIconRect;
     Gdiplus::RectF                _titleRect;
+    Gdiplus::RectF                _closeRect;
     Gdiplus::RectF                _bodyRect;
     Gdiplus::RectF                _hintRect;
+    float                         _dividerY = 0.f;
     std::vector<Gdiplus::RectF>   _linkRects;   // full clickable row per link
-    std::vector<Gdiplus::RectF>   _iconRects;   // glyph box per link
+    std::vector<Gdiplus::RectF>   _iconRects;   // tinted tile per link
     std::vector<Gdiplus::RectF>   _linkTextRects;   // label layouts (centered)
 
     Gdiplus::Font* _titleFont = nullptr;
     Gdiplus::Font* _bodyFont  = nullptr;
     Gdiplus::Font* _linkFont  = nullptr;
     Gdiplus::Font* _hintFont  = nullptr;
+    Gdiplus::Bitmap* _appIcon = nullptr;
+    int _appIconPx = 0;
 
     std::vector<std::wstring> _linkLabels;   // localized link texts
 
     int   _hoverLink = -1;
     int   _downLink  = -1;
+    bool  _hoverClose = false;
     float _fadeAlpha = 0.f;
 
     // Card bounds in SCREEN coordinates, cached on Show() so the LL mouse
@@ -76,8 +82,10 @@ private:
 
     void CalculateLayout();
     void RebuildFonts();
+    void EnsureAppIcon();
     void Draw();
     int  HitTest(int x, int y) const;
+    bool IsPointOnClose(int x, int y) const;
     void LaunchLink(int idx);
     void EnsureBackBuffer();
     void FreeBackBuffer();
