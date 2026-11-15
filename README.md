@@ -2,6 +2,8 @@
 
 **Your latest files, one click away from the Windows taskbar.**
 
+![FanFolder fan menu on the Windows taskbar showing recent documents](docs/readme-hero.png)
+
 Stop digging through File Explorer for files you just used. FanFolder puts your recent documents (or any folder you choose) directly on the taskbar. Click the icon and the files fan out. Open, drag, copy, rename, or delete them with the same Windows actions you already know.
 
 Use it for recent documents, an active project folder, Downloads, or whatever you open often.
