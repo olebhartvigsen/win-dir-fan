@@ -2,6 +2,7 @@
 #include "pch.h"
 #include "InfoScreen.h"
 #include "Localization.h"
+#include "../resources/resource.h"
 
 // Link URLs (same for all locales).
 static const wchar_t* const kLinkUrls[3] = {
@@ -34,6 +35,7 @@ InfoScreen::~InfoScreen() {
     delete _bodyFont;  _bodyFont  = nullptr;
     delete _linkFont;  _linkFont  = nullptr;
     delete _hintFont;  _hintFont  = nullptr;
+    delete _appIcon;   _appIcon   = nullptr;
     FreeBackBuffer();
 }
 
@@ -75,6 +77,8 @@ void InfoScreen::Show() {
     _cardRectValid  = true;
 
     _fadeAlpha = 0.f;
+    _hoverLink = -1;
+    _hoverClose = false;
     ShowWindow(_hwnd, SW_SHOWNOACTIVATE);
     Draw();
     SetTimer(_hwnd, kFadeTimerId, 16, nullptr);
@@ -96,16 +100,19 @@ bool InfoScreen::IsPointOnPanel(POINT screenPt) const {
 // ---------------------------------------------------------------------------
 // Layout constants in 96-DPI px, scaled by _scale/100 at build time.
 namespace {
-    constexpr float kCardW  = 440.f;   // minimum card width
-    constexpr float kMargin = 16.f;   // transparent margin around the card
-    constexpr float kPadX  = 28.f;    // inner card side padding
-    constexpr float kTit   = 20.f;    // title, pt
-    constexpr float kBody  = 11.5f;   // body text, pt
-    constexpr float kLink  = 12.f;    // link label, pt
-    constexpr float kHnt   = 10.f;    // dismiss hint, pt
-    constexpr float kRowH  = 34.f;    // link row height
-    constexpr float kIcon  = 20.f;    // glyph box size
-    constexpr float kGapIc = 10.f;    // glyph to label gap
+    constexpr float kCardW   = 460.f;  // minimum card width
+    constexpr float kMargin  = 16.f;   // transparent margin around the card
+    constexpr float kPadX    = 30.f;   // inner card side padding
+    constexpr float kTit     = 20.f;   // title, pt
+    constexpr float kBody    = 11.5f;  // body text, pt
+    constexpr float kLink    = 12.f;   // link label, pt
+    constexpr float kHnt     = 10.f;   // dismiss hint, pt
+    constexpr float kRowH    = 46.f;   // link row height
+    constexpr float kIcon    = 30.f;   // tinted tile size
+    constexpr float kGapIc   = 12.f;   // tile to label gap
+    constexpr float kAppIcon = 44.f;   // header app icon
+    constexpr float kGapApp  = 14.f;   // app icon to title gap
+    constexpr float kClose   = 26.f;   // close button
 }
 
 void InfoScreen::RebuildFonts() {
@@ -120,6 +127,27 @@ void InfoScreen::RebuildFonts() {
     _linkFont  = new Gdiplus::Font(L"Segoe UI", kLink * s, Gdiplus::FontStyleRegular,  Gdiplus::UnitPoint);
     _hintFont  = new Gdiplus::Font(L"Segoe UI", kHnt  * s, Gdiplus::FontStyleRegular,  Gdiplus::UnitPoint);
     _fontsBuiltScale = _scale;
+}
+
+void InfoScreen::EnsureAppIcon() {
+    const int px = (int)std::lround(kAppIcon * ((float)_scale / 100.f));
+    if (_appIcon && _appIconPx == px) return;
+
+    delete _appIcon;
+    _appIcon = nullptr;
+    _appIconPx = 0;
+
+    HICON hIcon = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP), IMAGE_ICON,
+                                    px, px, LR_DEFAULTCOLOR);
+    if (!hIcon) return;
+
+    _appIcon = Gdiplus::Bitmap::FromHICON(hIcon);
+    DestroyIcon(hIcon);
+    if (_appIcon && _appIcon->GetLastStatus() != Gdiplus::Ok) {
+        delete _appIcon;
+        _appIcon = nullptr;
+    }
+    if (_appIcon) _appIconPx = px;
 }
 
 void InfoScreen::CalculateLayout() {
@@ -145,6 +173,7 @@ void InfoScreen::CalculateLayout() {
             RebuildFonts();
         _linkLabels = { is.supportLink, is.homepageLink, is.reportLink };
     }
+    EnsureAppIcon();
 
     // Measure text with a tiny offscreen bitmap (FanWindow's pattern).
     Gdiplus::Bitmap measureBmp(1, 1, PixelFormat32bppARGB);
@@ -152,11 +181,16 @@ void InfoScreen::CalculateLayout() {
     Gdiplus::StringFormat noWrap;
     noWrap.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
 
-    const float padX  = kPadX * s;
-    const float rowH  = kRowH * s;
-    const float icon  = kIcon * s;
-    const float gapIc = kGapIc * s;
-    const float contentW = kCardW * s - 2.f * padX;
+    const float padX     = kPadX * s;
+    const float rowH     = kRowH * s;
+    const float icon     = kIcon * s;
+    const float gapIc    = kGapIc * s;
+    const float appIcon  = kAppIcon * s;
+    const float gapApp   = kGapApp * s;
+    const float close    = kClose * s;
+    const float padTop   = 24.f * s;
+    const float padBottom = 20.f * s;
+    const float rowGap   = 8.f * s;
 
     auto textW = [&](const wchar_t* t, Gdiplus::Font* f) -> float {
         if (!f || !t || !t[0]) return 0.f;
@@ -164,6 +198,15 @@ void InfoScreen::CalculateLayout() {
         mg.MeasureString(t, -1, f, Gdiplus::PointF(0, 0), &noWrap, &b);
         return b.Width;
     };
+
+    float maxLinkW = 0.f;
+    for (auto& lbl : _linkLabels)
+        maxLinkW = std::max(maxLinkW, textW(lbl.c_str(), _linkFont));
+
+    // Rows are full-width cards: 14 px inset, tile, label, chevron area.
+    const float rowContentW = 14.f * s + icon + gapIc + maxLinkW + 28.f * s;
+    const float cardW = std::max(kCardW * s, rowContentW + 2.f * padX);
+    const float contentW = cardW - 2.f * padX;
 
     // About text: measure its true wrapped height against the content width
     // (RectF layout makes GDI+ wrap; the out-box reports the real bounds).
@@ -180,54 +223,47 @@ void InfoScreen::CalculateLayout() {
     float bodyH = wrappedH(is.aboutText, _bodyFont);
     if (bodyH <= 0.f) bodyH = kBody * s * 1.55f * 2.f;   // fallback: two lines
 
-    float maxLinkW = 0.f;
-    for (auto& lbl : _linkLabels)
-        maxLinkW = std::max(maxLinkW, textW(lbl.c_str(), _linkFont));
-    const float rowW = icon + gapIc + maxLinkW + 2.f;
+    const float titleH  = std::max(wrappedH(L"FanFolder", _titleFont), kTit * s * 1.3f) + 2.f;
+    const float hintH   = std::max(wrappedH(is.clickHint, _hintFont), kHnt * s * 1.3f) + 2.f;
+    const float headerH = std::max(appIcon, titleH);
 
-    // Heights of the single-line rows, measured so GDI+'s point-to-pixel
-    // conversion (pt * dpi/72) can never clip the text.
-    const float titleH = std::max(wrappedH(L"FanFolder", _titleFont), kTit * s * 1.3f) + 2.f;
-    const float linkLineH = std::max(wrappedH(_linkLabels.empty() ? L"" : _linkLabels[0].c_str(), _linkFont),
-                                     kLink * s * 1.3f);
-    const float hintH = std::max(wrappedH(is.clickHint, _hintFont), kHnt * s * 1.3f) + 2.f;
+    const float cardTop  = kMargin * s;
+    const float headerY  = cardTop + padTop;
+    const float dividerY = headerY + headerH + 10.f * s;
+    const float bodyY    = dividerY + 18.f * s;
+    const float linksY   = bodyY + bodyH + 20.f * s;
+    const float hintY    = linksY + kLinkCount * rowH + (kLinkCount - 1) * rowGap + 14.f * s;
+    const float cardH    = (hintY + hintH + padBottom) - cardTop;
 
-    const float gap1 = 4.f  * s;   // title -> body
-    const float gap2 = 14.f * s;   // body  -> links
-    const float gap3 = 8.f  * s;   // links -> hint
-    const float padTop = 24.f * s;
-    const float padBottom = 18.f * s;
-
-    const float cardW = std::max(kCardW * s, rowW + 2.f * padX + 8.f);
-    const float cardH = padTop
-                        + titleH + gap1
-                        + bodyH + gap2
-                        + kLinkCount * rowH
-                        + gap3
-                        + hintH
-                        + padBottom;
-
-    _cardRect = Gdiplus::RectF(kMargin * s, kMargin * s, cardW, cardH);
+    _cardRect = Gdiplus::RectF(kMargin * s, cardTop, cardW, cardH);
+    _dividerY = dividerY;
 
     const float x0 = _cardRect.X + padX;
-    float y = _cardRect.Y + padTop;
+    const float titleW = std::max(40.f * s, contentW - appIcon - gapApp - close - 10.f * s);
 
-    _titleRect = Gdiplus::RectF(x0, y, cardW - 2.f * padX, titleH); y += titleH + gap1;
-    _bodyRect  = Gdiplus::RectF(x0, y, cardW - 2.f * padX, bodyH);  y += bodyH + gap2;
+    _appIconRect = Gdiplus::RectF(x0, headerY + (headerH - appIcon) / 2.f, appIcon, appIcon);
+    _titleRect   = Gdiplus::RectF(x0 + appIcon + gapApp,
+                                  headerY + (headerH - titleH) / 2.f,
+                                  titleW, titleH);
+    _closeRect   = Gdiplus::RectF(_cardRect.X + cardW - padX - close,
+                                  headerY + (headerH - close) / 2.f,
+                                  close, close);
+    _bodyRect    = Gdiplus::RectF(x0, bodyY, contentW, bodyH);
 
     _linkRects.clear();
     _iconRects.clear();
     _linkTextRects.clear();
+    float y = linksY;
     for (int i = 0; i < kLinkCount; i++) {
-        _linkRects.emplace_back(x0, y, rowW, rowH);
-        _iconRects.emplace_back(x0, y + (rowH - icon) / 2.f, icon, icon);
-        _linkTextRects.emplace_back(x0 + icon + gapIc, y,
-                                    rowW - icon - gapIc, rowH);
+        _linkRects.emplace_back(x0, y, contentW, rowH);
+        _iconRects.emplace_back(x0 + 14.f * s, y + (rowH - icon) / 2.f, icon, icon);
+        _linkTextRects.emplace_back(x0 + 14.f * s + icon + gapIc, y,
+                                    contentW - 14.f * s - icon - gapIc - 28.f * s, rowH);
         y += rowH;
+        if (i + 1 < kLinkCount) y += rowGap;
     }
 
-    y += gap3;
-    _hintRect = Gdiplus::RectF(_cardRect.X, y, cardW, hintH);
+    _hintRect = Gdiplus::RectF(_cardRect.X, hintY, cardW, hintH);
 
     _winW = (int)std::ceil(_cardRect.X + _cardRect.Width  + kMargin * s);
     _winH = (int)std::ceil(_cardRect.Y + _cardRect.Height + kMargin * s);
@@ -282,10 +318,6 @@ static void DrawRoundedRect(Gdiplus::GraphicsPath& path, const Gdiplus::RectF& r
     path.CloseFigure();
 }
 
-static Gdiplus::RectF ExpandRect(const Gdiplus::RectF& r, float dx, float dy) {
-    return Gdiplus::RectF(r.X - dx, r.Y - dy, r.Width + 2.f * dx, r.Height + 2.f * dy);
-}
-
 static void DrawGlyph(Gdiplus::Graphics& g, LinkGlyph gl, const Gdiplus::RectF& rc,
                       const Gdiplus::Color& color, float scale) {
     Gdiplus::Pen pen(color, 1.8f * scale);
@@ -331,26 +363,100 @@ void InfoScreen::Draw() {
     if (g.GetLastStatus() != Gdiplus::Ok) return;
     g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
     g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
+    g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
     const BYTE A = (BYTE)(255.f * _fadeAlpha);
+    const float x0 = _bodyRect.X;
 
-    // Card fill + hairline border
+    // Card: a restrained vertical gradient with a hairline border.
     Gdiplus::GraphicsPath card;
-    DrawRoundedRect(card, _cardRect, 12.f * s);
-    Gdiplus::SolidBrush cardBrush(Gdiplus::Color(A, 24, 24, 28));
+    DrawRoundedRect(card, _cardRect, 16.f * s);
+    Gdiplus::LinearGradientBrush cardBrush(
+        Gdiplus::PointF(_cardRect.X, _cardRect.Y),
+        Gdiplus::PointF(_cardRect.X, _cardRect.Y + _cardRect.Height),
+        Gdiplus::Color(A, 31, 31, 40),
+        Gdiplus::Color(A, 19, 19, 23));
     g.FillPath(&cardBrush, &card);
-    Gdiplus::Pen cardPen(Gdiplus::Color((BYTE)(A * 60 / 255), 70, 70, 80), 1.f);
+    Gdiplus::Pen cardPen(Gdiplus::Color((BYTE)(A * 80 / 255), 80, 80, 96), 1.f);
     g.DrawPath(&cardPen, &card);
 
-    // Title
+    // Thin brand gradient along the top edge, clipped to the rounded card.
+    {
+        g.SetClip(&card);
+        Gdiplus::Color stops[3] = {
+            Gdiplus::Color(A, 92, 224, 140),
+            Gdiplus::Color(A, 127, 176, 255),
+            Gdiplus::Color(A, 200, 165, 255),
+        };
+        Gdiplus::REAL positions[3] = { 0.f, 0.5f, 1.f };
+        Gdiplus::LinearGradientBrush accent(
+            Gdiplus::PointF(_cardRect.X, _cardRect.Y),
+            Gdiplus::PointF(_cardRect.X + _cardRect.Width, _cardRect.Y),
+            stops[0], stops[2]);
+        accent.SetInterpolationColors(stops, positions, 3);
+        Gdiplus::Pen accentPen(&accent, 2.f * s);
+        g.DrawLine(&accentPen,
+                   _cardRect.X, _cardRect.Y + 2.f * s,
+                   _cardRect.X + _cardRect.Width, _cardRect.Y + 2.f * s);
+        g.ResetClip();
+    }
+
+    // Header: app icon, title, close button.
+    if (_appIcon) {
+        g.DrawImage(_appIcon, _appIconRect);
+    } else {
+        Gdiplus::GraphicsPath ip;
+        DrawRoundedRect(ip, _appIconRect, 10.f * s);
+        Gdiplus::LinearGradientBrush ib(
+            Gdiplus::PointF(_appIconRect.X, _appIconRect.Y),
+            Gdiplus::PointF(_appIconRect.X + _appIconRect.Width,
+                            _appIconRect.Y + _appIconRect.Height),
+            Gdiplus::Color(A, 54, 192, 105),
+            Gdiplus::Color(A, 120, 90, 220));
+        g.FillPath(&ib, &ip);
+        Gdiplus::SolidBrush fg(Gdiplus::Color(A, 255, 255, 255));
+        Gdiplus::Font fallback(L"Segoe UI", 18.f * s, Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+        Gdiplus::StringFormat fsf;
+        fsf.SetAlignment(Gdiplus::StringAlignmentCenter);
+        fsf.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+        g.DrawString(L"F", 1, &fallback, _appIconRect, &fsf, &fg);
+    }
+
     Gdiplus::SolidBrush titleBrush(Gdiplus::Color(A, 255, 255, 255));
     if (_titleFont) {
         Gdiplus::StringFormat tsf;
         tsf.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
         tsf.SetTrimming(Gdiplus::StringTrimmingEllipsisCharacter);
+        tsf.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+        tsf.SetAlignment(Gdiplus::StringAlignmentNear);
         g.DrawString(L"FanFolder", 9, _titleFont, _titleRect, &tsf, &titleBrush);
     }
 
-    // About text (rect sized for up to two wrapped lines in CalculateLayout)
+    // Close button: a quiet pill that brightens on hover.
+    {
+        Gdiplus::GraphicsPath cp;
+        DrawRoundedRect(cp, _closeRect, 8.f * s);
+        Gdiplus::SolidBrush cf(
+            Gdiplus::Color((BYTE)(A * (_hoverClose ? 24 : 10) / 255), 255, 255, 255));
+        g.FillPath(&cf, &cp);
+        Gdiplus::Pen cpen(Gdiplus::Color((BYTE)(A * 26 / 255), 255, 255, 255), 1.f);
+        g.DrawPath(&cpen, &cp);
+
+        Gdiplus::Pen xpen(Gdiplus::Color((BYTE)(A * 205 / 255), 185, 187, 202), 1.8f * s);
+        xpen.SetLineCap(Gdiplus::LineCapRound, Gdiplus::LineCapRound, Gdiplus::DashCapRound);
+        const float cx = _closeRect.X + _closeRect.Width / 2.f;
+        const float cy = _closeRect.Y + _closeRect.Height / 2.f;
+        const float r = 5.f * s;
+        g.DrawLine(&xpen, cx - r, cy - r, cx + r, cy + r);
+        g.DrawLine(&xpen, cx + r, cy - r, cx - r, cy + r);
+    }
+
+    // Hairline divider under the header.
+    {
+        Gdiplus::Pen div(Gdiplus::Color((BYTE)(A * 18 / 255), 255, 255, 255), 1.f);
+        g.DrawLine(&div, x0, _dividerY, x0 + _bodyRect.Width, _dividerY);
+    }
+
+    // About text.
     Gdiplus::SolidBrush bodyBrush(Gdiplus::Color((BYTE)(A * 228 / 255), 225, 225, 230));
     if (_bodyFont) {
         Gdiplus::StringFormat bsf;
@@ -360,16 +466,20 @@ void InfoScreen::Draw() {
         g.DrawString(is.aboutText, -1, _bodyFont, _bodyRect, &bsf, &bodyBrush);
     }
 
-    // Link rows: glyph box + colored label, hover highlight.
+    // Link rows: full-width cards, a tinted glyph tile, label, and chevron.
     static const LinkGlyph glyphs[kLinkCount] = { LinkGlyph::Heart, LinkGlyph::Home, LinkGlyph::Bug };
     for (int i = 0; i < kLinkCount; i++) {
         const Gdiplus::RectF& row = _linkRects[i];
-        if (i == _hoverLink) {
-            Gdiplus::GraphicsPath rp;
-            DrawRoundedRect(rp, ExpandRect(row, 4.f * s, 3.f * s), 8.f * s);
-            Gdiplus::SolidBrush hb(Gdiplus::Color(A, 44, 44, 52));
-            g.FillPath(&hb, &rp);
-        }
+        const bool hover = (i == _hoverLink);
+
+        Gdiplus::GraphicsPath rp;
+        DrawRoundedRect(rp, row, 10.f * s);
+        Gdiplus::SolidBrush rb(
+            Gdiplus::Color((BYTE)(A * (hover ? 24 : 12) / 255), 255, 255, 255));
+        g.FillPath(&rb, &rp);
+        Gdiplus::Pen rpen(
+            Gdiplus::Color((BYTE)(A * (hover ? 42 : 26) / 255), 255, 255, 255), 1.f);
+        g.DrawPath(&rpen, &rp);
 
         Gdiplus::Color accent;   // warm coffee / web blue / bug orange
         switch (i) {
@@ -378,16 +488,30 @@ void InfoScreen::Draw() {
         default: accent = Gdiplus::Color(A, 255, 140, 100); break;
         }
 
+        Gdiplus::GraphicsPath tp;
+        DrawRoundedRect(tp, _iconRects[i], 8.f * s);
+        Gdiplus::SolidBrush tb(Gdiplus::Color(
+            (BYTE)(A * (hover ? 54 : 38) / 255),
+            accent.GetR(), accent.GetG(), accent.GetB()));
+        g.FillPath(&tb, &tp);
         DrawGlyph(g, glyphs[i], _iconRects[i], accent, s);
 
         if (_linkFont) {
-            Gdiplus::SolidBrush linkBrush(accent);
+            Gdiplus::SolidBrush linkBrush(Gdiplus::Color(A, 232, 232, 240));
             Gdiplus::StringFormat lsf;
             lsf.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
             lsf.SetLineAlignment(Gdiplus::StringAlignmentCenter);
             lsf.SetAlignment(Gdiplus::StringAlignmentNear);
             g.DrawString(_linkLabels[i].c_str(), -1, _linkFont, _linkTextRects[i], &lsf, &linkBrush);
         }
+
+        const float chx = row.X + row.Width - 24.f * s;
+        const float chy = row.Y + row.Height / 2.f;
+        Gdiplus::Pen chev(
+            Gdiplus::Color((BYTE)(A * (hover ? 235 : 160) / 255), 170, 173, 188), 1.6f * s);
+        chev.SetLineCap(Gdiplus::LineCapRound, Gdiplus::LineCapRound, Gdiplus::DashCapRound);
+        g.DrawLine(&chev, chx - 4.f * s, chy - 6.f * s, chx + 2.f * s, chy);
+        g.DrawLine(&chev, chx + 2.f * s, chy, chx - 4.f * s, chy + 6.f * s);
     }
 
     // Dismiss hint, centered across the card
@@ -440,6 +564,11 @@ int InfoScreen::HitTest(int x, int y) const {
     return -1;
 }
 
+bool InfoScreen::IsPointOnClose(int x, int y) const {
+    const Gdiplus::RectF& r = _closeRect;
+    return x >= r.X && x < r.X + r.Width && y >= r.Y && y < r.Y + r.Height;
+}
+
 void InfoScreen::LaunchLink(int idx) {
     if (idx < 0 || idx >= kLinkCount) return;
     ShellExecuteW(nullptr, L"open", kLinkUrls[idx], nullptr, nullptr, SW_SHOWNORMAL);
@@ -469,10 +598,14 @@ LRESULT CALLBACK InfoScreen::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         break;
 
     case WM_MOUSEMOVE: {
-        int hit = self->HitTest(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
-        if (hit != self->_hoverLink) {
+        const int mx = GET_X_LPARAM(lParam);
+        const int my = GET_Y_LPARAM(lParam);
+        const bool closeHover = self->IsPointOnClose(mx, my);
+        const int hit = closeHover ? -1 : self->HitTest(mx, my);
+        if (closeHover != self->_hoverClose || hit != self->_hoverLink) {
+            self->_hoverClose = closeHover;
             self->_hoverLink = hit;
-            SetCursor(LoadCursor(nullptr, hit >= 0 ? IDC_HAND : IDC_ARROW));
+            SetCursor(LoadCursor(nullptr, (closeHover || hit >= 0) ? IDC_HAND : IDC_ARROW));
             self->Draw();
         }
         TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
@@ -481,8 +614,9 @@ LRESULT CALLBACK InfoScreen::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     }
 
     case WM_MOUSELEAVE:
-        if (self->_hoverLink != -1) {
+        if (self->_hoverLink != -1 || self->_hoverClose) {
             self->_hoverLink = -1;
+            self->_hoverClose = false;
             SetCursor(LoadCursor(nullptr, IDC_ARROW));
             self->Draw();
         }
@@ -491,14 +625,26 @@ LRESULT CALLBACK InfoScreen::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     case WM_LBUTTONDOWN:
     case WM_RBUTTONDOWN:
     case WM_MBUTTONDOWN:
-        self->_downLink = self->HitTest(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        if (self->IsPointOnClose(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+            self->_downLink = -1;
+        else
+            self->_downLink = self->HitTest(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
         return 0;
 
     case WM_LBUTTONUP:
     case WM_RBUTTONUP:
     case WM_MBUTTONUP: {
-        int hit = self->HitTest(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        const int mx = GET_X_LPARAM(lParam);
+        const int my = GET_Y_LPARAM(lParam);
         self->_downLink = -1;
+        if (self->IsPointOnClose(mx, my)) {
+            // Same dismiss path as an outside click so hook teardown stays
+            // in MainWindow::CloseInfoScreen.
+            if (self->_hwndParent)
+                PostMessageW(self->_hwndParent, WM_INFO_DISMISSED, 0, 0);
+            return 0;
+        }
+        int hit = self->HitTest(mx, my);
         if (hit >= 0) {
             self->LaunchLink(hit);   // link click: browser opens, panel stays
         } else {
