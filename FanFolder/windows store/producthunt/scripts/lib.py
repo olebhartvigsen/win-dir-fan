@@ -6,8 +6,16 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageChops
 W, H = 2540, 1520
 S = 2  # scale factor vs the 1270x760 design grid
 
-FB = "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
-FR = "/System/Library/Fonts/Supplemental/Arial.ttf"
+FB = next((p for p in (
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+) if os.path.exists(p)), "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf")
+FR = next((p for p in (
+    "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+) if os.path.exists(p)), "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf")
 
 INK = (17, 22, 34)
 BLUE = (28, 110, 226)

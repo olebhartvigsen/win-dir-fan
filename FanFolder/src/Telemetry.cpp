@@ -12,6 +12,7 @@
 namespace {
     constexpr wchar_t kRegistryPath[] = L"SOFTWARE\\FanFolder";
     constexpr wchar_t kTelemetrySentValue[] = L"TelemetryFirstRunSent";
+    constexpr wchar_t kTelemetryVersionValue[] = L"TelemetryLastVersion";
     constexpr wchar_t kTelemetryInstallationIdValue[] = L"TelemetryInstallationId";
     constexpr wchar_t kTelemetryHost[] = L"eu.aptabase.com";
     constexpr wchar_t kTelemetryPath[] = L"/api/v0/events";
@@ -255,25 +256,63 @@ namespace {
         }
     }
 
-    void SendFirstRun(const std::string& installationId) {
-        const std::string appVersion = GetAppVersion();
+    std::string GetLastReportedVersion() {
+        HKEY key = nullptr;
+        const LONG openResult =
+            RegOpenKeyExW(HKEY_CURRENT_USER, kRegistryPath, 0, KEY_QUERY_VALUE, &key);
+        if (openResult != ERROR_SUCCESS) return {};
+
+        wchar_t value[64] = {};
+        DWORD valueSize = sizeof(value);
+        DWORD valueType = 0;
+        const LONG result = RegQueryValueExW(key, kTelemetryVersionValue, nullptr, &valueType,
+                                             reinterpret_cast<LPBYTE>(value), &valueSize);
+        RegCloseKey(key);
+        if (result != ERROR_SUCCESS || valueType != REG_SZ || !value[0]) return {};
+        return ToUtf8(value);
+    }
+
+    void MarkVersionReported(const std::string& version) {
+        HKEY key = nullptr;
+        if (!OpenTelemetryKey(&key, KEY_SET_VALUE)) {
+            g_telemetryDisabled.store(true, std::memory_order_release);
+            return;
+        }
+
+        const std::wstring wideVersion = ToWide(version);
+        LONG result = ERROR_INVALID_PARAMETER;
+        if (!wideVersion.empty()) {
+            result = RegSetValueExW(
+                key, kTelemetryVersionValue, 0, REG_SZ,
+                reinterpret_cast<const BYTE*>(wideVersion.c_str()),
+                static_cast<DWORD>((wideVersion.size() + 1) * sizeof(wchar_t)));
+        }
+        RegCloseKey(key);
+        if (result != ERROR_SUCCESS) {
+            // Without this value the next launch would report the same update
+            // again. Do not retry for the rest of this session.
+            g_telemetryDisabled.store(true, std::memory_order_release);
+        }
+    }
+
+    bool SendEvent(const std::string& eventName, const std::string& appVersion,
+                   const std::string& installationId, const std::string& propsJson) {
         const std::string body =
             "[{\"timestamp\":\"" + GetTimestamp() + "\","
             "\"sessionId\":\"" + EscapeJsonString(installationId) + "\","
-            "\"eventName\":\"app_installed\","
+            "\"eventName\":\"" + EscapeJsonString(eventName) + "\","
             "\"systemProps\":{"
                 "\"isDebug\":" + std::string(kIsDebugBuild ? "true" : "false") + ","
                 "\"locale\":\"en-US\","
                 "\"appVersion\":\"" + EscapeJsonString(appVersion) + "\","
                 "\"sdkVersion\":\"winhttp\","
                 "\"osName\":\"Windows\"},"
-            "\"props\":{"
-                "\"architecture\":\"" + GetArchitecture() + "\"}}]";
+            "\"props\":" + propsJson + "}]";
 
         HINTERNET session = WinHttpOpen(L"FanFolder",
                                         WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                                         WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-        if (!session) return;
+        if (!session) return false;
 
         WinHttpSetTimeouts(session, 3000, 3000, 3000, 3000);
 
@@ -281,9 +320,10 @@ namespace {
                                               INTERNET_DEFAULT_HTTPS_PORT, 0);
         if (!connection) {
             WinHttpCloseHandle(session);
-            return;
+            return false;
         }
 
+        bool delivered = false;
         HINTERNET request = WinHttpOpenRequest(connection, L"POST", kTelemetryPath,
                                                nullptr, WINHTTP_NO_REFERER,
                                                WINHTTP_DEFAULT_ACCEPT_TYPES,
@@ -304,7 +344,7 @@ namespace {
                                         WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
                                         WINHTTP_HEADER_NAME_BY_INDEX, &status, &statusSize,
                                         WINHTTP_NO_HEADER_INDEX) && status >= 200 && status < 300) {
-                    MarkFirstRunSent();
+                    delivered = true;
                 }
             }
             WinHttpCloseHandle(request);
@@ -312,21 +352,48 @@ namespace {
 
         WinHttpCloseHandle(connection);
         WinHttpCloseHandle(session);
+        return delivered;
     }
 }
 
-void Telemetry::ReportFirstRun() {
+void Telemetry::ReportStartup() {
     if (g_telemetryDisabled.load(std::memory_order_acquire)) return;
     if (!IsTelemetryEnabled()) return;
-    if (IsFirstRunAlreadySent()) return;
+
+    const bool firstRunSent = IsFirstRunAlreadySent();
+    const std::string currentVersion = GetAppVersion();
+    const std::string lastVersion = GetLastReportedVersion();
+
+    const bool reportInstall = !firstRunSent;
+    const bool reportUpdate = firstRunSent && lastVersion != currentVersion;
+    if (!reportInstall && !reportUpdate) return;
 
     const std::string installationId = GetOrCreateInstallationId();
     if (installationId.empty()) return;
 
+    const std::string architecture = GetArchitecture();
     try {
-        std::thread([installationId] {
+        std::thread([=] {
             try {
-                SendFirstRun(installationId);
+                if (reportInstall) {
+                    const std::string props =
+                        "{\"architecture\":\"" + architecture + "\","
+                        "\"version\":\"" + EscapeJsonString(currentVersion) + "\"}";
+                    if (SendEvent("app_installed", currentVersion, installationId, props)) {
+                        MarkFirstRunSent();
+                        MarkVersionReported(currentVersion);
+                    }
+                } else {
+                    const std::string fromVersion = lastVersion.empty() ? "unknown" : lastVersion;
+                    const std::string props =
+                        "{\"architecture\":\"" + architecture + "\","
+                        "\"version\":\"" + EscapeJsonString(currentVersion) + "\","
+                        "\"from_version\":\"" + EscapeJsonString(fromVersion) + "\","
+                        "\"to_version\":\"" + EscapeJsonString(currentVersion) + "\"}";
+                    if (SendEvent("app_updated", currentVersion, installationId, props)) {
+                        MarkVersionReported(currentVersion);
+                    }
+                }
             } catch (...) {
                 // Telemetry must never terminate the application.
             }
