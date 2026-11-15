@@ -92,7 +92,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     // Report only after the application has successfully created its main
     // window. The request is best-effort and runs independently of startup;
     // FanFolder remains fully usable when the network is unavailable.
-    Telemetry::ReportFirstRun();
+    Telemetry::ReportStartup();
 
     MSG msg;
     while (GetMessage(&msg, nullptr, 0, 0)) {

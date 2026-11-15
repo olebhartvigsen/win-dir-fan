@@ -3,6 +3,8 @@
 
 namespace Telemetry {
     // Starts a best-effort background report for the first successful launch of
-    // this per-user installation. The call never blocks application startup.
-    void ReportFirstRun();
+    // this per-user installation (app_installed), or for the first launch after
+    // the application version changes (app_updated). The call never blocks
+    // application startup.
+    void ReportStartup();
 }

@@ -100,9 +100,9 @@ Output: `FanFolder\build\Release\FanFolder.exe`
 
 ## Anonymous installation telemetry
 
-Once FanFolder is running, it sends a single anonymous `app_installed` event to the FanFolder Aptabase project in the EU. This uses the Windows WinHTTP API, runs in the background with a short timeout, and is skipped entirely if there is no network. It will not slow you down or get in the way. Both release and debug builds send this unless you disable it in the registry.
+FanFolder sends two anonymous events to the FanFolder Aptabase project in the EU. `app_installed` goes out once after a successful first launch. `app_updated` goes out on the first launch after the application version changes. Both use the Windows WinHTTP API, run in the background with a short timeout, and are skipped entirely when there is no network. They do not block startup. Release and debug builds send them unless you disable telemetry in the registry.
 
-The event contains a random per-user installation identifier, the application version, CPU architecture, and the platform identifier `Windows`. Aptabase may also derive coarse region information from the network request. FanFolder does not send usernames, folder paths, filenames, account information, or file activity. Aptabase can receive normal network metadata associated with the HTTPS request. The identifier is stored under `HKEY_CURRENT_USER\SOFTWARE\FanFolder`; the event is only marked as sent after a successful response, so a failed delivery is retried on a later launch.
+Both events carry the running version in the `version` prop, alongside a random per-user installation identifier, CPU architecture, and the platform identifier `Windows`. `app_updated` also includes `from_version` and `to_version`. Aptabase may derive coarse region information from the network request. FanFolder does not send usernames, folder paths, filenames, account information, or file activity. Aptabase can receive normal network metadata associated with the HTTPS request. The identifier and the last reported version are stored under `HKEY_CURRENT_USER\SOFTWARE\FanFolder`. An event is only marked as sent after a successful response, so a failed delivery is retried on a later launch.
 
 To opt out before launching FanFolder, run:
 
