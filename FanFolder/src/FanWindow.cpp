@@ -1331,23 +1331,12 @@ void FanWindow::DrawArrowItem(Gdiplus::Graphics& g, float cx, float cy, float sz
 }
 
 namespace {
-// Keeps the file name visible when a nested item's relative folder makes the
-// label too long. Root items keep the old head-truncation behavior.
-std::wstring FitItemLabel(const std::wstring& name, const std::wstring& relativeDir) {
+// Head-truncates an overly long file name. The label always shows the file
+// name only, never the relative subfolder path.
+std::wstring FitItemLabel(const std::wstring& name) {
     constexpr size_t kMaxLabel = 42;
-    if (relativeDir.empty()) {
-        if (name.size() > kMaxLabel) return name.substr(0, 40) + L"\u2026";
-        return name;
-    }
-    if (name.size() >= kMaxLabel) return name.substr(0, 40) + L"\u2026";
-
-    const size_t prefixBudget = kMaxLabel - name.size() - 1;  // 1 for the backslash
-    std::wstring prefix = relativeDir;
-    if (prefix.size() > prefixBudget) {
-        if (prefixBudget <= 1) prefix.clear();
-        else prefix = L"\u2026" + prefix.substr(prefix.size() - (prefixBudget - 1));
-    }
-    return prefix.empty() ? name : prefix + L"\\" + name;
+    if (name.size() > kMaxLabel) return name.substr(0, 40) + L"\u2026";
+    return name;
 }
 } // namespace
 
@@ -1376,7 +1365,7 @@ std::wstring FanWindow::ItemLabel(int idx) const {
             displayName = displayName.substr(0, dot);
     }
 
-    return FitItemLabel(displayName, item.relativeDir);
+    return FitItemLabel(displayName);
 }
 
 void FanWindow::DrawItem(Gdiplus::Graphics& g, int slot, float itemAlpha) {
