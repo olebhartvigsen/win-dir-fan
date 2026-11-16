@@ -362,21 +362,26 @@ void InfoScreen::Draw() {
     Gdiplus::Graphics g(_backBmp);
     if (g.GetLastStatus() != Gdiplus::Ok) return;
     g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-    g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
+    // GridFit snaps glyph stems to the pixel grid instead of pure subpixel
+    // blending, which reads sharper at normal UI sizes on a layered window
+    // (no ClearType there, so plain AntiAlias text tends to look soft/hazy).
+    g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAliasGridFit);
     g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
     const BYTE A = (BYTE)(255.f * _fadeAlpha);
     const float x0 = _bodyRect.X;
 
-    // Card: a restrained vertical gradient with a hairline border.
+    // Card: a dark navy gradient carrying the site's brand tone, not a flat
+    // near-black. Noticeably lighter than the old charcoal (31,31,40) so the
+    // panel doesn't read as plain black, with a faint blue undertone.
     Gdiplus::GraphicsPath card;
     DrawRoundedRect(card, _cardRect, 16.f * s);
     Gdiplus::LinearGradientBrush cardBrush(
         Gdiplus::PointF(_cardRect.X, _cardRect.Y),
         Gdiplus::PointF(_cardRect.X, _cardRect.Y + _cardRect.Height),
-        Gdiplus::Color(A, 31, 31, 40),
-        Gdiplus::Color(A, 19, 19, 23));
+        Gdiplus::Color(A, 40, 42, 58),
+        Gdiplus::Color(A, 24, 25, 38));
     g.FillPath(&cardBrush, &card);
-    Gdiplus::Pen cardPen(Gdiplus::Color((BYTE)(A * 80 / 255), 80, 80, 96), 1.f);
+    Gdiplus::Pen cardPen(Gdiplus::Color((BYTE)(A * 100 / 255), 96, 100, 128), 1.f);
     g.DrawPath(&cardPen, &card);
 
     // Thin brand gradient along the top edge, clipped to the rounded card.
@@ -457,7 +462,7 @@ void InfoScreen::Draw() {
     }
 
     // About text.
-    Gdiplus::SolidBrush bodyBrush(Gdiplus::Color((BYTE)(A * 228 / 255), 225, 225, 230));
+    Gdiplus::SolidBrush bodyBrush(Gdiplus::Color((BYTE)(A * 248 / 255), 236, 237, 243));
     if (_bodyFont) {
         Gdiplus::StringFormat bsf;
         bsf.SetTrimming(Gdiplus::StringTrimmingEllipsisCharacter);
@@ -481,11 +486,11 @@ void InfoScreen::Draw() {
             Gdiplus::Color((BYTE)(A * (hover ? 42 : 26) / 255), 255, 255, 255), 1.f);
         g.DrawPath(&rpen, &rp);
 
-        Gdiplus::Color accent;   // warm coffee / web blue / bug orange
+        Gdiplus::Color accent;   // mint / sky blue / violet, tracing the site's brand gradient
         switch (i) {
-        case 0:  accent = Gdiplus::Color(A, 255, 190, 100); break;
-        case 1:  accent = Gdiplus::Color(A, 120, 170, 255); break;
-        default: accent = Gdiplus::Color(A, 255, 140, 100); break;
+        case 0:  accent = Gdiplus::Color(A, 110, 224, 150); break;
+        case 1:  accent = Gdiplus::Color(A, 120, 175, 255); break;
+        default: accent = Gdiplus::Color(A, 205, 170, 255); break;
         }
 
         Gdiplus::GraphicsPath tp;
@@ -515,7 +520,7 @@ void InfoScreen::Draw() {
     }
 
     // Dismiss hint, centered across the card
-    Gdiplus::SolidBrush hintBrush(Gdiplus::Color((BYTE)(A * 160 / 255), 150, 150, 160));
+    Gdiplus::SolidBrush hintBrush(Gdiplus::Color((BYTE)(A * 190 / 255), 168, 170, 184));
     if (_hintFont) {
         Gdiplus::StringFormat hsf;
         hsf.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
