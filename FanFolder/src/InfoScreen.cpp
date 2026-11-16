@@ -370,18 +370,18 @@ void InfoScreen::Draw() {
     const BYTE A = (BYTE)(255.f * _fadeAlpha);
     const float x0 = _bodyRect.X;
 
-    // Card: a dark navy gradient carrying the site's brand tone, not a flat
-    // near-black. Noticeably lighter than the old charcoal (31,31,40) so the
-    // panel doesn't read as plain black, with a faint blue undertone.
+    // Card: a visibly lighter indigo/navy, not a flat near-black. Matching
+    // the website's dark-navy hero tone rather than a charcoal that reads
+    // as plain black at a glance.
     Gdiplus::GraphicsPath card;
     DrawRoundedRect(card, _cardRect, 16.f * s);
     Gdiplus::LinearGradientBrush cardBrush(
         Gdiplus::PointF(_cardRect.X, _cardRect.Y),
         Gdiplus::PointF(_cardRect.X, _cardRect.Y + _cardRect.Height),
-        Gdiplus::Color(A, 40, 42, 58),
-        Gdiplus::Color(A, 24, 25, 38));
+        Gdiplus::Color(A, 54, 58, 86),
+        Gdiplus::Color(A, 34, 36, 58));
     g.FillPath(&cardBrush, &card);
-    Gdiplus::Pen cardPen(Gdiplus::Color((BYTE)(A * 100 / 255), 96, 100, 128), 1.f);
+    Gdiplus::Pen cardPen(Gdiplus::Color((BYTE)(A * 130 / 255), 120, 126, 160), 1.f);
     g.DrawPath(&cardPen, &card);
 
     // Thin brand gradient along the top edge, clipped to the rounded card.
