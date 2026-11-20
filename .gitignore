@@ -39,6 +39,9 @@ Desktop.ini
 ## Local bundle build output
 installer/*.exe
 
+## Local CI artifact downloads (build-swap-verify loop)
+.ci-artifacts/
+
 ## Directory-submission screenshots: rendered from the Product Hunt slides, which
 ## are generated on macOS. These copies still show the old "Open source, MIT" and
 ## "161 KB" text until the slides are re-rendered, and committing them would
