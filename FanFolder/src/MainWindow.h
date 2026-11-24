@@ -89,7 +89,9 @@ private:
 
     // Hook thread
     std::thread      _hookThread;
-    DWORD            _hookThreadId = 0;
+    // Written by the hook thread at startup, read by the UI thread in
+    // UninstallHooks/~MainWindow.  Atomic because those are different threads.
+    std::atomic<DWORD> _hookThreadId{0};
     std::atomic<int> _hookGen{0};  // incremented on each InstallHooks; stale hooks self-ignore
 
     // Virtual-desktop awareness.  Our hidden taskbar-button window is created

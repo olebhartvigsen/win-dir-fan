@@ -25,6 +25,7 @@ add_executable(FanFolder WIN32
     src/ShellDrag.cpp
     src/Localization.cpp
     src/Telemetry.cpp
+    src/MatchScore.cpp
     resources/app.rc
 )
 
@@ -45,3 +46,15 @@ set_target_properties(FanFolder PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/Release"
     RUNTIME_OUTPUT_DIRECTORY_DEBUG   "${CMAKE_BINARY_DIR}/Debug"
 )
+
+# Portable unit tests for the type-to-filter ranking. Off by default so a plain
+# configure stays a pure application build; CI turns it on with
+# -DFANFOLDER_BUILD_TESTS=ON and runs ctest.
+option(FANFOLDER_BUILD_TESTS "Build the portable unit tests" OFF)
+if(FANFOLDER_BUILD_TESTS)
+    enable_testing()
+    add_executable(FanFolderTests tests/MatchScoreTests.cpp src/MatchScore.cpp)
+    target_compile_features(FanFolderTests PRIVATE cxx_std_20)
+    target_compile_definitions(FanFolderTests PRIVATE UNICODE _UNICODE)
+    add_test(NAME MatchScore COMMAND FanFolderTests)
+endif()

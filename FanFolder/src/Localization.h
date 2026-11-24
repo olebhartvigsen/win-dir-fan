@@ -56,6 +56,14 @@ const Strings& GetStrings();
 // don't all need editing.
 const wchar_t* EmptyFolderLabel();
 
+// Type-to-filter strings. Kept separate from the positional Strings tables,
+// following the EmptyFolderLabel pattern, so the 29 locale initializers stay
+// untouched. Languages without a reviewed translation fall back to English.
+const wchar_t* FilterAsYouTypeLabel();
+const wchar_t* SearchingLabel();
+std::wstring NoMatchesLabel(const std::wstring& query);
+std::wstring MatchCountLabel(int shown, int total);
+
 // Label for the tray-menu toggle that includes files from subfolders.
 // Kept separate from the positional Strings tables, following the
 // EmptyFolderLabel pattern, so the 29 locale initializers stay untouched.

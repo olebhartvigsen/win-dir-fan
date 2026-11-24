@@ -1491,3 +1491,75 @@ const wchar_t* IncludeSubfolderFilesLabel() {
     default:   return L"Include files in subfolders";                // en
     }
 }
+
+// ---------------------------------------------------------------------------
+// Type-to-filter strings. Danish, Swedish, Norwegian, German, Dutch, French,
+// Spanish and Italian are reviewed; everything else falls back to English.
+namespace {
+
+LANGID FilterLang() {
+    return PRIMARYLANGID(GetUserDefaultUILanguage());
+}
+
+} // namespace
+
+const wchar_t* FilterAsYouTypeLabel() {
+    switch (FilterLang()) {
+    case 0x06: return L"Filtrer mens du skriver";              // da
+    case 0x1D: return L"Filtrera medan du skriver";            // sv
+    case 0x14: return L"Filtrer mens du skriver";              // no
+    case 0x07: return L"Beim Tippen filtern";                  // de
+    case 0x13: return L"Filteren tijdens typen";               // nl
+    case 0x0C: return L"Filtrer pendant la saisie";            // fr
+    case 0x0A: return L"Filtrar al escribir";                  // es
+    case 0x10: return L"Filtra durante la digitazione";        // it
+    default:   return L"Filter as you type";                   // en
+    }
+}
+
+const wchar_t* SearchingLabel() {
+    switch (FilterLang()) {
+    case 0x06: return L"S\u00f8ger...";
+    case 0x1D: return L"S\u00f6ker...";
+    case 0x14: return L"S\u00f8ker...";
+    case 0x07: return L"Suche l\u00e4uft...";
+    case 0x13: return L"Zoeken...";
+    case 0x0C: return L"Recherche...";
+    case 0x0A: return L"Buscando...";
+    case 0x10: return L"Ricerca...";
+    default:   return L"Searching...";
+    }
+}
+
+std::wstring NoMatchesLabel(const std::wstring& query) {
+    const std::wstring quoted = L"\"" + query + L"\"";
+
+    switch (FilterLang()) {
+    case 0x06: return L"Ingen match p\u00e5 " + quoted;                 // da
+    case 0x1D: return L"Inga tr\u00e4ff p\u00e5 " + quoted;             // sv
+    case 0x14: return L"Ingen treff p\u00e5 " + quoted;                 // no
+    case 0x07: return L"Kein Treffer f\u00fcr " + quoted;               // de
+    case 0x13: return L"Geen resultaat voor " + quoted;                 // nl
+    case 0x0C: return L"Aucun r\u00e9sultat pour " + quoted;            // fr
+    case 0x0A: return L"Sin resultados para " + quoted;                 // es
+    case 0x10: return L"Nessun risultato per " + quoted;                // it
+    default:   return L"No matches for " + quoted;                      // en
+    }
+}
+
+std::wstring MatchCountLabel(int shown, int total) {
+    const std::wstring a = std::to_wstring(shown);
+    const std::wstring b = std::to_wstring(total);
+
+    switch (FilterLang()) {
+    case 0x06: return a + L" af " + b;    // da
+    case 0x1D: return a + L" av " + b;    // sv
+    case 0x14: return a + L" av " + b;    // no
+    case 0x07: return a + L" von " + b;   // de
+    case 0x13: return a + L" van " + b;   // nl
+    case 0x0C: return a + L" sur " + b;   // fr
+    case 0x0A: return a + L" de " + b;    // es
+    case 0x10: return a + L" di " + b;    // it
+    default:   return a + L" of " + b;    // en
+    }
+}

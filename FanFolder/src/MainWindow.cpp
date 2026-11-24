@@ -261,8 +261,8 @@ MainWindow::~MainWindow() {
     RemoveTrayIcon();
     UninstallHooks();
     if (_hookThread.joinable()) {
-        if (_hookThreadId)
-            PostThreadMessageW(_hookThreadId, WM_QUIT, 0, 0);
+        if (DWORD hookThreadId = _hookThreadId.load())
+            PostThreadMessageW(hookThreadId, WM_QUIT, 0, 0);
         _hookThread.join();
     }
     if (_hwnd) {
@@ -862,6 +862,7 @@ void MainWindow::ShowTrayMenu() {
         ID_INCLUDE_DIRS,
         ID_INCLUDE_SUBFOLDER_FILES,
         ID_SHOW_EXTENSIONS,
+        ID_FILTER_AS_YOU_TYPE,
         ID_FOLDER_DOWNLOADS,
         ID_FOLDER_DESKTOP,
         ID_FOLDER_DOCUMENTS,
@@ -959,6 +960,8 @@ void MainWindow::ShowTrayMenu() {
         (_config.includeSubfolderFiles ? MF_CHECKED : 0),
         ID_INCLUDE_SUBFOLDER_FILES, IncludeSubfolderFilesLabel());
     AppendMenuW(hMenu, MF_STRING | (_config.showExtensions ? MF_CHECKED : 0), ID_SHOW_EXTENSIONS, s.showExtensions);
+    AppendMenuW(hMenu, MF_STRING | (_config.filterAsYouType ? MF_CHECKED : 0),
+                ID_FILTER_AS_YOU_TYPE, FilterAsYouTypeLabel());
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hFolder, s.folderSubmenu);
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
@@ -999,6 +1002,7 @@ void MainWindow::ShowTrayMenu() {
     case ID_INCLUDE_DIRS:   _config.includeDirs    = !_config.includeDirs;    break;
     case ID_INCLUDE_SUBFOLDER_FILES: _config.includeSubfolderFiles = !_config.includeSubfolderFiles; break;
     case ID_SHOW_EXTENSIONS:_config.showExtensions = !_config.showExtensions; break;
+    case ID_FILTER_AS_YOU_TYPE: _config.filterAsYouType = !_config.filterAsYouType; break;
     case ID_FOLDER_DOWNLOADS: {
         PWSTR p = nullptr;
         if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Downloads, 0, nullptr, &p))) {
@@ -1126,10 +1130,10 @@ void MainWindow::InstallHooks() {
 
 void MainWindow::UninstallHooks() {
     if (_hookThread.joinable()) {
-        if (_hookThreadId)
-            PostThreadMessageW(_hookThreadId, WM_QUIT, 0, 0);
+        if (DWORD hookThreadId = _hookThreadId.load())
+            PostThreadMessageW(hookThreadId, WM_QUIT, 0, 0);
         _hookThread.detach();  // never block the UI thread; hooks will self-cleanup on WM_QUIT
-        _hookThreadId = 0;
+        _hookThreadId.store(0);
     }
 }
 

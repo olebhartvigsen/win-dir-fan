@@ -23,6 +23,9 @@
 #include <atomic>
 #include <algorithm>
 #include <cmath>
+#include <cfloat>
+#include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <unordered_set>
 #include <unordered_map>

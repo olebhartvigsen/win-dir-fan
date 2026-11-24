@@ -28,6 +28,7 @@ If you find FanFolder useful, an optional "buy me a coffee" donation is apprecia
 - Multiple animation styles: Fan, Glide, Spring, Fade, None
 - Icons resize automatically, with actual Windows shell icons and thumbnails
 - Pick your folder, sort order, item count, and filter by filename
+- Type while the fan is open to filter live. The search covers every file in the folder, not just the ones currently shown
 - Sort by date modified, date created, or name
 - Right-click any item for the full Windows context menu (open, copy, delete, rename...)
 - Drag items out of the menu and drop them into other applications
@@ -209,6 +210,25 @@ Whether file extensions are shown in item labels. `1` = show, `0` = hide.
 
 ```powershell
 Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "ShowExtensions" -Value 1
+```
+
+---
+
+### FilterAsYouType
+
+**Type:** `REG_DWORD` | **Default:** `1`
+
+Whether typing while the fan is open filters the items. `1` = on, `0` = off.
+
+The first keystrokes filter the icons already on screen. A moment later the app searches the whole selected folder, including files outside the `MaxItems` window, and replaces the list with the complete result. Matching is case insensitive and ranked: a file name that starts with the query comes first, then a word inside the name, then a substring, and folder-name matches last. The small pill at the bottom shows the query, the match count, and a magnifier.
+
+Enter opens the top match, Backspace removes a character, and Escape clears the query (or closes the fan when the query is empty).
+
+Limit: input method editors (Japanese, Chinese, Korean and similar) are not supported while filtering, because the fan reads raw keystrokes through a keyboard hook instead of owning a text field. The query is capped at 64 characters.
+
+```powershell
+# Turn live filtering off
+Set-ItemProperty -Path "HKCU:\SOFTWARE\FanFolder" -Name "FilterAsYouType" -Value 0
 ```
 
 ---

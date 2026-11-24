@@ -2,6 +2,7 @@
 #include "pch.h"
 #include "FanWindow.h"
 #include "FileService.h"
+#include "MatchScore.h"
 #include "ShellDrag.h"
 #include "Localization.h"
 
@@ -169,6 +170,62 @@ namespace IconHandoff {
         g_pending.erase(token);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Type-to-filter: debounce, limits, and the result handoff.
+static constexpr UINT_PTR TIMER_ID_SEARCH    = 10;
+static constexpr UINT     SEARCH_DEBOUNCE_MS = 120;
+static constexpr size_t   kMaxQueryLength    = 64;
+
+struct SearchPayload {
+    std::vector<FileItem> items;
+    int          total = 0;
+    int          gen   = 0;
+    std::wstring query;
+};
+
+struct SearchWork {
+    HWND        hwnd;
+    ConfigData  cfg;
+    std::wstring query;
+    int         gen;
+    int         maxResults;
+    std::shared_ptr<std::atomic<bool>> inflight;
+};
+
+// Same provenance handoff as IconHandoff: the worker registers the payload and
+// posts a small integer token, so a forged WM_FAN_SEARCH_RESULTS from another
+// process cannot make us delete an address of its choosing.
+namespace SearchHandoff {
+    std::mutex  g_mutex;
+    std::unordered_map<UINT, SearchPayload*> g_pending;
+    UINT g_nextToken = 1;
+
+    UINT Register(SearchPayload* p) {
+        std::lock_guard<std::mutex> lk(g_mutex);
+        if (g_pending.size() >= 64) return 0;   // one search in flight is normal
+        UINT token = g_nextToken++;
+        if (g_nextToken == 0) g_nextToken = 1;  // wrapped: skip 0
+        g_pending.emplace(token, p);
+        return token;
+    }
+
+    SearchPayload* Take(UINT token) {
+        if (!token) return nullptr;
+        std::lock_guard<std::mutex> lk(g_mutex);
+        auto it = g_pending.find(token);
+        if (it == g_pending.end()) return nullptr;
+        SearchPayload* p = it->second;
+        g_pending.erase(it);
+        return p;
+    }
+
+    void Forget(UINT token) {
+        if (!token) return;
+        std::lock_guard<std::mutex> lk(g_mutex);
+        g_pending.erase(token);
+    }
+}
 static const UINT WM_ANIM_TICK   = WM_USER + 3;
 
 // ---------------------------------------------------------------------------
@@ -262,6 +319,10 @@ void FanWindow::Show() {
 
     // Fresh open starts unfiltered (Phase 0: just the captured-text overlay).
     _filterText.clear();
+    _itemsFromSearch = false;
+    _searchTotal     = 0;
+    _searchRunning   = false;
+    _searchPending   = false;
     // Restore the visible view to the full item list. ApplyFilter rebuilds it
     // from _filterText (empty here = identity mapping).
     _visible.clear();
@@ -368,6 +429,7 @@ void FanWindow::Show() {
 
 void FanWindow::Close() {
     StopAnimTimer();
+    CancelSearch();
     if (_hwnd) {
         DestroyWindow(_hwnd);
         _hwnd = nullptr;
@@ -384,33 +446,29 @@ void FanWindow::Close() {
 void FanWindow::ApplyFilter() {
     if (!_hwnd) return;
 
-    // Phase 2: when the filter is cleared, restore _items from _originalItems
-    // (which may have been extended by a full-folder scan).
+    // Clearing the text restores the list the fan opened with, including its
+    // icons, so nothing from a previous search lingers.
     if (_filterText.empty()) {
-        // Bump the icon generation so any in-flight loads from the full scan
-        // are dropped by WM_ICON_READY (their gen won't match).
-        _iconGen.fetch_add(1, std::memory_order_release);
-
-        _items = _originalItems;
-        RebuildItemCaches();
+        CancelSearch();
+        if (_itemsFromSearch) {
+            _iconGen.fetch_add(1, std::memory_order_release);
+            _items = _originalItems;
+            _itemsFromSearch = false;
+            RebuildItemCaches();
+        }
     }
 
-    // Lowercase copy of the filter text (case-insensitive substring match).
-    std::wstring needle = _filterText;
-    for (auto& c : needle) c = (wchar_t)towlower(c);
+    const std::wstring needle = FanFolderMatch::Lowercase(_filterText);
 
-    // First pass: in-memory match against the current _items.
     _visible.clear();
     _noMatchesActive = false;
-    if (!_filterText.empty() && !needle.empty()) {
+    if (!needle.empty()) {
         _visible.reserve(_items.size());
         for (int i = 0; i < (int)_items.size(); i++) {
+            // The placeholder slot is not a file, never a search candidate.
             if (_isPlaceholder && i == 0) continue;
-            std::wstring label = (i < (int)_labelCache.size()) ? _labelCache[i]
-                                                              : ItemLabel(i);
-            std::wstring lower = label;
-            for (auto& c : lower) c = (wchar_t)towlower(c);
-            if (lower.find(needle) != std::wstring::npos)
+            if (FileService::MatchScore(_items[(size_t)i], needle) >
+                FanFolderMatch::kNoMatch)
                 _visible.push_back(i);
         }
     } else {
@@ -418,70 +476,165 @@ void FanWindow::ApplyFilter() {
         for (int i = 0; i < (int)_items.size(); i++) _visible.push_back(i);
     }
 
-    // Phase 2: cheap full-folder search. If the in-memory match set is small
-    // (<= 3) AND we hit the maxItems cap, do a full-folder scan so matches
-    // beyond the cap are findable. This is the "cheap fix" — works for small
-    // folders; large folders will be slow. Skip for virtual folder sentinels.
-    bool isVirtual = (_config.folderPath == L"::RecentDocs::" ||
-                      _config.folderPath == L"::RecentFiles::" ||
-                      _config.folderPath == L"::GraphRecent::");
-    const int kFullScanThreshold = 3;
-    bool needFullScan = !_filterText.empty() && !isVirtual
-        && (int)_items.size() >= _config.maxItems
-        && (int)_originalItems.size() >= _config.maxItems
-        && (int)_visible.size() <= kFullScanThreshold;
-
-    if (needFullScan) {
-        // Bump the icon generation so in-flight loads from the original
-        // Show() are dropped — they'd write into the wrong-sized arrays.
-        _iconGen.fetch_add(1, std::memory_order_release);
-
-        // Full-folder scan (cap = 10000). Includes the original items plus
-        // any beyond the cap.
-        std::vector<FileItem> fullScan = FileService::ScanFolder(
-            _config.folderPath, 10000, _config.includeDirs,
-            _config.filterRegex, _config.sortMode, /*resolveLnk=*/true,
-            _config.includeSubfolderFiles);
-        _items = std::move(fullScan);
-        RebuildItemCaches();
-        // Re-match against the full scan.
-        _visible.clear();
-        _visible.reserve(_items.size());
-        for (int i = 0; i < (int)_items.size(); i++) {
-            if (_isPlaceholder && i == 0) continue;
-            std::wstring label = (i < (int)_labelCache.size()) ? _labelCache[i]
-                                                              : ItemLabel(i);
-            std::wstring lower = label;
-            for (auto& c : lower) c = (wchar_t)towlower(c);
-            if (lower.find(needle) != std::wstring::npos)
-                _visible.push_back(i);
-        }
-    }
-
-    // Phase 2: cap the visible set to maxItems so the arc layout (designed for
-    // ~15 items) never gets an unbounded match set. Without this, filtering
-    // into a large folder can produce dozens of icons crammed into the arc.
+    // The arc is built for about maxItems icons; the counter in the search
+    // pill reports anything beyond this cut.
     if ((int)_visible.size() > _config.maxItems)
         _visible.resize(_config.maxItems);
 
-    // No matches + filter active + folder has items → no-matches placeholder
     if (_visible.empty() && !_filterText.empty() && !_items.empty())
         _noMatchesActive = true;
 
-    // Phase 2: highlight the top match (slot 0) when a filter is active and
-    // there are matches. This is the Enter target. When the filter is cleared,
-    // reset hover so the previous top-match highlight doesn't linger.
-    if (!_filterText.empty() && !_noMatchesActive && !_visible.empty()) {
-        _hoverIdx = 0;
-    } else if (_filterText.empty()) {
+    if (!_filterText.empty() && !_noMatchesActive && !_visible.empty())
+        _hoverIdx = 0;   // Enter target: the top match
+    else if (_filterText.empty())
         _hoverIdx = -1;
-    }
 
-    // Reset hover/drag state when the slot under the pointer is no longer visible.
     if (_hoverIdx >= TotalSlots()) _hoverIdx = -1;
     if (_dragIdx  >= TotalSlots()) _dragIdx  = -1;
 
-    // Re-layout (arc tightens to matches) and redraw.
+    ScheduleSearch();
+    CalculateLayout();
+    DrawToLayeredWindow();
+}
+
+// Debounces the directory walk. The in-memory pass in ApplyFilter already put
+// something on screen, so this only decides when the complete result lands.
+void FanWindow::ScheduleSearch() {
+    if (!_hwnd || !_config.filterAsYouType) return;
+    if (_filterText.empty()) {
+        KillTimer(_hwnd, TIMER_ID_SEARCH);
+        return;
+    }
+    SetTimer(_hwnd, TIMER_ID_SEARCH, SEARCH_DEBOUNCE_MS, nullptr);
+}
+
+// Invalidates any in-flight walk. Safe to call when none is running.
+void FanWindow::CancelSearch() {
+    if (_hwnd) KillTimer(_hwnd, TIMER_ID_SEARCH);
+    _searchGen.fetch_add(1, std::memory_order_release);
+    _searchRunning = false;
+    _searchPending = false;
+    _searchTotal   = 0;
+}
+
+void FanWindow::StartSearch() {
+    if (!_hwnd || _filterText.empty() || !_config.filterAsYouType) return;
+
+    if (_searchInflight->load(std::memory_order_acquire)) {
+        // One walk at a time. Remember that the query moved on and start again
+        // when the current result lands, so the last keystroke always gets its
+        // own search.
+        _searchPending = true;
+        return;
+    }
+
+    const int gen = _searchGen.fetch_add(1, std::memory_order_acq_rel) + 1;
+    _searchRunning = true;
+    _searchPending = false;
+
+    // Snapshot everything the worker needs. It must never touch `this`: the
+    // fan window can be destroyed while the walk runs.
+    auto* work = new SearchWork{ _hwnd, _config, _filterText, gen,
+                                 std::max(_config.maxItems, 1), _searchInflight };
+    _searchInflight->store(true, std::memory_order_release);
+
+    const BOOL submitted = TrySubmitThreadpoolCallback(
+        [](PTP_CALLBACK_INSTANCE, PVOID ctx) {
+            std::unique_ptr<SearchWork> owner(static_cast<SearchWork*>(ctx));
+            SearchWork* w = owner.get();
+
+            // Recent/jump-list modes build COM objects (IShellLink, IStorage),
+            // so this thread needs an apartment. Balanced on every exit path.
+            struct ComGuard {
+                bool inited;
+                ~ComGuard() { if (inited) CoUninitialize(); }
+            } comGuard{ SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)) };
+
+            // Balanced flag reset on the normal path and on the throw path.
+            struct InflightGuard {
+                std::atomic<bool>* flag;
+                ~InflightGuard() { flag->store(false, std::memory_order_release); }
+            } guard{ w->inflight.get() };
+
+            try {
+                auto set = FileService::SearchFolder(
+                    w->cfg.folderPath, w->query, w->maxResults, w->cfg.includeDirs,
+                    w->cfg.filterRegex, w->cfg.sortMode, w->cfg.includeSubfolderFiles);
+
+                auto* payload = new SearchPayload{ std::move(set.items),
+                                                   set.totalMatches, w->gen, w->query };
+                const UINT token = SearchHandoff::Register(payload);
+                if (!token ||
+                    !PostMessageW(w->hwnd, WM_FAN_SEARCH_RESULTS, 0, (LPARAM)token)) {
+                    // Window gone or pool full: free it here, nothing will.
+                    SearchHandoff::Forget(token);
+                    delete payload;
+                }
+            } catch (...) {
+                // A failed search leaves the in-memory matches on screen.
+            }
+        }, work, nullptr);
+
+    if (!submitted) {
+        delete work;
+        _searchInflight->store(false, std::memory_order_release);
+        _searchRunning = false;
+    }
+}
+
+// Swaps the visible list to a completed search. _originalItems is deliberately
+// left alone so clearing the filter restores the pre-search list.
+// Text for the synthetic no-result slot. While a walk is still running the
+// honest message is "searching", not "no matches".
+std::wstring FanWindow::NoMatchesText() const {
+    return _searchRunning ? std::wstring(SearchingLabel()) : NoMatchesLabel(_filterText);
+}
+
+void FanWindow::ApplySearchResults(std::vector<FileItem>&& items, int total) {
+    if (!_hwnd) return;
+
+    // Prewarm icons are indexed by the old list; new indices do not line up.
+    for (auto h : _prewarmBitmaps) if (h) DeleteObject(h);
+    for (auto h : _prewarmIcons)   if (h) DestroyIcon(h);
+    _prewarmBitmaps.clear();
+    _prewarmIcons.clear();
+    _prewarmGdiBitmaps.clear();
+    _prewarmIconSize = 0;
+
+    _iconGen.fetch_add(1, std::memory_order_release);
+
+    _items = std::move(items);
+    _itemsFromSearch = true;
+    _isPlaceholder   = _items.empty();
+    if (_isPlaceholder) {
+        FileItem ph;
+        ph.name = NoMatchesLabel(_filterText);
+        _items.push_back(std::move(ph));
+    }
+    _searchTotal = total;
+
+    _hasExplorerButton = (_config.folderPath != L"::GraphRecent::" &&
+                          _config.folderPath != L"::RecentDocs::");
+    RebuildItemCaches();
+
+    // The fan is already open, so results appear at their final position
+    // instead of replaying the entry cascade on every keystroke.
+    std::fill(_entryProgress.begin(), _entryProgress.end(), 1.f);
+    std::fill(_itemProgress.begin(),  _itemProgress.end(),  1.f);
+    std::fill(_hoverScale.begin(),    _hoverScale.end(),    1.f);
+
+    _visible.clear();
+    _noMatchesActive = _isPlaceholder;
+    if (!_isPlaceholder) {
+        _visible.reserve(_items.size());
+        for (int i = 0; i < (int)_items.size(); i++) _visible.push_back(i);
+    }
+    if ((int)_visible.size() > _config.maxItems)
+        _visible.resize(_config.maxItems);
+
+    _hoverIdx = (_visible.empty() || _noMatchesActive) ? -1 : 0;
+    _dragIdx  = -1;
+
     CalculateLayout();
     DrawToLayeredWindow();
 }
@@ -533,6 +686,7 @@ void FanWindow::ReplaceItems(std::vector<FileItem>&& items) {
         _isPlaceholder = true;
     }
     _originalItems = _items;
+    _itemsFromSearch = false;   // a fresh scan supersedes any search result
 
     // Rebuild icons, labels, and entry state for the new list.  Then put the
     // entry progress at its final value: this refresh happens while the fan is
@@ -557,11 +711,8 @@ void FanWindow::ReplaceItems(std::vector<FileItem>&& items) {
         // candidate; the "no matches" path renders instead.  Without a filter,
         // slot 0 must stay in _visible so the placeholder still draws.
         if (!_filterText.empty() && _isPlaceholder && i == 0) continue;
-        std::wstring label = (i < (int)_labelCache.size()) ? _labelCache[i]
-                                                          : ItemLabel(i);
-        std::wstring lower = label;
-        for (auto& c : lower) c = (wchar_t)towlower(c);
-        if (needle.empty() || lower.find(needle) != std::wstring::npos)
+        if (needle.empty() || FileService::MatchScore(_items[(size_t)i], needle) >
+                              FanFolderMatch::kNoMatch)
             _visible.push_back(i);
     }
     if ((int)_visible.size() > _config.maxItems)
@@ -569,6 +720,7 @@ void FanWindow::ReplaceItems(std::vector<FileItem>&& items) {
     if (_visible.empty() && !_filterText.empty() && !_items.empty())
         _noMatchesActive = true;
 
+    ScheduleSearch();
     CalculateLayout();
     DrawToLayeredWindow();
 }
@@ -760,7 +912,7 @@ void FanWindow::CalculateLayout() {
 
     // The "no matches" synthetic slot lives at slot 0 when _noMatchesActive is
     // set. It's rendered as a single text-only slot (no icon, no arrow).
-    const std::wstring noMatchesLabel = L"no matches";
+    const std::wstring noMatchesLabel = NoMatchesText();
 
     auto measureLabelAt = [&](int slot, const std::wstring& label) {
         Gdiplus::RectF bounds;
@@ -1098,22 +1250,43 @@ void FanWindow::DrawToLayeredWindow() {
                 g.FillRectangle(&overlay, 0, 0, _winWidth, _winHeight);
             }
 
-            // Phase 2: filter text-capture overlay. Shows the typed text near
-            // the arc hinge so it doesn't overlap items. Drawn last so it
-            // sits on top of everything.
+            // Type-to-filter pill: magnifier, query, caret, and a counter
+            // when the search found more than the arc can show. Drawn last so
+            // it sits above the icons.
             if (!_filterText.empty()) {
-                std::wstring overlay_text = L"\u2328 " + _filterText + L"_";  // keyboard + text + caret
-                float pillH = _iconSize * 0.5f;
-                float pillW = std::min((float)_winWidth - 16.f,
-                                       32.f + (float)overlay_text.size() * _iconSize * 0.18f);
+                std::wstring overlay_text = _filterText;
+                if (_searchRunning) overlay_text += L"\u2026";
+                if (!_isPlaceholder && _searchTotal > (int)_items.size())
+                    overlay_text += L"   " +
+                        MatchCountLabel((int)_items.size(), _searchTotal);
+
+                const float pillH = _iconSize * 0.5f;
+                const float glyph = pillH * 0.62f;
+                const float gap   = 6.f;
+                const float textW = 12.f + (float)overlay_text.size() * _iconSize * 0.18f;
+                const float pillW = std::min((float)_winWidth - 16.f - glyph - gap,
+                                             textW);
                 // Position at the bottom of the fan (near the hinge for a
-                // bottom taskbar). Use _arcOriginY/Y to find the hinge.
-                float ox = 8.f;
+                // bottom taskbar), with room for the magnifier to its left.
+                const float ox = 8.f + glyph + gap;
                 float oy = (float)_winHeight - pillH - 8.f;
-                // Keep on-screen if the fan is very small.
                 if (oy < 0) oy = 8.f;
+
                 DrawLabelPill(g, ox, oy, pillW, pillH, pillH / 2.f,
                               overlay_text, 1.f);
+
+                // Drawn as geometry: U+2328 renders as a box in some fonts,
+                // which is what the old overlay used.
+                Gdiplus::Pen loupe(Gdiplus::Color(235, 235, 240),
+                                   std::max(1.4f, pillH * 0.06f));
+                loupe.SetLineCap(Gdiplus::LineCapRound, Gdiplus::LineCapRound,
+                                 Gdiplus::DashCapRound);
+                const float mx = 8.f + glyph * 0.42f;
+                const float my = oy + pillH * 0.44f;
+                const float r  = glyph * 0.30f;
+                g.DrawEllipse(&loupe, mx - r, my - r, r * 2.f, r * 2.f);
+                g.DrawLine(&loupe, mx + r * 0.72f, my + r * 0.72f,
+                                   mx + r * 1.5f,  my + r * 1.5f);
             }
         } else {
             // GDI+ unavailable — request a redraw on the next animation tick
@@ -1391,7 +1564,7 @@ void FanWindow::DrawItem(Gdiplus::Graphics& g, int slot, float itemAlpha) {
         float pillLeft = cx - pillW / 2.f;
         float pillTop  = cy - pillH / 2.f;
         DrawLabelPill(g, pillLeft, pillTop, pillW, pillH, pillH / 2.f,
-                      L"no matches", itemAlpha);
+                      NoMatchesText(), itemAlpha);
         return;
     }
 
@@ -1669,7 +1842,11 @@ void FanWindow::HandleFileDrop(IDataObject* pDataObj) {
         }
         int total = (int)_items.size() + (_hasExplorerButton ? 1 : 0);
 
-        // Reset icon arrays to the new size; start async loads for all items
+        // Reset icon arrays to the new size; start async loads for all items.
+        // Bump the generation first so results still in flight from the
+        // pre-drop list are dropped instead of landing on a different file's
+        // slot (same reasoning as ReplaceItems/ApplyFilter).
+        _iconGen.fetch_add(1, std::memory_order_release);
         {
             std::lock_guard<std::mutex> lk(_iconMutex);
             for (auto h : _bitmaps)    if (h) DeleteObject(h);
@@ -1685,6 +1862,8 @@ void FanWindow::HandleFileDrop(IDataObject* pDataObj) {
         // old _visible indices are stale. Start unfiltered (ApplyFilter with
         // empty _filterText = identity mapping).
         _filterText.clear();
+        CancelSearch();
+        _itemsFromSearch = false;
         _visible.clear();
         _noMatchesActive = false;
         _visible.reserve(_items.size());
@@ -1710,7 +1889,10 @@ void FanWindow::ShowContextMenu(int slot, POINT screenPt) {
     if (IsArrowSlot(slot)) {
         ShellExecuteW(nullptr, L"open", L"explorer.exe",
                       _config.folderPath.c_str(), nullptr, SW_SHOWNORMAL);
-        PostMessageW(_hwndOwner, WM_USER + 4, 0, 0);  // close fan
+        // WM_USER + 4 (WM_MAIN_CLOSE_FAN) requires a matching hook generation in
+        // wParam, so posting it with 0 was silently dropped and the fan stayed
+        // open.  Ask the owner to close through the un-stamped path instead.
+        PostMessageW(_hwndOwner, WM_FAN_ASK_OWNER_TO_CLOSE, 0, 0);
         return;
     }
     int realIdx = RealIndexForSlot(slot);
@@ -1737,10 +1919,23 @@ void FanWindow::ShowContextMenu(int slot, POINT screenPt) {
     pcm->QueryInterface(IID_PPV_ARGS(&pcm2));
 
     HMENU hMenu = CreatePopupMenu();
+    if (!hMenu) {
+        if (pcm2) pcm2->Release();
+        pcm->Release();
+        PostMessageW(_hwndOwner, WM_FAN_ASK_OWNER_TO_CLOSE, 0, 0);
+        return;
+    }
     pcm->QueryContextMenu(hMenu, 0, 1, 0x7FFF, CMF_NORMAL | CMF_EXPLORE);
+
+    // Shell menu extensions populate and draw themselves through these
+    // messages while the menu is up.  Without forwarding them the entries show
+    // up blank or inert.  WndProc routes them to _contextMenu2.
+    _contextMenu2 = pcm2;
 
     int cmd = (int)TrackPopupMenuEx(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
                                     screenPt.x, screenPt.y, _hwnd, nullptr);
+
+    _contextMenu2 = nullptr;
     DestroyMenu(hMenu);
 
     if (cmd > 0) {
@@ -2130,6 +2325,43 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         self->_hoverIdx = -1;
         return 0;
 
+    case WM_TIMER:
+        if (wParam == TIMER_ID_SEARCH) {
+            KillTimer(hwnd, TIMER_ID_SEARCH);
+            self->StartSearch();
+            return 0;
+        }
+        break;
+
+    // A completed search. lParam is a token; an unknown token is forged or
+    // already consumed, and is dropped without dereferencing anything.
+    case WM_FAN_SEARCH_RESULTS: {
+        std::unique_ptr<SearchPayload> payload(SearchHandoff::Take((UINT)lParam));
+        if (!payload) return 0;
+
+        self->_searchRunning = false;
+        const bool stale =
+            payload->gen != self->_searchGen.load(std::memory_order_acquire) ||
+            payload->query != self->_filterText;
+        if (!stale)
+            self->ApplySearchResults(std::move(payload->items), payload->total);
+
+        // Run the follow-up even after a stale result: this may be the message
+        // that cleared the in-flight flag for a query typed meanwhile.
+        if (self->_searchPending) self->StartSearch();
+        return 0;
+    }
+
+    // Shell context-menu extensions ask for these while the menu is up.  Any
+    // failure falls through to DefWindowProc, which is the correct default.
+    case WM_INITMENUPOPUP:
+    case WM_DRAWITEM:
+    case WM_MEASUREITEM:
+        if (self->_contextMenu2 &&
+            SUCCEEDED(self->_contextMenu2->HandleMenuMsg(msg, wParam, lParam)))
+            return TRUE;
+        break;
+
     case WM_LBUTTONDOWN: {
         int hit = self->HitTest(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
         if (hit >= 0) {
@@ -2241,8 +2473,12 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 self->LaunchItem(0);
             }
         } else if (ch >= L' ') {
-            self->_filterText.push_back(ch);
-            self->ApplyFilter();
+            // Cap the query: the pill has to stay readable and a runaway hook
+            // must not grow the string without bound.
+            if (self->_filterText.size() < kMaxQueryLength) {
+                self->_filterText.push_back(ch);
+                self->ApplyFilter();
+            }
         }
         return 0;
     }

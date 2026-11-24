@@ -145,7 +145,9 @@ ConfigData Config::Load() {
             dir = dir.substr(0, pos);
         std::wstring jsonPath = dir + L"\\appsettings.json";
 
-        std::ifstream f(jsonPath);
+        // std::filesystem::path accepts a wchar_t string on every toolchain;
+        // std::ifstream(wstring) alone is an MSVC extension.
+        std::ifstream f{std::filesystem::path(jsonPath)};
         if (f.is_open()) {
             std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
             const std::string key = "\"FanFolderPath\"";

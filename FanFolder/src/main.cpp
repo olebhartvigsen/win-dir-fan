@@ -31,8 +31,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     SetCurrentProcessExplicitAppUserModelID(L"FanFolder.App");
 
     Gdiplus::GdiplusStartupInput gdiplusInput;
-    ULONG_PTR gdiplusToken;
-    Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusInput, nullptr);
+    ULONG_PTR gdiplusToken = 0;
+    if (Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusInput, nullptr) != Gdiplus::Ok) {
+        // Without GDI+ nothing can be drawn, and shutting down an
+        // uninitialised token is undefined. Fail before any window exists.
+        if (hInstanceMutex) CloseHandle(hInstanceMutex);
+        return 1;
+    }
 
     // Force GDI+ to fully initialise its internal caches (font enumeration,
     // codec registration, codec instantiation, thread-local state).  Without

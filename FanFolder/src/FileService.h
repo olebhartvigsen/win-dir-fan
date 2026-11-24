@@ -15,6 +15,15 @@ struct FileItem {
 
 class FileService {
 public:
+    // Result of a type-to-filter search. items is ranked, sorted and already
+    // truncated to the requested maximum; totalMatches counts every match the
+    // walk found, so the UI can show "3 of 27".
+    struct SearchResultSet {
+        std::vector<FileItem> items;
+        int  totalMatches    = 0;
+        bool candidateCapHit = false;
+    };
+
     static std::vector<FileItem> ScanFolder(
         const std::wstring& folderPath,
         int maxItems = 15,
@@ -23,6 +32,22 @@ public:
         ConfigData::SortMode sortMode = ConfigData::SortMode::DateModifiedDesc,
         bool resolveLnk = true,
         bool includeSubfolderFiles = false);
+
+    // Searches every item ScanFolder can reach, ignoring the maxItems window.
+    // Dispatches on the virtual folder sentinels the same way ScanFolder does.
+    // Pass the raw query: it is lowercased once and reused for every candidate.
+    static SearchResultSet SearchFolder(
+        const std::wstring& folderPath,
+        const std::wstring& query,
+        int maxResults,
+        bool includeDirs,
+        const std::wstring& filterRegex,
+        ConfigData::SortMode sortMode,
+        bool includeSubfolderFiles);
+
+    // Ranking used by both the instant in-memory pass and the full search.
+    // lowerQuery must already be lowercased.
+    static int MatchScore(const FileItem& item, const std::wstring& lowerQuery);
 
     // Resolves a .lnk shortcut file to its target path.
     // Returns the target path, or empty if resolution fails or target doesn't exist.

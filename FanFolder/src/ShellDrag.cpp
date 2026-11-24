@@ -52,7 +52,10 @@ static HBITMAP CreateDragBitmap(HBITMAP hSrc, int w, int h) {
 
     void* pDst = nullptr;
     HBITMAP hDst = CreateDIBSection(nullptr, &bi, DIB_RGB_COLORS, &pDst, nullptr, 0);
-    if (!hDst || !pDst) return nullptr;
+    if (!hDst || !pDst) {
+        if (hDst) DeleteObject(hDst);   // bitmap without its bits still owns GDI memory
+        return nullptr;
+    }
 
     auto* src = static_cast<BYTE*>(ds.dsBm.bmBits);
     auto* dst = static_cast<BYTE*>(pDst);

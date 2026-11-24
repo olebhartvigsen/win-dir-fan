@@ -1,7 +1,10 @@
 // Copyright (c) 2026 Ole Bülow Hartvigsen. All rights reserved.
 #include "pch.h"
 #include "FileService.h"
+#include "MatchScore.h"
 #include <lunasvg.h>
+#include <array>
+#include <iterator>
 #include <regex>
 #include <shlobj.h>
 #include <ole2.h>
@@ -1023,6 +1026,10 @@ namespace {
 
 constexpr int    kMaxSubfolderDepth = 8;      // root = 0
 constexpr size_t kMaxRecursiveItems = 20000;  // safety valve
+// Candidate ceiling used when a search has to rebuild a recent/jump-list view.
+// Deeper than the default 15 so files outside the visible slice are findable,
+// shallow enough that re-parsing jump lists stays fast.
+constexpr int    kRecentSearchCandidates = 200;
 
 struct DirJob {
     std::wstring path;
@@ -1101,6 +1108,89 @@ void CollectDirectory(const std::wstring& dir, const std::wstring& relDir,
     } while (FindNextFileW(hFind, &fd));
 
     FindClose(hFind);
+}
+
+// Applies the scan-level regex filter. Cached compilation because std::wregex
+// construction is expensive: the prewarm worker and the UI thread both call
+// this, so the cache needs a lock, and the compare-then-assign is guarded so
+// the hot path (same pattern reused) is a single uncontended lock.
+void ApplyRegexFilter(std::vector<FileItem>& items, const std::wstring& filterRegex) {
+    if (filterRegex.empty()) return;
+
+    static std::mutex  sRegexCacheMutex;
+    static std::wstring sCachedPattern;
+    static std::wregex  sCachedRegex;
+    try {
+        std::lock_guard<std::mutex> lk(sRegexCacheMutex);
+        if (filterRegex != sCachedPattern) {
+            sCachedRegex   = std::wregex(filterRegex, std::regex_constants::icase);
+            sCachedPattern = filterRegex;
+        }
+        const auto& re = sCachedRegex;
+        items.erase(std::remove_if(items.begin(), items.end(),
+            [&re](const FileItem& f) {
+                return !std::regex_search(f.name, re);
+            }), items.end());
+    } catch (...) {
+        // invalid regex - ignore filter
+    }
+}
+
+// Orders a result set by the configured sort mode. Shared by ScanFolder and
+// SearchFolder so the two can never disagree on ordering.
+void SortItems(std::vector<FileItem>& items, ConfigData::SortMode sortMode) {
+    switch (sortMode) {
+    case ConfigData::SortMode::DateModifiedDesc:
+        std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
+            if (a.lastWriteTime.dwHighDateTime != b.lastWriteTime.dwHighDateTime)
+                return a.lastWriteTime.dwHighDateTime > b.lastWriteTime.dwHighDateTime;
+            if (a.lastWriteTime.dwLowDateTime != b.lastWriteTime.dwLowDateTime)
+                return a.lastWriteTime.dwLowDateTime > b.lastWriteTime.dwLowDateTime;
+            return _wcsicmp(a.fullPath.c_str(), b.fullPath.c_str()) < 0;
+        });
+        break;
+    case ConfigData::SortMode::DateModifiedAsc:
+        std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
+            if (a.lastWriteTime.dwHighDateTime != b.lastWriteTime.dwHighDateTime)
+                return a.lastWriteTime.dwHighDateTime < b.lastWriteTime.dwHighDateTime;
+            if (a.lastWriteTime.dwLowDateTime != b.lastWriteTime.dwLowDateTime)
+                return a.lastWriteTime.dwLowDateTime < b.lastWriteTime.dwLowDateTime;
+            return _wcsicmp(a.fullPath.c_str(), b.fullPath.c_str()) < 0;
+        });
+        break;
+    case ConfigData::SortMode::NameAsc:
+        std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
+            int c = _wcsicmp(a.name.c_str(), b.name.c_str());
+            if (c != 0) return c < 0;
+            return _wcsicmp(a.fullPath.c_str(), b.fullPath.c_str()) < 0;
+        });
+        break;
+    case ConfigData::SortMode::NameDesc:
+        std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
+            int c = _wcsicmp(a.name.c_str(), b.name.c_str());
+            if (c != 0) return c > 0;
+            return _wcsicmp(a.fullPath.c_str(), b.fullPath.c_str()) > 0;
+        });
+        break;
+    case ConfigData::SortMode::DateCreatedDesc:
+        std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
+            if (a.creationTime.dwHighDateTime != b.creationTime.dwHighDateTime)
+                return a.creationTime.dwHighDateTime > b.creationTime.dwHighDateTime;
+            if (a.creationTime.dwLowDateTime != b.creationTime.dwLowDateTime)
+                return a.creationTime.dwLowDateTime > b.creationTime.dwLowDateTime;
+            return _wcsicmp(a.fullPath.c_str(), b.fullPath.c_str()) < 0;
+        });
+        break;
+    case ConfigData::SortMode::DateCreatedAsc:
+        std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
+            if (a.creationTime.dwHighDateTime != b.creationTime.dwHighDateTime)
+                return a.creationTime.dwHighDateTime < b.creationTime.dwHighDateTime;
+            if (a.creationTime.dwLowDateTime != b.creationTime.dwLowDateTime)
+                return a.creationTime.dwLowDateTime < b.creationTime.dwLowDateTime;
+            return _wcsicmp(a.fullPath.c_str(), b.fullPath.c_str()) < 0;
+        });
+        break;
+    }
 }
 
 } // namespace
@@ -1201,89 +1291,96 @@ std::vector<FileItem> FileService::ScanFolder(const std::wstring& folderPath, in
         OutputDebugStringW(L"[FanFolder] subfolder scan hit the item cap\n");
     }
 
-    // Filter: regex (cached compilation, std::wregex construction is expensive)
-    if (!filterRegex.empty()) {
-        // ScanFolder runs on both the prewarm worker and the UI thread (drop
-        // handler), so this cache needs a lock: concurrent assignment to the
-        // std::wregex / std::wstring below would be a data race and could
-        // corrupt the string. Guarding only the compare-then-assign keeps the
-        // hot path (same pattern reused) a single uncontended lock.
-        static std::mutex sRegexCacheMutex;
-        static std::wstring sCachedPattern;
-        static std::wregex  sCachedRegex;
-        try {
-            std::lock_guard<std::mutex> lk(sRegexCacheMutex);
-            if (filterRegex != sCachedPattern) {
-                sCachedRegex   = std::wregex(filterRegex, std::regex_constants::icase);
-                sCachedPattern = filterRegex;
-            }
-            const auto& re = sCachedRegex;
-            items.erase(std::remove_if(items.begin(), items.end(),
-                [&re](const FileItem& f) {
-                    return !std::regex_search(f.name, re);
-                }), items.end());
-        } catch (...) {
-            // invalid regex - ignore filter
-        }
-    }
-
-    switch (sortMode) {
-    case ConfigData::SortMode::DateModifiedDesc:
-        std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
-            if (a.lastWriteTime.dwHighDateTime != b.lastWriteTime.dwHighDateTime)
-                return a.lastWriteTime.dwHighDateTime > b.lastWriteTime.dwHighDateTime;
-            if (a.lastWriteTime.dwLowDateTime != b.lastWriteTime.dwLowDateTime)
-                return a.lastWriteTime.dwLowDateTime > b.lastWriteTime.dwLowDateTime;
-            return _wcsicmp(a.fullPath.c_str(), b.fullPath.c_str()) < 0;
-        });
-        break;
-    case ConfigData::SortMode::DateModifiedAsc:
-        std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
-            if (a.lastWriteTime.dwHighDateTime != b.lastWriteTime.dwHighDateTime)
-                return a.lastWriteTime.dwHighDateTime < b.lastWriteTime.dwHighDateTime;
-            if (a.lastWriteTime.dwLowDateTime != b.lastWriteTime.dwLowDateTime)
-                return a.lastWriteTime.dwLowDateTime < b.lastWriteTime.dwLowDateTime;
-            return _wcsicmp(a.fullPath.c_str(), b.fullPath.c_str()) < 0;
-        });
-        break;
-    case ConfigData::SortMode::NameAsc:
-        std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
-            int c = _wcsicmp(a.name.c_str(), b.name.c_str());
-            if (c != 0) return c < 0;
-            return _wcsicmp(a.fullPath.c_str(), b.fullPath.c_str()) < 0;
-        });
-        break;
-    case ConfigData::SortMode::NameDesc:
-        std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
-            int c = _wcsicmp(a.name.c_str(), b.name.c_str());
-            if (c != 0) return c > 0;
-            return _wcsicmp(a.fullPath.c_str(), b.fullPath.c_str()) > 0;
-        });
-        break;
-    case ConfigData::SortMode::DateCreatedDesc:
-        std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
-            if (a.creationTime.dwHighDateTime != b.creationTime.dwHighDateTime)
-                return a.creationTime.dwHighDateTime > b.creationTime.dwHighDateTime;
-            if (a.creationTime.dwLowDateTime != b.creationTime.dwLowDateTime)
-                return a.creationTime.dwLowDateTime > b.creationTime.dwLowDateTime;
-            return _wcsicmp(a.fullPath.c_str(), b.fullPath.c_str()) < 0;
-        });
-        break;
-    case ConfigData::SortMode::DateCreatedAsc:
-        std::sort(items.begin(), items.end(), [](const FileItem& a, const FileItem& b) {
-            if (a.creationTime.dwHighDateTime != b.creationTime.dwHighDateTime)
-                return a.creationTime.dwHighDateTime < b.creationTime.dwHighDateTime;
-            if (a.creationTime.dwLowDateTime != b.creationTime.dwLowDateTime)
-                return a.creationTime.dwLowDateTime < b.creationTime.dwLowDateTime;
-            return _wcsicmp(a.fullPath.c_str(), b.fullPath.c_str()) < 0;
-        });
-        break;
-    }
+    ApplyRegexFilter(items, filterRegex);
+    SortItems(items, sortMode);
 
     if ((int)items.size() > maxItems)
         items.resize(maxItems);
 
     return items;
+}
+
+int FileService::MatchScore(const FileItem& item, const std::wstring& lowerQuery) {
+    return FanFolderMatch::Score(item.name.c_str(), item.relativeDir.c_str(), lowerQuery);
+}
+
+FileService::SearchResultSet FileService::SearchFolder(
+    const std::wstring& folderPath,
+    const std::wstring& query,
+    int maxResults,
+    bool includeDirs,
+    const std::wstring& filterRegex,
+    ConfigData::SortMode sortMode,
+    bool includeSubfolderFiles)
+{
+    SearchResultSet result;
+    const std::wstring lowerQuery = FanFolderMatch::Lowercase(query);
+    if (folderPath.empty() || lowerQuery.empty() || maxResults <= 0) return result;
+
+    std::vector<FileItem> candidates;
+    bool capHit = false;
+
+    if (IsRecentDocsSentinel(folderPath)) {
+        candidates = ScanRecentDocs(std::max(maxResults, kRecentSearchCandidates),
+                                    sortMode, includeDirs);
+    } else if (IsRecentFilesSentinel(folderPath)) {
+        candidates = ScanRecentFiles(std::max(maxResults, kRecentSearchCandidates),
+                                     sortMode);
+    } else if (IsGraphRecentSentinel(folderPath)) {
+        std::unordered_set<std::wstring> seen;
+        candidates.reserve((size_t)std::max(maxResults, kRecentSearchCandidates) * 4);
+        ScanAutomaticDestinations(std::max(maxResults, kRecentSearchCandidates),
+                                 candidates, seen, /*useDestListTime=*/true);
+        candidates.erase(std::remove_if(candidates.begin(), candidates.end(),
+            [](const FileItem& f) {
+                return !IsOffice365Extension(f.fullPath.c_str());
+            }), candidates.end());
+    } else {
+        // Same walk ScanFolder does, but without truncating to maxItems before
+        // matching, which is the whole point of the search.
+        std::vector<DirJob> pending;
+        pending.push_back({ folderPath, L"", 0 });
+        while (!pending.empty() && candidates.size() < kMaxRecursiveItems) {
+            DirJob job = std::move(pending.back());
+            pending.pop_back();
+            CollectDirectory(job.path, job.relDir, job.depth, job.depth == 0,
+                             includeDirs, /*resolveLnk=*/true, includeSubfolderFiles,
+                             candidates, pending);
+        }
+        capHit = !pending.empty() || candidates.size() >= kMaxRecursiveItems;
+    }
+
+    ApplyRegexFilter(candidates, filterRegex);
+    if (candidates.empty()) return result;
+
+    // Bucket by rank so the best matches lead, and each bucket keeps the
+    // configured sort order internally.
+    std::array<std::vector<FileItem>, 6> buckets;
+    for (auto& item : candidates) {
+        const int score = FanFolderMatch::Score(item.name.c_str(),
+                                                item.relativeDir.c_str(),
+                                                lowerQuery);
+        if (score > FanFolderMatch::kNoMatch)
+            buckets[(size_t)score].push_back(std::move(item));
+    }
+
+    result.items.reserve((size_t)maxResults);
+    result.candidateCapHit = capHit;
+    for (int score = (int)buckets.size() - 1;
+         score >= FanFolderMatch::kFolderOnly; --score) {
+        auto& bucket = buckets[(size_t)score];
+        if (bucket.empty()) continue;
+        result.totalMatches += (int)bucket.size();
+        if ((int)result.items.size() >= maxResults) continue;
+
+        SortItems(bucket, sortMode);
+        const size_t room = (size_t)(maxResults - (int)result.items.size());
+        const size_t take = std::min(room, bucket.size());
+        std::move(bucket.begin(), bucket.begin() + (std::ptrdiff_t)take,
+                  std::back_inserter(result.items));
+    }
+
+    return result;
 }
 
 HBITMAP FileService::GetShellBitmap(const std::wstring& path, int size) {

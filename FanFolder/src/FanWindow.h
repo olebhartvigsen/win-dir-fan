@@ -11,6 +11,9 @@ class FanWindow {
 public:
     // Shared with MainWindow's keyboard hook; +1 and +2 carry icon results.
     static constexpr UINT WM_FAN_FILTER_KEY = WM_APP + 3;
+    // Posted by the search worker when a full-folder search finishes. lParam is
+    // a token, never a pointer; see SearchHandoff.
+    static constexpr UINT WM_FAN_SEARCH_RESULTS = WM_APP + 5;
 
     FanWindow(HINSTANCE hInst, HWND hwndOwner, const ConfigData& config,
               std::vector<FileItem> items = {});
@@ -127,6 +130,19 @@ private:
     // this to branch to the text-only rendering path.
     bool _noMatchesActive = false;
 
+    // Async full-folder search. The in-memory pass makes the first keystroke
+    // instant; this replaces the view with matches from the whole folder,
+    // including files outside the maxItems window.
+    std::atomic<int>  _searchGen{0};
+    // Shared, not a plain member: an in-flight walk may outlive this window,
+    // and a raw pointer to a member would dangle. The worker keeps its own ref.
+    std::shared_ptr<std::atomic<bool>> _searchInflight =
+        std::make_shared<std::atomic<bool>>(false);
+    int               _searchTotal   = 0;      // matches before truncation
+    bool              _searchRunning = false;  // a walk is in flight
+    bool              _searchPending = false;  // query changed while it ran
+    bool              _itemsFromSearch = false; // _items holds search results
+
     // Helpers used by layout/draw/hit-test to iterate the fan's slots.
     // Returns the number of slots to render.
     //   - non-empty visible: visible items + arrow (if shown)
@@ -184,6 +200,10 @@ private:
     // Drop target (inbound)
     bool         _dropHovering = false;
     IDropTarget* _dropTarget   = nullptr;
+    // Shell context menu, held only while TrackPopupMenuEx is on screen so
+    // WndProc can forward WM_INITMENUPOPUP / WM_DRAWITEM / WM_MEASUREITEM to
+    // extensions that need them.  Not owned: released by ShowContextMenu.
+    IContextMenu2* _contextMenu2 = nullptr;
     void OnDropHover(bool hovering);
     void HandleFileDrop(IDataObject* pDataObj);
 
@@ -209,6 +229,11 @@ private:
     void LaunchItem(int idx);
     void ShowContextMenu(int idx, POINT screenPt);
     void StartIconLoad(int idx);
+    void ScheduleSearch();
+    void StartSearch();
+    void CancelSearch();
+    void ApplySearchResults(std::vector<FileItem>&& items, int total);
+    std::wstring NoMatchesText() const;
     void FreeBackBuffer();
 
     static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
