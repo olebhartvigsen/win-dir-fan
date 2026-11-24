@@ -32,9 +32,14 @@ jobs:
             }
           }
       - name: Configure
-        run: cmake -S FanFolder -B build-verify -G "Visual Studio 17 2022" -A ${{ matrix.arch }}
+        run: cmake -S FanFolder -B build-verify -G "Visual Studio 17 2022" -A ${{ matrix.arch }} -DFANFOLDER_BUILD_TESTS=ON
       - name: Build
         run: cmake --build build-verify --config Release
+      # The ARM64 binary cannot execute on the x64 runner, so the portable
+      # match-ranking tests run on x64 only.
+      - name: Run portable tests
+        if: matrix.arch == 'x64'
+        run: build-verify/Release/FanFolderTests.exe
       - name: Verify executable
         shell: pwsh
         run: |
