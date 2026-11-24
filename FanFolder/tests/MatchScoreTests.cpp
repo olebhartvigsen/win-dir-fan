@@ -3,6 +3,7 @@
 #include "../src/MatchScore.h"
 
 #include <cstdio>
+#include <iterator>
 #include <string>
 
 namespace {

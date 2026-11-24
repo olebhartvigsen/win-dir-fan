@@ -12,6 +12,17 @@ metadata:
 The repo builds with MSVC on `windows-2022` only. On the Linux/macOS agent host there is
 no MSVC, so verify with mingw-w64 g++ before claiming a change works.
 
+## CI and release policy for this repo
+
+- Pushing to `master` runs `.github/workflows/verify.yml` (x64 and ARM64 build,
+  plus the portable match tests on x64). CI runs are pre-approved: do not ask
+  before starting one.
+- A release is a separate decision. `release.yml` publishes artifacts to the
+  distribution repo and pushes winget manifests back to `master`, so it needs
+  an explicit instruction and approval from the user every time.
+- `workflow_dispatch` on `release.yml` still creates a dev prerelease. Treat it
+  as a release, not as a build check.
+
 ## Get a compiler without root
 
 ```bash
