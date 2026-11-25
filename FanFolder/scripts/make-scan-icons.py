@@ -63,6 +63,36 @@ def build(base_path: Path, out_prefix: str) -> None:
         print("wrote", out.relative_to(RES.parent))
 
 
+OVERLAY_SIZES = [16, 20, 24, 32, 48]
+
+
+def overlay_frame(size: int, angle: float) -> Image.Image:
+    """Standalone ring badge for ITaskbarList3::SetOverlayIcon.
+
+    The overlay sits on top of the taskbar button, so it needs a faint dark
+    halo to stay readable on a light taskbar as well as a dark one.
+    """
+    ss = size * SUPERSAMPLE
+    layer = Image.new("RGBA", (ss, ss), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    pad = ss * 0.10
+    box = [pad, pad, ss - 1 - pad, ss - 1 - pad]
+    w = max(1, int(round(ss * 0.19)))
+    d.ellipse(box, outline=(0, 0, 0, 110), width=w + max(1, ss // 40))
+    d.arc(box, start=angle, end=angle + ARC_DEGREES, fill=RING_COLOR, width=w)
+    return layer.resize((size, size), Image.LANCZOS)
+
+
+def build_overlays() -> None:
+    for frame in range(FRAMES):
+        angle = frame * (360.0 / FRAMES)
+        frames = [overlay_frame(size, angle) for size in OVERLAY_SIZES]
+        out = RES / f"scan-overlay-{frame}.ico"
+        frames[-1].save(out, format="ICO",
+                        sizes=[(s, s) for s in OVERLAY_SIZES])
+        print("wrote", out.relative_to(RES.parent))
+
+
 def contact_sheet() -> None:
     cols = [16, 24, 32, 48]
     cell = 56
@@ -82,4 +112,5 @@ def contact_sheet() -> None:
 if __name__ == "__main__":
     build(RES / "app.ico", "app-scan")
     build(RES / "app-open.ico", "app-open-scan")
+    build_overlays()
     contact_sheet()
