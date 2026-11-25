@@ -264,6 +264,7 @@ FanWindow::FanWindow(HINSTANCE hInst, HWND hwndOwner,
 FanWindow::~FanWindow() {
     StopAnimTimer();
     delete _labelFont;   _labelFont   = nullptr;
+    delete _filterFont;  _filterFont  = nullptr;
     delete _labelSF;     _labelSF     = nullptr;
     delete _measureSF;   _measureSF   = nullptr;
     delete _drawIA;      _drawIA      = nullptr;
@@ -612,7 +613,7 @@ std::wstring FanWindow::FilterOverlayText() const {
 // so the desktop stays visible behind it.
 void FanWindow::DrawFilterOverlay(Gdiplus::Graphics& g) {
     if (_filterPillRect.Width <= 1.f || _filterPillRect.Height <= 1.f) return;
-    if (!_labelFont) RebuildFontCache();
+    if (!_filterFont) RebuildFontCache();
 
     const float x = _filterPillRect.X, y = _filterPillRect.Y;
     const float w = _filterPillRect.Width, h = _filterPillRect.Height;
@@ -641,10 +642,10 @@ void FanWindow::DrawFilterOverlay(Gdiplus::Graphics& g) {
     Gdiplus::Pen border(Gdiplus::Color(64, 255, 255, 255), 1.f);
     g.DrawPath(&border, &pill);
 
-    const float glyph = h * 0.52f;
-    const float padL  = h * 0.40f;
-    const float padR  = h * 0.46f;
-    const float gap   = h * 0.26f;
+    const float glyph = h * 0.46f;
+    const float padL  = h * 0.34f;
+    const float padR  = h * 0.40f;
+    const float gap   = h * 0.22f;
     const float textX = x + padL + glyph + gap;
     const float textW = std::max(0.f, w - padL - glyph - gap - padR);
 
@@ -660,7 +661,7 @@ void FanWindow::DrawFilterOverlay(Gdiplus::Graphics& g) {
     std::wstring text = FilterOverlayText();
     auto measure = [&](const std::wstring& s) {
         Gdiplus::RectF b;
-        g.MeasureString(s.c_str(), -1, _labelFont, Gdiplus::PointF(0, 0), &sf, &b);
+        g.MeasureString(s.c_str(), -1, _filterFont, Gdiplus::PointF(0, 0), &sf, &b);
         return b.Width;
     };
     if (!text.empty() && measure(text) > textW) {
@@ -672,7 +673,7 @@ void FanWindow::DrawFilterOverlay(Gdiplus::Graphics& g) {
 
     Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, 255, 255, 255));
     Gdiplus::RectF textRect(textX, y, textW, h);
-    g.DrawString(text.c_str(), -1, _labelFont, textRect, &sf, &textBrush);
+    g.DrawString(text.c_str(), -1, _filterFont, textRect, &sf, &textBrush);
 
     // Caret: marks the insertion point without needing a blink timer.
     const float caretX = std::min(x + w - padR, textX + measure(text) + 2.f);
@@ -979,6 +980,13 @@ void FanWindow::RebuildFontCache() {
     _labelSF->SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
     _labelSF->SetTrimming(Gdiplus::StringTrimmingNone);
 
+    // The search field is bigger than a label, so it gets its own font instead
+    // of borrowing the (small) item-label size.
+    delete _filterFont; _filterFont = nullptr;
+    _cachedFilterFontSize = std::max(14.f, _iconSize * 0.26f);
+    _filterFont = new Gdiplus::Font(L"Segoe UI", _cachedFilterFontSize,
+                                    Gdiplus::FontStyleRegular, Gdiplus::UnitPoint);
+
     _measureSF = new Gdiplus::StringFormat();
     _measureSF->SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
 }
@@ -1172,7 +1180,8 @@ void FanWindow::CalculateLayout() {
     // While a query is active, reserve a band on the far side of the fan for
     // the search pill. Without it the text sat on top of the first items.
     if (!_filterText.empty()) {
-        const float band = std::max(26.f, _iconSize * 0.46f) + 12.f;
+        const float pillH = std::max(42.f, _iconSize * 0.62f);
+        const float band  = pillH + 20.f;
         if (taskbarAtBottom)    minY -= band;
         else if (taskbarAtTop)  maxY += band;
         else if (taskbarAtLeft) maxX += band;
@@ -1216,41 +1225,45 @@ void FanWindow::CalculateLayout() {
     // Search pill geometry. Sized from the measured text (the old width was a
     // character-count guess that came out too narrow for a single letter, and
     // the clipped right-aligned string lost its first character), then centred
-    // in the reserved band.
+    // in the reserved band. A wide field reads as a search box; a chip that
+    // barely fits the query looks like a glitch.
     _filterPillRect = Gdiplus::RectF();
     if (!_filterText.empty() && _winWidth > 0) {
+        if (!_filterFont) RebuildFontCache();
         const std::wstring text = FilterOverlayText();
         Gdiplus::RectF bounds;
-        tmpG.MeasureString(text.c_str(), -1, _labelFont, Gdiplus::PointF(0, 0),
+        tmpG.MeasureString(text.c_str(), -1, _filterFont, Gdiplus::PointF(0, 0),
                            _measureSF, &bounds);
 
-        const float pillH = std::max(26.f, _iconSize * 0.46f);
-        const float glyph = pillH * 0.52f;
-        const float padL  = pillH * 0.40f;
-        const float padR  = pillH * 0.46f;
-        const float gap   = pillH * 0.26f;
+        const float pillH = std::max(42.f, _iconSize * 0.62f);
+        const float glyph = pillH * 0.46f;
+        const float padL  = pillH * 0.34f;
+        const float padR  = pillH * 0.40f;
+        const float gap   = pillH * 0.22f;
 
-        float w = padL + glyph + gap + bounds.Width + padR;
-        w = std::min(w, (float)_winWidth - 16.f);
-        if (w < 48.f) w = (float)_winWidth - 16.f;
+        const float wanted = padL + glyph + gap + bounds.Width + padR;
+        const float roomy  = std::min((float)_winWidth * 0.86f, 620.f);
+        float w = std::max(wanted, roomy);
+        w = std::min(w, (float)_winWidth - 24.f);
+        w = std::max(w, 160.f);
 
         float x, y;
         if (taskbarAtBottom) {
             x = ((float)_winWidth - w) / 2.f;
-            y = 8.f;
+            y = 10.f;
         } else if (taskbarAtTop) {
             x = ((float)_winWidth - w) / 2.f;
-            y = (float)_winHeight - pillH - 8.f;
+            y = (float)_winHeight - pillH - 10.f;
         } else if (taskbarAtLeft) {
-            x = (float)_winWidth - w - 8.f;
+            x = (float)_winWidth - w - 10.f;
             y = ((float)_winHeight - pillH) / 2.f;
         } else {
-            x = 8.f;
+            x = 10.f;
             y = ((float)_winHeight - pillH) / 2.f;
         }
-        x = std::max(8.f, x);
-        y = std::max(8.f, y);
-        _filterPillRect = Gdiplus::RectF(x, y, std::max(40.f, w), pillH);
+        x = std::max(10.f, x);
+        y = std::max(10.f, y);
+        _filterPillRect = Gdiplus::RectF(x, y, w, pillH);
     }
 }
 

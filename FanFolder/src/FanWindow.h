@@ -197,6 +197,10 @@ private:
     // Cached GDI+ font/format objects — rebuilt only when _iconSize changes
     float                  _cachedFontSize = 0.f;
     Gdiplus::Font*         _labelFont      = nullptr;
+    // Larger font for the search field; sized from the pill height, not from the
+    // item labels. Owned and released alongside _labelFont.
+    Gdiplus::Font*         _filterFont     = nullptr;
+    float                  _cachedFilterFontSize = 0.f;
     Gdiplus::StringFormat* _labelSF        = nullptr;  // for drawing: Far+Center+NoWrap
     Gdiplus::StringFormat* _measureSF      = nullptr;  // for measuring: NoWrap only
 
