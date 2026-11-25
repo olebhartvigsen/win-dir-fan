@@ -50,7 +50,7 @@ https://olebhartvigsen.github.io/FanFolder/
 
 **Details**
 
-- Version: 1.4.3
+- Version: 1.5.0
 - License: freeware, free for personal and commercial use, source code not distributed
 - Size: 1,488,896 bytes (x64)
 - Runtime dependencies: none

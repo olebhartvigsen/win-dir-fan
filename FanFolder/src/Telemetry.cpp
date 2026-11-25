@@ -20,7 +20,7 @@ namespace {
     // Must stay in lockstep with FILEVERSION/VALUE "FileVersion" in
     // FanFolder/resources/app.rc. Used only when the version resource cannot
     // be read at runtime, so a stale value reports the wrong app version.
-    constexpr char kFallbackAppVersion[] = "1.4.3";
+    constexpr char kFallbackAppVersion[] = "1.5.0";
 
 #if defined(_DEBUG)
     constexpr bool kIsDebugBuild = true;

@@ -6,7 +6,7 @@ submissions). Attach the five `screenshot-*.png` files and `demo.gif` from this 
 Suggested subject line:
 
 ```
-Submission: FanFolder 1.4.3, freeware taskbar fan for recent files
+Submission: FanFolder 1.5.0, freeware taskbar fan for recent files
 ```
 
 ---
@@ -18,7 +18,7 @@ Hello,
 I would like to submit FanFolder for consideration on MajorGeeks. It is a freeware Windows taskbar utility
 that I develop and maintain myself.
 
-**FanFolder 1.4.3**
+**FanFolder 1.5.0**
 
 Author: Ole Bülow Hartvigsen
 License: Freeware (free for personal and commercial use, source not distributed)

@@ -1,14 +1,16 @@
 # FanFolder: submission copy for software directories
 
-All copy verified against live sources on 3 October 2026. Sizes and URLs checked against the v1.4.3
-release. Both portals need a human with an account, so this file is everything required to submit.
+All copy verified against live sources on 3 October 2026. Sizes and URLs were checked against the
+v1.4.3 release; the current version is 1.5.0, so re-measure the file sizes and confirm the download
+URLs after the 1.5.0 build before sending anything to a portal. Both portals need a human with an account,
+so this file is everything required to submit.
 
 ## Verified facts, use these and nothing else
 
 | Fact | Value | Source |
 |---|---|---|
 | Product name | FanFolder | |
-| Version | 1.4.3 | latest release tag |
+| Version | 1.5.0 | latest release tag |
 | License | Freeware, free for personal and commercial use, source not distributed | LICENSE.md |
 | Portable x64 binary | 1,488,896 bytes (about 1.4 MB) | release asset |
 | Portable ARM64 binary | 1,436,160 bytes | release asset |
