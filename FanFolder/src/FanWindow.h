@@ -258,7 +258,6 @@ private:
     void NotifyBusyChanged();
     // Type-to-filter overlay: the query, the caret and the match counter, in a
     // translucent pill in a band reserved on the far side of the fan.
-    std::wstring FilterOverlayText() const;
     void DrawFilterOverlay(Gdiplus::Graphics& g);
     std::wstring NoMatchesText() const;
     void FreeBackBuffer();

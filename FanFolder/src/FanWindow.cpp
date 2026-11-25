@@ -606,16 +606,6 @@ void FanWindow::StartSearch() {
     }
 }
 
-// Text shown in the search field: the query plus the "3 of 27" counter when the
-// arc cannot show every match. Deliberately no "searching" ellipsis: it came and
-// went depending on how fast the walk finished, which read as a glitch.
-std::wstring FanWindow::FilterOverlayText() const {
-    std::wstring text = _filterText;
-    if (!_isPlaceholder && _searchTotal > (int)_items.size())
-        text += L"   " + MatchCountLabel((int)_items.size(), _searchTotal);
-    return text;
-}
-
 // The pill is the only part of the fan that shows what was typed, so it is
 // drawn from measured text instead of a per-character width guess: the guess
 // came out narrower than a single glyph, and the right-aligned string then lost
@@ -666,38 +656,64 @@ void FanWindow::DrawFilterOverlay(Gdiplus::Graphics& g) {
                       Gdiplus::StringFormatFlagsNoClip);
     sf.SetTrimming(Gdiplus::StringTrimmingNone);
 
-    // Drop characters from the front when the query outgrows the pill, so the
-    // most recent keystrokes stay readable.
-    std::wstring text = FilterOverlayText();
     auto measure = [&](const std::wstring& s) {
         Gdiplus::RectF b;
         g.MeasureString(s.c_str(), -1, _filterFont, Gdiplus::PointF(0, 0), &sf, &b);
         return b.Width;
     };
-    if (!text.empty() && measure(text) > textW) {
-        std::wstring trimmed = text;
-        while (trimmed.size() > 1 && measure(L"\u2026" + trimmed) > textW)
-            trimmed.erase(0, 1);
-        text = L"\u2026" + trimmed;
-    }
+    float fh = _filterFont->GetHeight(&g);
+    if (fh <= 0.f) fh = h * 0.45f;
+    // GDI+ pads the reported width by about a sixth of an em on each side.
+    // Everything that has to sit flush against the glyphs subtracts it.
+    const float inset = fh * 0.14f;
+
+    std::wstring query = _filterText;
+    std::wstring counter;
+    if (!_isPlaceholder && _searchTotal > (int)_items.size())
+        counter = MatchCountLabel((int)_items.size(), _searchTotal);
+    const float counterW = counter.empty()
+        ? 0.f : std::max(0.f, measure(counter) - inset);
+    const float counterSlot = counter.empty() ? 0.f : counterW + h * 0.30f;
 
     Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, 255, 255, 255));
-    Gdiplus::RectF textRect(textX, y, textW, h);
-    g.DrawString(text.c_str(), -1, _filterFont, textRect, &sf, &textBrush);
+    Gdiplus::SolidBrush counterBrush(Gdiplus::Color(210, 205, 205, 205));  // dimmed grey
 
-    // Caret: right after the glyphs, vertically on the font's own height rather
-    // than a fraction of the pill, and blinking (see TIMER_ID_CARET).
+    // Drop characters from the front of the query, never from the counter, so
+    // the newest keystrokes stay readable.
+    float budget = std::max(h * 1.2f, textW - counterSlot);
+    if (!query.empty() && measure(query) - inset > budget) {
+        while (query.size() > 1 && measure(L"\u2026" + query) - inset > budget)
+            query.erase(0, 1);
+        query = L"\u2026" + query;
+    }
+
+    const float queryEnd = textX + std::max(0.f, measure(query) - inset);
+    Gdiplus::RectF queryRect(textX, y, std::max(textW, 1.f), h);
+    g.DrawString(query.c_str(), -1, _filterFont, queryRect, &sf, &textBrush);
+
+    // The counter sits at the far right of the field, out of the way of both the
+    // query and the caret.
+    if (!counter.empty()) {
+        Gdiplus::StringFormat rightAlign;
+        rightAlign.SetAlignment(Gdiplus::StringAlignmentFar);
+        rightAlign.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+        rightAlign.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap |
+                                  Gdiplus::StringFormatFlagsNoClip);
+        rightAlign.SetTrimming(Gdiplus::StringTrimmingNone);
+        Gdiplus::RectF counterRect(x + w - padR - counterW, y, counterW, h);
+        g.DrawString(counter.c_str(), -1, _filterFont, counterRect,
+                     &rightAlign, &counterBrush);
+    }
+
+    // Caret: flush against the last glyph (GDI+ padding removed), on the font's
+    // own height, and never running into the counter. Blinks, see TIMER_ID_CARET.
     if (_caretOn) {
-        Gdiplus::RectF drawn;
-        g.MeasureString(text.c_str(), -1, _filterFont, textRect, &sf, &drawn);
-        const float textRight = std::min(x + w - padR,
-                                         drawn.X + drawn.Width);
-        float fh = _filterFont->GetHeight(&g);
-        if (fh <= 0.f) fh = h * 0.45f;
+        const float caretX = std::min(queryEnd + 1.f,
+                                      x + w - padR - counterSlot);
         const float top = y + (h - fh) / 2.f;
         Gdiplus::Pen caret(Gdiplus::Color(220, 255, 255, 255),
-                           std::max(1.f, h * 0.055f));
-        g.DrawLine(&caret, textRight + 2.f, top, textRight + 2.f, top + fh);
+                           std::max(1.f, h * 0.05f));
+        g.DrawLine(&caret, caretX, top, caretX, top + fh);
     }
 
     // Magnifier, drawn as geometry: U+2328 renders as a box in some fonts.
