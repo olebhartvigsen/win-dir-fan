@@ -1171,6 +1171,9 @@ struct SearchIndex {
 std::mutex                         g_indexMutex;
 std::shared_ptr<const SearchIndex> g_index;
 uint64_t                           g_indexGeneration = 0;
+// Serialises builds: the prewarm worker and a search can ask for the index at
+// the same time, and two walks of the same tree would be pure waste.
+std::mutex                         g_indexBuildMutex;
 
 std::shared_ptr<SearchIndex> BuildSearchIndex(const std::wstring& root,
                                              bool includeDirs, bool recurse)
@@ -1247,9 +1250,18 @@ std::shared_ptr<SearchIndex> BuildSearchIndex(const std::wstring& root,
 std::shared_ptr<const SearchIndex> EnsureSearchIndex(const std::wstring& root,
                                                     bool includeDirs, bool recurse)
 {
+    // Fast path: an index that already matches needs no build lock.
+    {
+        std::lock_guard<std::mutex> lk(g_indexMutex);
+        if (g_index && g_index->Suits(root, includeDirs, recurse)) return g_index;
+    }
+
+    std::lock_guard<std::mutex> buildLock(g_indexBuildMutex);
+
     uint64_t generation = 0;
     {
         std::lock_guard<std::mutex> lk(g_indexMutex);
+        // Another thread may have finished the same build while we waited.
         if (g_index && g_index->Suits(root, includeDirs, recurse)) return g_index;
         generation = g_indexGeneration;
     }
@@ -1350,6 +1362,120 @@ void SortItems(std::vector<FileItem>& items, ConfigData::SortMode sortMode) {
     }
 }
 
+// True for a name ending in ".lnk" (any case).
+bool HasLnkExtension(const std::wstring& name) {
+    const auto dot = name.rfind(L'.');
+    if (dot == std::wstring::npos) return false;
+    const wchar_t* ext = name.c_str() + dot;
+    return _wcsicmp(ext, L".lnk") == 0;
+}
+
+// Builds the fan's item list out of the index. Only the entries that can make
+// the cut are turned into FileItems, and shortcut targets are resolved for those
+// few instead of for every shortcut in the tree.
+std::vector<FileItem> ItemsFromIndex(const SearchIndex& index, int maxItems,
+                                     const std::wstring& filterRegex,
+                                     ConfigData::SortMode sortMode, bool resolveLnk)
+{
+    std::vector<FileItem> out;
+    if (maxItems <= 0 || index.entries.empty()) return out;
+
+    std::optional<std::wregex> regex;
+    if (!filterRegex.empty()) {
+        try {
+            regex.emplace(filterRegex, std::regex_constants::icase);
+        } catch (...) {
+            regex.reset();
+        }
+    }
+
+    std::vector<uint32_t> order;
+    order.reserve(index.entries.size());
+    for (uint32_t i = 0; i < (uint32_t)index.entries.size(); ++i) {
+        if (regex && !std::regex_search(index.entries[i].name, *regex)) continue;
+        order.push_back(i);
+    }
+
+    const auto& entries = index.entries;
+    const auto& dirs    = index.dirs;
+
+    // Ordering mirrors SortItems() exactly, on the index fields: the fan must
+    // not sort differently depending on where its list came from.
+    std::sort(order.begin(), order.end(), [&](uint32_t ia, uint32_t ib) {
+        const IndexEntry& a = entries[ia];
+        const IndexEntry& b = entries[ib];
+        auto pathLess = [&] {
+            const int c = _wcsicmp(dirs[a.dir].relPath.c_str(), dirs[b.dir].relPath.c_str());
+            if (c != 0) return c < 0;
+            return _wcsicmp(a.name.c_str(), b.name.c_str()) < 0;
+        };
+        switch (sortMode) {
+        case ConfigData::SortMode::DateModifiedDesc: {
+            const int c = CompareFileTime(&a.lastWrite, &b.lastWrite);
+            if (c != 0) return c > 0;
+            return pathLess();
+        }
+        case ConfigData::SortMode::DateModifiedAsc: {
+            const int c = CompareFileTime(&a.lastWrite, &b.lastWrite);
+            if (c != 0) return c < 0;
+            return pathLess();
+        }
+        case ConfigData::SortMode::DateCreatedDesc: {
+            const int c = CompareFileTime(&a.created, &b.created);
+            if (c != 0) return c > 0;
+            return pathLess();
+        }
+        case ConfigData::SortMode::DateCreatedAsc: {
+            const int c = CompareFileTime(&a.created, &b.created);
+            if (c != 0) return c < 0;
+            return pathLess();
+        }
+        case ConfigData::SortMode::NameAsc: {
+            const int c = _wcsicmp(a.name.c_str(), b.name.c_str());
+            if (c != 0) return c < 0;
+            return _wcsicmp(dirs[a.dir].relPath.c_str(),
+                            dirs[b.dir].relPath.c_str()) < 0;
+        }
+        case ConfigData::SortMode::NameDesc: {
+            const int c = _wcsicmp(a.name.c_str(), b.name.c_str());
+            if (c != 0) return c > 0;
+            return _wcsicmp(dirs[a.dir].relPath.c_str(),
+                            dirs[b.dir].relPath.c_str()) > 0;
+        }
+        }
+        return pathLess();
+    });
+
+    out.reserve((size_t)maxItems);
+    for (uint32_t i : order) {
+        const IndexEntry& e = entries[i];
+        const IndexDir&   d = dirs[e.dir];
+
+        FileItem item;
+        item.name        = e.name;
+        item.relativeDir = d.relPath;
+        item.fullPath    = d.fullPath + e.name;
+        item.isDirectory = e.isDirectory;
+        item.lastWriteTime = e.lastWrite;
+        item.creationTime  = e.created;
+
+        if (resolveLnk && !e.isDirectory && HasLnkExtension(e.name)) {
+            bool targetIsDir = false;
+            std::wstring target = FileService::ResolveLnk(item.fullPath, targetIsDir);
+            if (target.empty()) continue;          // dead shortcut: the walk skipped it too
+            if (targetIsDir && (e.dir != 0 || !index.includeDirs))
+                continue;                          // folder shortcuts only count at the root
+            item.targetPath  = target;
+            item.isDirectory = targetIsDir;
+        }
+
+        out.push_back(std::move(item));
+        if ((int)out.size() >= maxItems) break;
+    }
+
+    return out;
+}
+
 } // namespace
 
 bool FileService::ReadFolderStamp(const std::wstring& folderPath, FILETIME& outStamp,
@@ -1431,6 +1557,13 @@ std::vector<FileItem> FileService::ScanFolder(const std::wstring& folderPath, in
         return out;
     }
 
+    // The fan shows the first N entries of the same index the search uses, so
+    // opening the menu costs a sort over RAM instead of a tree walk of its own.
+    // The index is built by the prewarm worker at startup and after changes; the
+    // walk below stays as the fallback when it cannot be built.
+    if (auto index = EnsureSearchIndex(folderPath, includeDirs, includeSubfolderFiles))
+        return ItemsFromIndex(*index, maxItems, filterRegex, sortMode, resolveLnk);
+
     items.reserve(64);
 
     std::vector<DirJob> pending;
@@ -1464,6 +1597,12 @@ void FileService::InvalidateSearchIndex() {
     std::lock_guard<std::mutex> lk(g_indexMutex);
     g_index.reset();
     ++g_indexGeneration;
+}
+
+void FileService::WarmSearchIndex(const std::wstring& folderPath, bool includeDirs,
+                                  bool includeSubfolderFiles) {
+    if (folderPath.empty() || IsVirtualSentinel(folderPath)) return;
+    EnsureSearchIndex(folderPath, includeDirs, includeSubfolderFiles);
 }
 
 int FileService::MatchScore(const FileItem& item, const std::wstring& lowerQuery) {

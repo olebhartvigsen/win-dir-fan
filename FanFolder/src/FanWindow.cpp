@@ -2022,6 +2022,7 @@ void FanWindow::HandleFileDrop(IDataObject* pDataObj) {
 
     if (anyCopied) {
         // Reload items and icons so the fan reflects the new file immediately
+        FileService::InvalidateSearchIndex();   // dropped files are not in it yet
         _items = FileService::ScanFolder(_config.folderPath, _config.maxItems,
                                          _config.includeDirs, _config.filterRegex,
                                          _config.sortMode, /*resolveLnk=*/true,

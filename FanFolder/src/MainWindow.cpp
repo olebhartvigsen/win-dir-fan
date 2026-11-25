@@ -866,6 +866,12 @@ void MainWindow::StartPrewarm(bool force) {
         const bool stampValid = FileService::ReadFolderStamp(
             pw->cfg.folderPath, stamp, pw->cfg.includeSubfolderFiles);
 
+        // Build the name index here, on the prewarm worker, so the first fan
+        // open and the first keystroke never wait for a tree walk. ScanFolder
+        // below then serves the list straight out of the index.
+        FileService::WarmSearchIndex(pw->cfg.folderPath, pw->cfg.includeDirs,
+                                     pw->cfg.includeSubfolderFiles);
+
         auto items = FileService::ScanFolder(pw->cfg.folderPath, pw->cfg.maxItems,
                                              pw->cfg.includeDirs, pw->cfg.filterRegex,
                                              pw->cfg.sortMode, /*resolveLnk=*/true,

@@ -58,6 +58,12 @@ public:
     // may have changed.
     static void InvalidateSearchIndex();
 
+    // Builds the index ahead of time on the calling thread. The prewarm worker
+    // calls this at startup and after every change, so neither the first fan
+    // open nor the first keystroke pays for a tree walk.
+    static void WarmSearchIndex(const std::wstring& folderPath, bool includeDirs,
+                                bool includeSubfolderFiles);
+
     // Returns true when folderPath is the special "recent documents" sentinel
     static bool IsRecentDocsSentinel(const std::wstring& folderPath) {
         return folderPath == L"::RecentDocs::";
