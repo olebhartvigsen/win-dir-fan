@@ -44,17 +44,17 @@ function Write-ManifestFile($Path, $Content) {
 
 # ── version manifest ──────────────────────────────────────────────────────────
 @"
-# yaml-language-server: `$schema=https://aka.ms/winget-manifest.version.1.9.0.schema.json
+# yaml-language-server: `$schema=https://aka.ms/winget-manifest.version.1.12.0.schema.json
 PackageIdentifier: OleBhartvigsen.FanFolder
 PackageVersion: $Version
 DefaultLocale: en-US
 ManifestType: version
-ManifestVersion: 1.9.0
+ManifestVersion: 1.12.0
 "@ | Out-String | ForEach-Object { Write-ManifestFile "$OutDir/OleBhartvigsen.FanFolder.yaml" $_ }
 
 # ── installer manifest ────────────────────────────────────────────────────────
 @"
-# yaml-language-server: `$schema=https://aka.ms/winget-manifest.installer.1.9.0.schema.json
+# yaml-language-server: `$schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
 PackageIdentifier: OleBhartvigsen.FanFolder
 PackageVersion: $Version
 InstallerLocale: en-US
@@ -70,7 +70,7 @@ Installers:
   - Architecture: x64
     InstallerUrl: $baseUrl/FanFolderSetup-x64.msi
     InstallerSha256: $sha256_x64
-    ProductCode: '$pc_x64'
+    ProductCode: '$($pc_x64.Trim())'
     Scope: user
     InstallerSwitches:
       Silent: /quiet /norestart
@@ -78,18 +78,18 @@ Installers:
   - Architecture: arm64
     InstallerUrl: $baseUrl/FanFolderSetup-arm64.msi
     InstallerSha256: $sha256_arm64
-    ProductCode: '$pc_arm64'
+    ProductCode: '$($pc_arm64.Trim())'
     Scope: user
     InstallerSwitches:
       Silent: /quiet /norestart
       SilentWithProgress: /passive /norestart
 ManifestType: installer
-ManifestVersion: 1.9.0
+ManifestVersion: 1.12.0
 "@ | Out-String | ForEach-Object { Write-ManifestFile "$OutDir/OleBhartvigsen.FanFolder.installer.yaml" $_ }
 
 # ── locale manifest ───────────────────────────────────────────────────────────
 @"
-# yaml-language-server: `$schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
+# yaml-language-server: `$schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
 PackageIdentifier: OleBhartvigsen.FanFolder
 PackageVersion: $Version
 PackageLocale: en-US
@@ -142,7 +142,7 @@ Tags:
 - windows-11
 ${releaseNotesBlock}ReleaseNotesUrl: https://github.com/olebhartvigsen/FanFolder/releases/tag/v$Version
 ManifestType: defaultLocale
-ManifestVersion: 1.9.0
+ManifestVersion: 1.12.0
 "@ | Out-String | ForEach-Object { Write-ManifestFile "$OutDir/OleBhartvigsen.FanFolder.locale.en-US.yaml" $_ }
 
 Write-Host "Winget manifests written to $OutDir"
