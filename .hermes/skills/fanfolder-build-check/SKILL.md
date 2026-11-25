@@ -98,8 +98,24 @@ g++ -std=c++20 -Wall -Wextra -o /tmp/matchtests \
 The `.exe` built by CMake cannot run on Linux, so execute the native build
 above rather than `ctest`.
 
+## Icons and the resource script
+
+`resources/app.rc` only compiles in the CMake build, not in the `-fsyntax-only`
+pass. Any new `ICON` line must therefore be checked with the full build; a typo
+in a filename fails there with `file not found`.
+
+`scripts/make-scan-icons.py` derives the animated scanning frames
+(`app-scan-*.ico`, `app-open-scan-*.ico`) from `app.ico` and `app-open.ico` with
+Pillow. Run it after changing either source icon and keep the ids in
+`resource.h` and `app.rc` in sync.
+
+To prove the icons really landed in the binary, read the `.rsrc` section and
+count the `RT_GROUP_ICON` entries instead of trusting the build log.
+
 ## Pitfalls
 
+- `windres` prints `app.rc:NN: unrecognized escape sequence` for the
+  `\u00fcl` in the version string. That warning predates any icon work.
 - `_WIN32_WINNT` redefinition warning is expected, ignore it.
 - No linter or formatter runs on `.cpp` here; read the diff by hand.
 - This proves the code compiles, not that it links or behaves correctly. Anything that
