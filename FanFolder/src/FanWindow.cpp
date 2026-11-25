@@ -177,7 +177,7 @@ static constexpr UINT_PTR TIMER_ID_SEARCH    = 10;
 static constexpr UINT_PTR TIMER_ID_CARET     = 11;
 static constexpr UINT     CARET_BLINK_MS     = 530;
 
-static constexpr UINT     SEARCH_DEBOUNCE_MS = 120;
+static constexpr UINT     SEARCH_DEBOUNCE_MS = 40;
 static constexpr size_t   kMaxQueryLength    = 64;
 
 struct SearchPayload {
@@ -185,6 +185,7 @@ struct SearchPayload {
     int          total = 0;
     int          gen   = 0;
     std::wstring query;
+    bool         capped = false;   // the item cap cut the walk short
 };
 
 struct SearchWork {
@@ -527,6 +528,7 @@ void FanWindow::CancelSearch() {
     _searchRunning = false;
     _searchPending = false;
     _searchTotal   = 0;
+    _searchCapped  = false;
     if (wasBusy) NotifyBusyChanged();
 }
 
@@ -585,7 +587,8 @@ void FanWindow::StartSearch() {
                     w->cfg.filterRegex, w->cfg.sortMode, w->cfg.includeSubfolderFiles);
 
                 auto* payload = new SearchPayload{ std::move(set.items),
-                                                   set.totalMatches, w->gen, w->query };
+                                                   set.totalMatches, w->gen, w->query,
+                                                   set.candidateCapHit };
                 const UINT token = SearchHandoff::Register(payload);
                 if (!token ||
                     !PostMessageW(w->hwnd, WM_FAN_SEARCH_RESULTS, 0, (LPARAM)token)) {
@@ -669,8 +672,11 @@ void FanWindow::DrawFilterOverlay(Gdiplus::Graphics& g) {
 
     std::wstring query = _filterText;
     std::wstring counter;
-    if (!_isPlaceholder && _searchTotal > (int)_items.size())
+    if (!_isPlaceholder && _searchTotal > (int)_items.size()) {
         counter = MatchCountLabel((int)_items.size(), _searchTotal);
+        // The item cap cut the walk short, so the total is a floor, not a count.
+        if (_searchCapped) counter += L"+";
+    }
     const float counterW = counter.empty()
         ? 0.f : std::max(0.f, measure(counter) - inset);
     const float counterSlot = counter.empty() ? 0.f : counterW + h * 0.30f;
@@ -735,7 +741,7 @@ std::wstring FanWindow::NoMatchesText() const {
     return _searchRunning ? std::wstring(SearchingLabel()) : NoMatchesLabel(_filterText);
 }
 
-void FanWindow::ApplySearchResults(std::vector<FileItem>&& items, int total) {
+void FanWindow::ApplySearchResults(std::vector<FileItem>&& items, int total, bool capped) {
     if (!_hwnd) return;
 
     // Prewarm icons are indexed by the old list; new indices do not line up.
@@ -757,6 +763,7 @@ void FanWindow::ApplySearchResults(std::vector<FileItem>&& items, int total) {
         _items.push_back(std::move(ph));
     }
     _searchTotal = total;
+    _searchCapped = capped;
 
     _hasExplorerButton = (_config.folderPath != L"::GraphRecent::" &&
                           _config.folderPath != L"::RecentDocs::");
@@ -2546,7 +2553,8 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             payload->gen != self->_searchGen.load(std::memory_order_acquire) ||
             payload->query != self->_filterText;
         if (!stale)
-            self->ApplySearchResults(std::move(payload->items), payload->total);
+            self->ApplySearchResults(std::move(payload->items), payload->total,
+                                     payload->capped);
 
         // Run the follow-up even after a stale result: this may be the message
         // that cleared the in-flight flag for a query typed meanwhile.

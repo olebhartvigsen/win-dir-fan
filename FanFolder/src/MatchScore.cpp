@@ -2,6 +2,7 @@
 #include "MatchScore.h"
 
 #include <cwctype>
+#include <cwchar>
 
 namespace {
 
@@ -41,6 +42,14 @@ std::wstring Lowercase(std::wstring_view text) {
 int ScoreLowered(std::wstring_view lowerName, std::wstring_view lowerDir,
                  const std::wstring& lowerQuery) {
     if (lowerName.empty() || lowerQuery.empty()) return kNoMatch;
+
+    // Cheap prefilter before any string search: a match, of any rank, has to
+    // contain the query's first character in the name or the folder.
+    const wchar_t first = lowerQuery[0];
+    if (!std::wmemchr(lowerName.data(), first, lowerName.size()) &&
+        (lowerDir.empty() ||
+         !std::wmemchr(lowerDir.data(), first, lowerDir.size())))
+        return kNoMatch;
 
     if (lowerName == lowerQuery) return kExact;
 

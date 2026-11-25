@@ -4,10 +4,18 @@
 
 // Watches a directory with ReadDirectoryChangesW and posts a notification to
 // the owner window when an entry is created, renamed, or deleted.  The watch
-// runs on its own thread.  Start() and Stop() are called from the UI thread;
-// the notification is a plain PostMessageW with no payload.
+// runs on its own thread.  Start() and Stop() are called from the UI thread.
+//
+// The change details are queued, not posted: the notification is still a plain
+// PostMessageW, and the owner drains the queue with TakeChanges(). That lets the
+// search index patch one directory instead of rebuilding the whole tree.
 class FolderWatcher {
 public:
+    struct Change {
+        std::wstring relPath;   // relative to the watched root, "Sub\\file.txt"
+        bool         removed;   // deleted, or renamed away
+    };
+
     FolderWatcher() = default;
     ~FolderWatcher();
 
@@ -21,6 +29,11 @@ public:
 
     bool IsWatching() const { return _running.load(std::memory_order_acquire); }
 
+    // Moves the queued changes to `out`. Returns false when the notification
+    // buffer overflowed, which means changes were lost and the caller has to
+    // rebuild from scratch instead of patching.
+    bool TakeChanges(std::vector<Change>& out);
+
 private:
     void Run();
 
@@ -32,4 +45,8 @@ private:
     HWND              _notifyWnd    = nullptr;
     UINT              _msg          = 0;
     bool              _watchSubtree = false;
+
+    std::mutex          _changesMutex;
+    std::vector<Change> _changes;
+    bool                _overflow = false;
 };

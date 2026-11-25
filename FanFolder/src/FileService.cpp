@@ -1143,6 +1143,7 @@ struct IndexDir {
     std::wstring fullPath;      // with a trailing separator
     std::wstring relPath;       // "" at the root, "Sub\\Deeper" below
     std::wstring lowerRelPath;
+    FILETIME     lastWrite = {};   // directory mtime, used as the freshness stamp
 };
 
 struct IndexEntry {
@@ -1169,8 +1170,10 @@ struct SearchIndex {
 };
 
 std::mutex                         g_indexMutex;
-std::shared_ptr<const SearchIndex> g_index;
+std::shared_ptr<SearchIndex>       g_index;
 uint64_t                           g_indexGeneration = 0;
+// One attempt per process to reuse the index written by the previous run.
+std::atomic<bool>                  g_indexLoadTried{false};
 // Serialises builds: the prewarm worker and a search can ask for the index at
 // the same time, and two walks of the same tree would be pure waste.
 std::mutex                         g_indexBuildMutex;
@@ -1197,6 +1200,9 @@ std::shared_ptr<SearchIndex> BuildSearchIndex(const std::wstring& root,
             dir.fullPath += L'\\';
         dir.relPath      = job.relDir;
         dir.lowerRelPath = FanFolderMatch::Lowercase(job.relDir);
+        WIN32_FILE_ATTRIBUTE_DATA fad = {};
+        if (GetFileAttributesExW(job.path.c_str(), GetFileExInfoStandard, &fad))
+            dir.lastWrite = fad.ftLastWriteTime;
         const uint32_t dirIndex = (uint32_t)idx->dirs.size();
         const std::wstring dirPrefix = dir.fullPath;
         idx->dirs.push_back(std::move(dir));
@@ -1244,6 +1250,10 @@ std::shared_ptr<SearchIndex> BuildSearchIndex(const std::wstring& root,
     return idx;
 }
 
+// Forward declarations: the disk cache is implemented with the maintenance
+// helpers further down, and EnsureSearchIndex tries it before walking.
+std::shared_ptr<SearchIndex> LoadIndexFromDisk();
+
 // Returns the index for this folder, building it on the worker thread when the
 // cached one is missing or was invalidated. The build deliberately runs without
 // the mutex held, so a UI-thread InvalidateSearchIndex() never blocks behind it.
@@ -1264,6 +1274,17 @@ std::shared_ptr<const SearchIndex> EnsureSearchIndex(const std::wstring& root,
         // Another thread may have finished the same build while we waited.
         if (g_index && g_index->Suits(root, includeDirs, recurse)) return g_index;
         generation = g_indexGeneration;
+    }
+
+    // First request in this process: try the index the previous run wrote. It is
+    // only used when every directory mtime still matches, so a changed tree is
+    // rebuilt instead of served stale.
+    if (!g_indexLoadTried.exchange(true)) {
+        if (auto loaded = LoadIndexFromDisk()) {
+            std::lock_guard<std::mutex> lk(g_indexMutex);
+            if (!g_index) g_index = loaded;
+            if (g_index && g_index->Suits(root, includeDirs, recurse)) return g_index;
+        }
     }
 
     std::shared_ptr<SearchIndex> built;
@@ -1476,6 +1497,230 @@ std::vector<FileItem> ItemsFromIndex(const SearchIndex& index, int maxItems,
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// Index maintenance: directory level refresh, freshness check, disk cache.
+//
+// A watcher notification names one path. Re-enumerating that file's directory
+// costs as much as the directory has entries, instead of the whole tree, and a
+// directory mtime is enough to tell whether the tree still matches the index.
+int32_t FindDirIndex(const SearchIndex& idx, const std::wstring& relDir) {
+    for (size_t i = 0; i < idx.dirs.size(); ++i) {
+        if (_wcsicmp(idx.dirs[i].relPath.c_str(), relDir.c_str()) == 0)
+            return (int32_t)i;
+    }
+    return -1;
+}
+
+std::wstring ParentOfRel(const std::wstring& relPath) {
+    const size_t cut = relPath.rfind(L'\\');
+    return (cut == std::wstring::npos) ? std::wstring() : relPath.substr(0, cut);
+}
+
+FILETIME DirStampOf(const std::wstring& path) {
+    WIN32_FILE_ATTRIBUTE_DATA fad = {};
+    if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &fad))
+        return fad.ftLastWriteTime;
+    return FILETIME{};
+}
+
+bool SameTime(const FILETIME& a, const FILETIME& b) {
+    return a.dwHighDateTime == b.dwHighDateTime && a.dwLowDateTime == b.dwLowDateTime;
+}
+
+// Rebuilds one directory's entries from disk. The directory records and the
+// subdirectory walk stay untouched: creating or removing a folder is handled by
+// a full rebuild, because that is where the tree shape changes.
+void RefreshOneDirectory(SearchIndex& idx, uint32_t dirIndex) {
+    if (dirIndex >= idx.dirs.size()) return;
+    const uint32_t wanted = dirIndex;
+
+    idx.entries.erase(
+        std::remove_if(idx.entries.begin(), idx.entries.end(),
+                       [wanted](const IndexEntry& e) { return e.dir == wanted; }),
+        idx.entries.end());
+
+    idx.dirs[dirIndex].lastWrite = DirStampOf(idx.dirs[dirIndex].fullPath);
+
+    const bool isRoot = (dirIndex == 0);
+    WIN32_FIND_DATAW fd = {};
+    HANDLE hFind = OpenDirectoryEnum(idx.dirs[dirIndex].fullPath + L'*', fd);
+    if (hFind == INVALID_HANDLE_VALUE) return;
+
+    do {
+        if (fd.cFileName[0] == L'.') continue;
+        if (fd.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) continue;
+
+        const bool isDir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        if (isDir && !(isRoot && idx.includeDirs)) continue;
+
+        IndexEntry entry;
+        entry.name        = fd.cFileName;
+        entry.lowerName   = FanFolderMatch::Lowercase(entry.name);
+        entry.lastWrite   = fd.ftLastWriteTime;
+        entry.created     = fd.ftCreationTime;
+        entry.dir         = dirIndex;
+        entry.isDirectory = isDir;
+        idx.entries.push_back(std::move(entry));
+    } while (FindNextFileW(hFind, &fd));
+
+    FindClose(hFind);
+}
+
+std::wstring IndexCachePath() {
+    PWSTR base = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &base)) || !base)
+        return std::wstring();
+    std::wstring dir(base);
+    CoTaskMemFree(base);
+    dir += L"\\FanFolder";
+    CreateDirectoryW(dir.c_str(), nullptr);   // already exists is fine
+    return dir + L"\\search-index.bin";
+}
+
+constexpr uint32_t kIndexCacheVersion = 1;
+
+template <class T>
+void WritePod(HANDLE h, const T& value) {
+    DWORD written = 0;
+    WriteFile(h, &value, sizeof(T), &written, nullptr);
+}
+
+void WriteString(HANDLE h, const std::wstring& s) {
+    const uint32_t len = (uint32_t)s.size();
+    WritePod(h, len);
+    if (len) {
+        DWORD written = 0;
+        WriteFile(h, s.data(), len * sizeof(wchar_t), &written, nullptr);
+    }
+}
+
+struct Reader {
+    HANDLE h = INVALID_HANDLE_VALUE;
+    bool   ok = true;
+
+    bool ReadPod(void* out, DWORD bytes) {
+        if (!ok) return false;
+        DWORD got = 0;
+        if (!ReadFile(h, out, bytes, &got, nullptr) || got != bytes) { ok = false; return false; }
+        return true;
+    }
+    template <class T> T Pod() { T v{}; ReadPod(&v, sizeof(T)); return v; }
+    std::wstring String() {
+        const uint32_t len = Pod<uint32_t>();
+        if (!ok || len > (1u << 20)) { ok = false; return std::wstring(); }
+        std::wstring s(len, L'\0');
+        if (len) ReadPod(s.data(), len * sizeof(wchar_t));
+        return s;
+    }
+};
+
+// True when every indexed directory still has the mtime it had at build time.
+// One stat per directory, no enumeration, and directory mtimes move on add,
+// remove and rename anywhere below them.
+bool IndexCacheMatchesDisk(const SearchIndex& idx) {
+    if (idx.dirs.empty()) return false;
+    for (const auto& dir : idx.dirs) {
+        std::wstring path = dir.fullPath;
+        while (path.size() > 3 && path.back() == L'\\') path.pop_back();
+        const FILETIME stamp = DirStampOf(path);
+        if (stamp.dwLowDateTime == 0 && stamp.dwHighDateTime == 0) return false;
+        if (!SameTime(stamp, dir.lastWrite)) return false;
+    }
+    return true;
+}
+
+std::shared_ptr<SearchIndex> LoadIndexFromDisk() {
+    const std::wstring path = IndexCachePath();
+    if (path.empty()) return nullptr;
+
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return nullptr;
+
+    Reader r{h};
+    char magic[8] = {};
+    r.ReadPod(magic, sizeof(magic));
+    const uint32_t version = r.Pod<uint32_t>();
+    if (!r.ok || memcmp(magic, "FFIDX1", 6) != 0 || version != kIndexCacheVersion) {
+        CloseHandle(h);
+        return nullptr;
+    }
+
+    auto idx = std::make_shared<SearchIndex>();
+    idx->includeDirs           = r.Pod<uint32_t>() != 0;
+    idx->includeSubfolderFiles = r.Pod<uint32_t>() != 0;
+    idx->complete              = r.Pod<uint32_t>() != 0;
+    idx->root                  = r.String();
+    const uint32_t dirCount    = r.Pod<uint32_t>();
+    const uint32_t entryCount  = r.Pod<uint32_t>();
+
+    if (!r.ok || idx->root.empty() || dirCount > 50000u || entryCount > 100000u) {
+        CloseHandle(h);
+        return nullptr;
+    }
+
+    idx->dirs.resize(dirCount);
+    for (auto& dir : idx->dirs) {
+        dir.relPath = r.String();
+        r.ReadPod(&dir.lastWrite, sizeof(FILETIME));
+        dir.fullPath = idx->root;
+        if (!dir.fullPath.empty() && dir.fullPath.back() != L'\\') dir.fullPath += L'\\';
+        if (!dir.relPath.empty()) dir.fullPath += dir.relPath + L'\\';
+        dir.lowerRelPath = FanFolderMatch::Lowercase(dir.relPath);
+    }
+
+    idx->entries.resize(entryCount);
+    for (auto& entry : idx->entries) {
+        entry.dir         = r.Pod<uint32_t>();
+        entry.isDirectory = r.Pod<uint32_t>() != 0;
+        r.ReadPod(&entry.lastWrite, sizeof(FILETIME));
+        r.ReadPod(&entry.created, sizeof(FILETIME));
+        entry.name      = r.String();
+        entry.lowerName = FanFolderMatch::Lowercase(entry.name);
+        if (!r.ok || entry.dir >= dirCount) { CloseHandle(h); return nullptr; }
+    }
+
+    CloseHandle(h);
+    if (!r.ok) return nullptr;
+    if (!IndexCacheMatchesDisk(*idx)) return nullptr;
+    return idx;
+}
+
+void SaveIndexToDisk(const SearchIndex& idx) {
+    const std::wstring path = IndexCachePath();
+    if (path.empty() || idx.dirs.empty()) return;
+
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                           FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return;
+
+    const char magic[8] = { 'F', 'F', 'I', 'D', 'X', '1', '\0', '\0' };
+    DWORD written = 0;
+    WriteFile(h, magic, sizeof(magic), &written, nullptr);
+
+    WritePod(h, kIndexCacheVersion);
+    WritePod(h, (uint32_t)(idx.includeDirs ? 1 : 0));
+    WritePod(h, (uint32_t)(idx.includeSubfolderFiles ? 1 : 0));
+    WritePod(h, (uint32_t)(idx.complete ? 1 : 0));
+    WriteString(h, idx.root);
+    WritePod(h, (uint32_t)idx.dirs.size());
+    WritePod(h, (uint32_t)idx.entries.size());
+
+    for (const auto& dir : idx.dirs) {
+        WriteString(h, dir.relPath);
+        WriteFile(h, &dir.lastWrite, sizeof(FILETIME), &written, nullptr);
+    }
+    for (const auto& entry : idx.entries) {
+        WritePod(h, entry.dir);
+        WritePod(h, (uint32_t)(entry.isDirectory ? 1 : 0));
+        WriteFile(h, &entry.lastWrite, sizeof(FILETIME), &written, nullptr);
+        WriteFile(h, &entry.created, sizeof(FILETIME), &written, nullptr);
+        WriteString(h, entry.name);
+    }
+
+    CloseHandle(h);
+}
+
 } // namespace
 
 bool FileService::ReadFolderStamp(const std::wstring& folderPath, FILETIME& outStamp,
@@ -1603,6 +1848,70 @@ void FileService::WarmSearchIndex(const std::wstring& folderPath, bool includeDi
                                   bool includeSubfolderFiles) {
     if (folderPath.empty() || IsVirtualSentinel(folderPath)) return;
     EnsureSearchIndex(folderPath, includeDirs, includeSubfolderFiles);
+}
+
+bool FileService::ApplyIndexChanges(const std::wstring& folderPath, bool includeDirs,
+                                    bool includeSubfolderFiles,
+                                    const std::vector<IndexChange>& changes) {
+    if (folderPath.empty() || IsVirtualSentinel(folderPath)) return false;
+
+    std::lock_guard<std::mutex> lk(g_indexMutex);
+    if (!g_index || !g_index->Suits(folderPath, includeDirs, includeSubfolderFiles))
+        return false;
+
+    std::wstring root = folderPath;
+    while (root.size() > 3 && root.back() == L'\\') root.pop_back();
+
+    // A refresh is only valid when the tree keeps its shape. A folder that was
+    // added, removed or renamed changes the directory table, and that is where
+    // the caller rebuilds instead.
+    std::vector<std::wstring> dirtyParents;
+    for (const auto& change : changes) {
+        const std::wstring full = root + L'\\' + change.relPath;
+        WIN32_FILE_ATTRIBUTE_DATA fad = {};
+        const bool isDirNow =
+            GetFileAttributesExW(full.c_str(), GetFileExInfoStandard, &fad) &&
+            (fad.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        if (isDirNow || FindDirIndex(*g_index, change.relPath) >= 0)
+            return false;
+
+        const std::wstring parent = ParentOfRel(change.relPath);
+        if (FindDirIndex(*g_index, parent) < 0) continue;   // outside the indexed tree
+        if (std::find(dirtyParents.begin(), dirtyParents.end(), parent) ==
+            dirtyParents.end())
+            dirtyParents.push_back(parent);
+    }
+
+    if (dirtyParents.empty()) return true;
+
+    // A reader may hold the snapshot (a search in flight), so mutate a copy in
+    // that case. Normally the count is 1 and the patch happens in place.
+    if (g_index.use_count() > 1)
+        g_index = std::make_shared<SearchIndex>(*g_index);
+
+    for (const auto& rel : dirtyParents) {
+        const int32_t index = FindDirIndex(*g_index, rel);
+        if (index >= 0) RefreshOneDirectory(*g_index, (uint32_t)index);
+    }
+    return true;
+}
+
+bool FileService::IndexIsFresh() {
+    std::shared_ptr<SearchIndex> snapshot;
+    {
+        std::lock_guard<std::mutex> lk(g_indexMutex);
+        snapshot = g_index;
+    }
+    return snapshot && IndexCacheMatchesDisk(*snapshot);
+}
+
+void FileService::SaveSearchIndex() {
+    std::shared_ptr<SearchIndex> snapshot;
+    {
+        std::lock_guard<std::mutex> lk(g_indexMutex);
+        snapshot = g_index;
+    }
+    if (snapshot && snapshot->complete) SaveIndexToDisk(*snapshot);
 }
 
 int FileService::MatchScore(const FileItem& item, const std::wstring& lowerQuery) {

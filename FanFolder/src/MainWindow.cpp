@@ -283,6 +283,10 @@ MainWindow::MainWindow(HINSTANCE hInst, const ConfigData& config)
 }
 
 MainWindow::~MainWindow() {
+    // Write the name index back so the next run starts warm. Best effort: a
+    // failed write only costs one rebuild.
+    FileService::SaveSearchIndex();
+
     // Join the watcher before the window disappears: its worker may still be
     // blocked in ReadDirectoryChangesW and must be woken by the stop event.
     _folderWatcher.Stop();
@@ -614,14 +618,20 @@ void MainWindow::VerifyFolderChangedAsync() {
     BOOL submitted = TrySubmitThreadpoolCallback([](PTP_CALLBACK_INSTANCE, PVOID ctx) {
         std::unique_ptr<VerifyWork> w(static_cast<VerifyWork*>(ctx));
         try {
-            FILETIME now = {};
-            if (!FileService::ReadFolderStamp(w->cfg.folderPath, now,
-                                              w->cfg.includeSubfolderFiles))
-                return;
-            if (now.dwLowDateTime  != w->expected.dwLowDateTime ||
-                now.dwHighDateTime != w->expected.dwHighDateTime) {
-                PostMessageW(w->hwnd, w->msg, 0, 0);
+            // The index stamps every directory, so this is one stat per
+            // directory instead of a walk of the whole tree. Only when there is
+            // no index at all does the cheap root comparison run.
+            bool fresh = FileService::IndexIsFresh();
+            if (!fresh) {
+                FILETIME now = {};
+                if (FileService::ReadFolderStamp(w->cfg.folderPath, now,
+                                                 /*recursive=*/false)) {
+                    fresh = (now.dwLowDateTime  == w->expected.dwLowDateTime &&
+                             now.dwHighDateTime == w->expected.dwHighDateTime);
+                }
             }
+            if (!fresh)
+                PostMessageW(w->hwnd, w->msg, 0, 0);
         } catch (...) {
             // A verifier failure is not fatal: the next close or timer tick
             // tries again, and the watcher covers normal local-folder changes.
@@ -637,6 +647,13 @@ void MainWindow::VerifyFolderChangedAsync() {
 // notification volume matches what the scan actually shows.
 void MainWindow::StartFolderWatch() {
     if (!_hwnd) return;
+
+    // A new watch means a new folder, resume, or a settings change: queued paths
+    // from the previous watch must not be applied to the new index.
+    {
+        std::lock_guard<std::mutex> lk(_prewarmMutex);
+        _pendingIndexChanges.clear();
+    }
 
     const bool isVirtual = FileService::IsVirtualSentinel(_config.folderPath);
     _folderWatcher.Start(_config.folderPath, _config.includeSubfolderFiles,
@@ -797,10 +814,6 @@ void MainWindow::RefreshBusyIndicator() {
 
 // ---------------------------------------------------------------------------
 void MainWindow::StartPrewarm(bool force) {
-    // A forced rescan means the folder may have changed, so the search index is
-    // no longer trustworthy. Dropping it here keeps one invalidation point.
-    if (force) FileService::InvalidateSearchIndex();
-
     // Debounce: if a prewarm worker is already queued/running, skip unless the
     // caller forces a refresh (e.g. folder/settings actually changed).  Rapid
     // open/close cycles would otherwise queue a cascade of redundant scan +
@@ -812,13 +825,31 @@ void MainWindow::StartPrewarm(bool force) {
     HWND       hwnd  = _hwnd;
     int        myGen = ++_prewarmGen;  // invalidates any still-running prewarm thread
 
+    // Watcher notifications are applied to the index on the worker, not here:
+    // re-enumerating a directory on the UI thread would stall the menu if that
+    // directory sits on a slow share.
+    std::vector<FileService::IndexChange> changes;
+    bool rebuild = false;
+    {
+        std::lock_guard<std::mutex> lk(_prewarmMutex);
+        if (force) {
+            changes.swap(_pendingIndexChanges);
+            rebuild = _indexRebuildNeeded;
+            _indexRebuildNeeded = false;
+        }
+    }
+
     struct PrewarmWork {
         MainWindow* self;
         ConfigData  cfg;
         HWND        hwnd;
         int         myGen;
+        bool        force;
+        bool        rebuild;
+        std::vector<FileService::IndexChange> changes;
     };
-    auto* work = new PrewarmWork{this, std::move(cfg), hwnd, myGen};
+    auto* work = new PrewarmWork{this, std::move(cfg), hwnd, myGen, force,
+                                 rebuild, std::move(changes)};
 
     _prewarmInflight.fetch_add(1, std::memory_order_acq_rel);
     RefreshBusyIndicator();   // the menu content is being (re)scanned now
@@ -859,12 +890,28 @@ void MainWindow::StartPrewarm(bool force) {
             iconSize = std::clamp(screenH / 19, 48, 128);
         }
 
+        // Apply the watcher notifications to the index before scanning, so a
+        // normal save costs one directory instead of a walk of the tree. An
+        // overflowed buffer, or a forced refresh with no details, rebuilds.
+        if (pw->rebuild) {
+            FileService::InvalidateSearchIndex();
+        } else if (!pw->changes.empty()) {
+            if (!FileService::ApplyIndexChanges(pw->cfg.folderPath, pw->cfg.includeDirs,
+                                                pw->cfg.includeSubfolderFiles,
+                                                pw->changes))
+                FileService::InvalidateSearchIndex();
+        } else if (pw->force) {
+            FileService::InvalidateSearchIndex();
+        }
+
         // Read the directory mtime BEFORE scanning.  Capturing it first means a
         // change that lands mid-scan still leaves us with the older stamp, so
         // the next open rescans rather than trusting a scan that raced.
         FILETIME stamp = {};
+        // Root mtime only: the watcher covers changes below it, and the index
+        // keeps its own per-directory stamps for the freshness check.
         const bool stampValid = FileService::ReadFolderStamp(
-            pw->cfg.folderPath, stamp, pw->cfg.includeSubfolderFiles);
+            pw->cfg.folderPath, stamp, /*recursive=*/false);
 
         // Build the name index here, on the prewarm worker, so the first fan
         // open and the first keystroke never wait for a tree walk. ScanFolder
@@ -1672,15 +1719,39 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             ShowWindow(hwnd, SW_SHOWMINNOACTIVE);  // SW_MINIMIZE would activate the next window → cursor jump
         return 0;
 
-    case WM_MAIN_FOLDER_CHANGED:
-        // A filesystem change arrived.  Coalesce a burst into one scan.
-        // The watcher is started on Create, on a folder/subfolder setting
-        // change, and after resume.  If its thread dies, the 60 s background
-        // verifier still detects changes; do not re-open it here, because
-        // CreateFileW on a dead network path would block the UI thread.
+    case WM_MAIN_FOLDER_CHANGED: {
+        // Queue the notification details for the prewarm worker, which patches
+        // the index directory by directory. An overflowed notification buffer
+        // cannot be patched, so it forces a rebuild.
+        std::vector<FolderWatcher::Change> raw;
+        const bool complete = self->_folderWatcher.TakeChanges(raw);
+        {
+            std::lock_guard<std::mutex> lk(self->_prewarmMutex);
+            if (!complete) {
+                self->_pendingIndexChanges.clear();
+                self->_indexRebuildNeeded = true;
+            } else {
+                for (auto& change : raw) {
+                    if (self->_pendingIndexChanges.size() >= 2048) {
+                        // A mass change is cheaper to rebuild than to patch.
+                        self->_pendingIndexChanges.clear();
+                        self->_indexRebuildNeeded = true;
+                        break;
+                    }
+                    self->_pendingIndexChanges.push_back(
+                        { std::move(change.relPath), change.removed });
+                }
+            }
+        }
+
+        // Coalesce a burst into one scan. The watcher is started on Create, on a
+        // folder/subfolder setting change, and after resume. If its thread dies,
+        // the 60 s verifier still detects changes; do not re-open it here,
+        // because CreateFileW on a dead network path would block the UI thread.
         self->_folderDirty.store(true, std::memory_order_release);
         SetTimer(hwnd, TIMER_ID_FOLDER_REFRESH, TIMER_FOLDER_REFRESH_MS, nullptr);
         return 0;
+    }
 
     case WM_MAIN_PREWARM: {
         // Token, not pointer: an unknown token is a forged or stale message.

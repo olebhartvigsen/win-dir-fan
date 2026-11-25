@@ -81,6 +81,12 @@ private:
     FolderWatcher        _folderWatcher;
     std::atomic<bool>    _folderDirty{false};
 
+    // Watcher notifications waiting for the next prewarm worker, which applies
+    // them to the search index directory by directory. Guarded by _prewarmMutex
+    // because the worker reads them off the UI thread.
+    std::vector<FileService::IndexChange> _pendingIndexChanges;
+    bool                 _indexRebuildNeeded = false;
+
     // Taskbar icon handles (loaded once, switched on fan open/close)
     HICON  _icoSmall     = nullptr;
     HICON  _icoBig       = nullptr;

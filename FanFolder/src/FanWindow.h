@@ -154,6 +154,7 @@ private:
     bool              _searchRunning = false;  // a walk is in flight
     bool              _searchPending = false;  // query changed while it ran
     bool              _itemsFromSearch = false; // _items holds search results
+    bool              _searchCapped = false;   // result list was cut by the item cap
 
     // Helpers used by layout/draw/hit-test to iterate the fan's slots.
     // Returns the number of slots to render.
@@ -253,7 +254,7 @@ private:
     void ScheduleSearch();
     void StartSearch();
     void CancelSearch();
-    void ApplySearchResults(std::vector<FileItem>&& items, int total);
+    void ApplySearchResults(std::vector<FileItem>&& items, int total, bool capped);
     // Tells the owner window that the search busy state may have changed.
     void NotifyBusyChanged();
     // Type-to-filter overlay: the query, the caret and the match counter, in a

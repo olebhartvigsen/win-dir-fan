@@ -64,6 +64,26 @@ public:
     static void WarmSearchIndex(const std::wstring& folderPath, bool includeDirs,
                                 bool includeSubfolderFiles);
 
+    struct IndexChange {
+        std::wstring relPath;   // relative to the watched folder
+        bool         removed = false;
+    };
+
+    // Patches the index after watcher notifications. Returns false when the
+    // change cannot be applied in place (a folder appeared, disappeared or was
+    // renamed, an overflow, or no index at all), which means the caller has to
+    // invalidate and let the next scan rebuild.
+    static bool ApplyIndexChanges(const std::wstring& folderPath, bool includeDirs,
+                                  bool includeSubfolderFiles,
+                                  const std::vector<IndexChange>& changes);
+
+    // True when the cached index still matches the disk. One stat per directory,
+    // no enumeration: this replaces the recursive stamp walk.
+    static bool IndexIsFresh();
+
+    // Writes the current index to %LOCALAPPDATA%\FanFolder for the next run.
+    static void SaveSearchIndex();
+
     // Returns true when folderPath is the special "recent documents" sentinel
     static bool IsRecentDocsSentinel(const std::wstring& folderPath) {
         return folderPath == L"::RecentDocs::";

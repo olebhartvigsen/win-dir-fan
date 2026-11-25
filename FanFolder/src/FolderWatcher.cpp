@@ -75,6 +75,19 @@ void FolderWatcher::Stop() {
     _notifyWnd    = nullptr;
     _msg          = 0;
     _watchSubtree = false;
+
+    std::lock_guard<std::mutex> lk(_changesMutex);
+    _changes.clear();
+    _overflow = false;
+}
+
+bool FolderWatcher::TakeChanges(std::vector<Change>& out) {
+    std::lock_guard<std::mutex> lk(_changesMutex);
+    for (auto& change : _changes) out.push_back(std::move(change));
+    _changes.clear();
+    const bool complete = !_overflow;
+    _overflow = false;
+    return complete;
 }
 
 void FolderWatcher::Run() {
@@ -118,7 +131,30 @@ void FolderWatcher::Run() {
             break;
 
         // bytes == 0 means the notification buffer overflowed and changes were
-        // lost.  A rescan is exactly what we want in that case, so post anyway.
+        // lost.  The owner has to rebuild from scratch in that case, so record
+        // the overflow and post anyway.
+        {
+            std::lock_guard<std::mutex> lk(_changesMutex);
+            if (bytes == 0) {
+                _overflow = true;
+            } else {
+                size_t offset = 0;
+                while (offset < bytes) {
+                    const auto* info = reinterpret_cast<const FILE_NOTIFY_INFORMATION*>(
+                        buffer.data() + offset);
+                    Change change;
+                    change.relPath.assign(info->FileName,
+                                          info->FileNameLength / sizeof(wchar_t));
+                    change.removed = (info->Action == FILE_ACTION_REMOVED ||
+                                      info->Action == FILE_ACTION_RENAMED_OLD_NAME);
+                    if (_changes.size() < 4096) _changes.push_back(std::move(change));
+                    else                        _overflow = true;   // treat as loss
+                    if (info->NextEntryOffset == 0) break;
+                    offset += info->NextEntryOffset;
+                }
+            }
+        }
+
         PostMessageW(_notifyWnd, _msg, 0, 0);
     }
 
