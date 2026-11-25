@@ -1037,23 +1037,44 @@ struct DirJob {
     int depth;
 };
 
+// Opens a directory enumeration. FindExInfoBasic skips the 8.3 short name,
+// which nothing here reads, and FIND_FIRST_EX_LARGE_FETCH asks the filesystem
+// to return entries in bigger batches: roughly twice the throughput on a large
+// directory. Both are ignored by filesystems that do not support them, so the
+// plain call stays as a fallback.
+HANDLE OpenDirectoryEnum(const std::wstring& wildcard, WIN32_FIND_DATAW& fd) {
+    HANDLE h = FindFirstFileExW(wildcard.c_str(), FindExInfoBasic, &fd,
+                                FindExSearchNameMatch, nullptr,
+                                FIND_FIRST_EX_LARGE_FETCH);
+    if (h == INVALID_HANDLE_VALUE)
+        h = FindFirstFileW(wildcard.c_str(), &fd);
+    return h;
+}
+
 // Enumerates one directory. Root directories are added as items when
 // includeDirs is true. Non-reparse child directories are queued when
 // recurse is true. Nested directories are never added as items.
+//
+// Every accepted entry goes to `sink`, so the caller decides what to do with it:
+// ScanFolder keeps the first N for the arc, while SearchFolder ranks the entry
+// right here and keeps only matches, which removes the second pass over the
+// whole tree and its per-file allocations.
+template <class Sink>
 void CollectDirectory(const std::wstring& dir, const std::wstring& relDir,
                       int depth, bool isRoot, bool includeDirs, bool resolveLnk,
-                      bool recurse, std::vector<FileItem>& items,
-                      std::vector<DirJob>& pending)
+                      bool recurse, size_t maxExamined,
+                      std::vector<DirJob>& pending, Sink&& sink)
 {
     std::wstring prefix = dir;
     if (!prefix.empty() && prefix.back() != L'\\') prefix += L'\\';
 
     WIN32_FIND_DATAW fd = {};
-    HANDLE hFind = FindFirstFileW((prefix + L'*').c_str(), &fd);
+    HANDLE hFind = OpenDirectoryEnum(prefix + L'*', fd);
     if (hFind == INVALID_HANDLE_VALUE) return;
 
+    size_t examined = 0;
     do {
-        if (recurse && items.size() >= kMaxRecursiveItems) break;
+        if (++examined > maxExamined) break;
         if (fd.cFileName[0] == L'.') continue;
         if (fd.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) continue;
 
@@ -1068,7 +1089,7 @@ void CollectDirectory(const std::wstring& dir, const std::wstring& relDir,
                 item.isDirectory = true;
                 item.lastWriteTime = fd.ftLastWriteTime;
                 item.creationTime  = fd.ftCreationTime;
-                items.push_back(std::move(item));
+                sink(std::move(item));
             }
             // Never follow junctions or symlinked directories: cycles and duplicate trees.
             if (!isReparse && recurse && depth < kMaxSubfolderDepth) {
@@ -1104,10 +1125,146 @@ void CollectDirectory(const std::wstring& dir, const std::wstring& relDir,
         }
 
         if (!item.isDirectory || (isRoot && includeDirs))
-            items.push_back(std::move(item));
+            sink(std::move(item));
     } while (FindNextFileW(hFind, &fd));
 
     FindClose(hFind);
+}
+
+// ---------------------------------------------------------------------------
+// In-memory search index.
+//
+// A deep folder used to be walked again for every keystroke: typing "rapport"
+// meant seven enumerations of the whole tree, each rebuilding full paths and
+// timestamps for every file. The index walks once, keeps the folded name and
+// the directory id per entry, and answers later queries with a linear pass over
+// RAM. It is rebuilt on the next search after InvalidateSearchIndex().
+struct IndexDir {
+    std::wstring fullPath;      // with a trailing separator
+    std::wstring relPath;       // "" at the root, "Sub\\Deeper" below
+    std::wstring lowerRelPath;
+};
+
+struct IndexEntry {
+    std::wstring name;          // original case, for display
+    std::wstring lowerName;     // folded once, at build time
+    FILETIME     lastWrite = {};
+    FILETIME     created   = {};
+    uint32_t     dir       = 0;
+    bool         isDirectory = false;
+};
+
+struct SearchIndex {
+    std::wstring root;
+    bool includeDirs = false;
+    bool includeSubfolderFiles = false;
+    bool complete = true;       // false when the item cap cut the walk short
+    std::vector<IndexDir>   dirs;
+    std::vector<IndexEntry> entries;
+
+    bool Suits(const std::wstring& r, bool dirs, bool subfolders) const {
+        return root == r && includeDirs == dirs &&
+               includeSubfolderFiles == subfolders;
+    }
+};
+
+std::mutex                         g_indexMutex;
+std::shared_ptr<const SearchIndex> g_index;
+uint64_t                           g_indexGeneration = 0;
+
+std::shared_ptr<SearchIndex> BuildSearchIndex(const std::wstring& root,
+                                             bool includeDirs, bool recurse)
+{
+    auto idx = std::make_shared<SearchIndex>();
+    idx->root = root;
+    idx->includeDirs = includeDirs;
+    idx->includeSubfolderFiles = recurse;
+
+    std::vector<DirJob> pending;
+    pending.push_back({ root, L"", 0 });
+    size_t counted = 0;
+
+    while (!pending.empty()) {
+        DirJob job = std::move(pending.back());
+        pending.pop_back();
+
+        IndexDir dir;
+        dir.fullPath = job.path;
+        if (!dir.fullPath.empty() && dir.fullPath.back() != L'\\')
+            dir.fullPath += L'\\';
+        dir.relPath      = job.relDir;
+        dir.lowerRelPath = FanFolderMatch::Lowercase(job.relDir);
+        const uint32_t dirIndex = (uint32_t)idx->dirs.size();
+        const std::wstring dirPrefix = dir.fullPath;
+        idx->dirs.push_back(std::move(dir));
+
+        WIN32_FIND_DATAW fd = {};
+        HANDLE hFind = OpenDirectoryEnum(dirPrefix + L'*', fd);
+        if (hFind == INVALID_HANDLE_VALUE) continue;
+
+        do {
+            if (fd.cFileName[0] == L'.') continue;
+            if (fd.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) continue;
+
+            const bool isDir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            const bool isReparse = (fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+
+            if (isDir) {
+                if (!isReparse && recurse && job.depth < kMaxSubfolderDepth) {
+                    std::wstring childRel = job.relDir;
+                    if (!childRel.empty()) childRel += L'\\';
+                    childRel += fd.cFileName;
+                    pending.push_back({ dirPrefix + fd.cFileName,
+                                        std::move(childRel), job.depth + 1 });
+                }
+                if (!(job.depth == 0 && includeDirs)) continue;
+            }
+
+            if (++counted > kMaxRecursiveItems) {
+                idx->complete = false;
+                break;
+            }
+
+            IndexEntry entry;
+            entry.name        = fd.cFileName;
+            entry.lowerName   = FanFolderMatch::Lowercase(entry.name);
+            entry.lastWrite   = fd.ftLastWriteTime;
+            entry.created     = fd.ftCreationTime;
+            entry.dir         = dirIndex;
+            entry.isDirectory = isDir;
+            idx->entries.push_back(std::move(entry));
+        } while (FindNextFileW(hFind, &fd));
+
+        FindClose(hFind);
+    }
+
+    return idx;
+}
+
+// Returns the index for this folder, building it on the worker thread when the
+// cached one is missing or was invalidated. The build deliberately runs without
+// the mutex held, so a UI-thread InvalidateSearchIndex() never blocks behind it.
+std::shared_ptr<const SearchIndex> EnsureSearchIndex(const std::wstring& root,
+                                                    bool includeDirs, bool recurse)
+{
+    uint64_t generation = 0;
+    {
+        std::lock_guard<std::mutex> lk(g_indexMutex);
+        if (g_index && g_index->Suits(root, includeDirs, recurse)) return g_index;
+        generation = g_indexGeneration;
+    }
+
+    std::shared_ptr<SearchIndex> built;
+    try {
+        built = BuildSearchIndex(root, includeDirs, recurse);
+    } catch (...) {
+        return nullptr;   // allocation failure: the caller falls back to a walk
+    }
+
+    std::lock_guard<std::mutex> lk(g_indexMutex);
+    if (generation != g_indexGeneration) return nullptr;   // invalidated mid-build
+    g_index = built;
+    return g_index;
 }
 
 // Applies the scan-level regex filter. Cached compilation because std::wregex
@@ -1226,7 +1383,7 @@ bool FileService::ReadFolderStamp(const std::wstring& folderPath, FILETIME& outS
         if (!prefix.empty() && prefix.back() != L'\\') prefix += L'\\';
 
         WIN32_FIND_DATAW fd = {};
-        HANDLE hFind = FindFirstFileW((prefix + L'*').c_str(), &fd);
+        HANDLE hFind = OpenDirectoryEnum(prefix + L'*', fd);
         if (hFind == INVALID_HANDLE_VALUE) continue;
 
         do {
@@ -1284,7 +1441,10 @@ std::vector<FileItem> FileService::ScanFolder(const std::wstring& folderPath, in
         pending.pop_back();
         CollectDirectory(job.path, job.relDir, job.depth, job.depth == 0,
                          includeDirs, resolveLnk, includeSubfolderFiles,
-                         items, pending);
+                         kMaxRecursiveItems, pending,
+                         [&items](FileItem&& item) {
+                             items.push_back(std::move(item));
+                         });
     }
 
     if (!pending.empty() || (includeSubfolderFiles && items.size() >= kMaxRecursiveItems)) {
@@ -1298,6 +1458,12 @@ std::vector<FileItem> FileService::ScanFolder(const std::wstring& folderPath, in
         items.resize(maxItems);
 
     return items;
+}
+
+void FileService::InvalidateSearchIndex() {
+    std::lock_guard<std::mutex> lk(g_indexMutex);
+    g_index.reset();
+    ++g_indexGeneration;
 }
 
 int FileService::MatchScore(const FileItem& item, const std::wstring& lowerQuery) {
@@ -1317,53 +1483,104 @@ FileService::SearchResultSet FileService::SearchFolder(
     const std::wstring lowerQuery = FanFolderMatch::Lowercase(query);
     if (folderPath.empty() || lowerQuery.empty() || maxResults <= 0) return result;
 
-    std::vector<FileItem> candidates;
+    std::array<std::vector<FileItem>, 6> buckets;
+    int  totalMatches = 0;
     bool capHit = false;
 
+    auto scoreInto = [&](FileItem&& item) {
+        const int score = FanFolderMatch::Score(item.name.c_str(),
+                                                item.relativeDir.c_str(),
+                                                lowerQuery);
+        if (score <= FanFolderMatch::kNoMatch) return;
+        buckets[(size_t)score].push_back(std::move(item));
+        ++totalMatches;
+    };
+
     if (IsRecentDocsSentinel(folderPath)) {
-        candidates = ScanRecentDocs(std::max(maxResults, kRecentSearchCandidates),
-                                    sortMode, includeDirs);
+        auto candidates = ScanRecentDocs(std::max(maxResults, kRecentSearchCandidates),
+                                         sortMode, includeDirs);
+        ApplyRegexFilter(candidates, filterRegex);
+        for (auto& item : candidates) scoreInto(std::move(item));
     } else if (IsRecentFilesSentinel(folderPath)) {
-        candidates = ScanRecentFiles(std::max(maxResults, kRecentSearchCandidates),
-                                     sortMode);
+        auto candidates = ScanRecentFiles(std::max(maxResults, kRecentSearchCandidates),
+                                          sortMode);
+        ApplyRegexFilter(candidates, filterRegex);
+        for (auto& item : candidates) scoreInto(std::move(item));
     } else if (IsGraphRecentSentinel(folderPath)) {
+        std::vector<FileItem> candidates;
         std::unordered_set<std::wstring> seen;
         candidates.reserve((size_t)std::max(maxResults, kRecentSearchCandidates) * 4);
         ScanAutomaticDestinations(std::max(maxResults, kRecentSearchCandidates),
-                                 candidates, seen, /*useDestListTime=*/true);
+                                  candidates, seen, /*useDestListTime=*/true);
         candidates.erase(std::remove_if(candidates.begin(), candidates.end(),
             [](const FileItem& f) {
                 return !IsOffice365Extension(f.fullPath.c_str());
             }), candidates.end());
+        ApplyRegexFilter(candidates, filterRegex);
+        for (auto& item : candidates) scoreInto(std::move(item));
     } else {
-        // Same walk ScanFolder does, but without truncating to maxItems before
-        // matching, which is the whole point of the search.
+        // The walk that ScanFolder does, but each entry is ranked as it comes
+        // out of the directory instead of being collected first. That drops a
+        // second pass over the whole tree, keeps only matches in memory, and
+        // skips .lnk resolution: a shortcut target costs a COM round trip and
+        // the ranking only ever looks at the file name.
+        std::optional<std::wregex> regex;
+        if (!filterRegex.empty()) {
+            try {
+                regex.emplace(filterRegex, std::regex_constants::icase);
+            } catch (...) {
+                regex.reset();   // invalid pattern: filter ignored, as before
+            }
+        }
+
         std::vector<DirJob> pending;
         pending.push_back({ folderPath, L"", 0 });
-        while (!pending.empty() && candidates.size() < kMaxRecursiveItems) {
-            DirJob job = std::move(pending.back());
-            pending.pop_back();
-            CollectDirectory(job.path, job.relDir, job.depth, job.depth == 0,
-                             includeDirs, /*resolveLnk=*/true, includeSubfolderFiles,
-                             candidates, pending);
+        size_t examined = 0;
+
+        // Index first: after the first build every further keystroke is a pass
+        // over RAM instead of a new walk of the tree.
+        auto index = EnsureSearchIndex(folderPath, includeDirs, includeSubfolderFiles);
+        if (index) {
+            capHit = !index->complete;
+            for (const auto& entry : index->entries) {
+                if (regex && !std::regex_search(entry.name, *regex)) continue;
+                const IndexDir& dir = index->dirs[entry.dir];
+                const int score = FanFolderMatch::ScoreLowered(
+                    entry.lowerName, dir.lowerRelPath, lowerQuery);
+                if (score == FanFolderMatch::kNoMatch) continue;
+
+                FileItem item;
+                item.name        = entry.name;
+                item.relativeDir = dir.relPath;
+                item.fullPath    = dir.fullPath + entry.name;
+                item.isDirectory = entry.isDirectory;
+                item.lastWriteTime = entry.lastWrite;
+                item.creationTime  = entry.created;
+                buckets[(size_t)score].push_back(std::move(item));
+                ++totalMatches;
+            }
+        } else {
+            // Allocation failure while building the index: walk instead.
+            while (!pending.empty() && examined < kMaxRecursiveItems) {
+                DirJob job = std::move(pending.back());
+                pending.pop_back();
+                CollectDirectory(job.path, job.relDir, job.depth, job.depth == 0,
+                                 includeDirs, /*resolveLnk=*/false, includeSubfolderFiles,
+                                 kMaxRecursiveItems, pending,
+                                 [&](FileItem&& item) {
+                                     ++examined;
+                                     if (regex && !std::regex_search(item.name, *regex))
+                                         return;
+                                     scoreInto(std::move(item));
+                                 });
+            }
+            capHit = !pending.empty() || examined >= kMaxRecursiveItems;
         }
-        capHit = !pending.empty() || candidates.size() >= kMaxRecursiveItems;
     }
 
-    ApplyRegexFilter(candidates, filterRegex);
-    if (candidates.empty()) return result;
+    if (totalMatches == 0) return result;
 
-    // Bucket by rank so the best matches lead, and each bucket keeps the
-    // configured sort order internally.
-    std::array<std::vector<FileItem>, 6> buckets;
-    for (auto& item : candidates) {
-        const int score = FanFolderMatch::Score(item.name.c_str(),
-                                                item.relativeDir.c_str(),
-                                                lowerQuery);
-        if (score > FanFolderMatch::kNoMatch)
-            buckets[(size_t)score].push_back(std::move(item));
-    }
-
+    // Best rank first; each bucket keeps the configured sort order internally.
     result.items.reserve((size_t)maxResults);
     result.candidateCapHit = capHit;
     for (int score = (int)buckets.size() - 1;

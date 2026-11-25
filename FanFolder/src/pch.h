@@ -18,6 +18,9 @@
 #include <vector>
 #include <memory>
 #include <functional>
+#include <array>
+#include <optional>
+#include <regex>
 #include <thread>
 #include <mutex>
 #include <atomic>

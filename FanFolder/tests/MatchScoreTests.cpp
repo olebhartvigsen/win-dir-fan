@@ -63,6 +63,20 @@ int main() {
         std::wprintf(L"FAIL: null relativeDir was not tolerated\n");
     }
 
+    // The index scores pre-folded strings. It must rank exactly like the
+    // folding path, otherwise results depend on whether the index is warm.
+    for (const Case& c : kCases) {
+        const std::wstring lowerName = FanFolderMatch::Lowercase(c.name);
+        const std::wstring lowerDir  = FanFolderMatch::Lowercase(c.relativeDir);
+        const std::wstring query     = FanFolderMatch::Lowercase(c.query);
+        const int lowered = FanFolderMatch::ScoreLowered(lowerName, lowerDir, query);
+        if (lowered != c.expected) {
+            ++failures;
+            std::wprintf(L"FAIL: ScoreLowered name=\"%ls\" expected %d got %d\n",
+                         c.name, c.expected, lowered);
+        }
+    }
+
     if (failures == 0) {
         std::wprintf(L"All %zu match cases passed\n", std::size(kCases));
         return 0;

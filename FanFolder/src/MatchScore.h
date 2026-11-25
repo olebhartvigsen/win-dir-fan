@@ -23,4 +23,9 @@ std::wstring Lowercase(std::wstring_view text);
 int Score(const wchar_t* name, const wchar_t* relativeDir,
           const std::wstring& lowerQuery);
 
+// Same ranking with both strings already folded. The search index stores folded
+// names, so it can skip the per-candidate conversion entirely.
+int ScoreLowered(std::wstring_view lowerName, std::wstring_view lowerDir,
+                 const std::wstring& lowerQuery);
+
 } // namespace FanFolderMatch

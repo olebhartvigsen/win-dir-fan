@@ -797,6 +797,10 @@ void MainWindow::RefreshBusyIndicator() {
 
 // ---------------------------------------------------------------------------
 void MainWindow::StartPrewarm(bool force) {
+    // A forced rescan means the folder may have changed, so the search index is
+    // no longer trustworthy. Dropping it here keeps one invalidation point.
+    if (force) FileService::InvalidateSearchIndex();
+
     // Debounce: if a prewarm worker is already queued/running, skip unless the
     // caller forces a refresh (e.g. folder/settings actually changed).  Rapid
     // open/close cycles would otherwise queue a cascade of redundant scan +

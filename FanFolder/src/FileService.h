@@ -53,6 +53,11 @@ public:
     // Returns the target path, or empty if resolution fails or target doesn't exist.
     static std::wstring ResolveLnk(const std::wstring& lnkPath, bool& outIsDir);
 
+    // Drops the in-memory name index used by SearchFolder, so the next search
+    // rebuilds it. Call whenever the folder contents or the scan configuration
+    // may have changed.
+    static void InvalidateSearchIndex();
+
     // Returns true when folderPath is the special "recent documents" sentinel
     static bool IsRecentDocsSentinel(const std::wstring& folderPath) {
         return folderPath == L"::RecentDocs::";
