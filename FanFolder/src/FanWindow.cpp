@@ -512,9 +512,19 @@ void FanWindow::ScheduleSearch() {
 void FanWindow::CancelSearch() {
     if (_hwnd) KillTimer(_hwnd, TIMER_ID_SEARCH);
     _searchGen.fetch_add(1, std::memory_order_release);
+    const bool wasBusy = _searchRunning || _searchPending;
     _searchRunning = false;
     _searchPending = false;
     _searchTotal   = 0;
+    if (wasBusy) NotifyBusyChanged();
+}
+
+// The owner window (MainWindow) animates the taskbar icon while a walk is
+// running, so it needs to hear about every transition, including the pending
+// state that keeps the ring turning between two keystrokes.
+void FanWindow::NotifyBusyChanged() {
+    if (_hwndOwner)
+        PostMessageW(_hwndOwner, WM_FAN_BUSY_STATE, 0, IsSearchBusy() ? 1 : 0);
 }
 
 void FanWindow::StartSearch() {
@@ -525,12 +535,14 @@ void FanWindow::StartSearch() {
         // when the current result lands, so the last keystroke always gets its
         // own search.
         _searchPending = true;
+        NotifyBusyChanged();
         return;
     }
 
     const int gen = _searchGen.fetch_add(1, std::memory_order_acq_rel) + 1;
     _searchRunning = true;
     _searchPending = false;
+    NotifyBusyChanged();
 
     // Snapshot everything the worker needs. It must never touch `this`: the
     // fan window can be destroyed while the walk runs.
@@ -579,6 +591,7 @@ void FanWindow::StartSearch() {
         delete work;
         _searchInflight->store(false, std::memory_order_release);
         _searchRunning = false;
+        NotifyBusyChanged();
     }
 }
 
@@ -2349,6 +2362,7 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         // Run the follow-up even after a stale result: this may be the message
         // that cleared the in-flight flag for a query typed meanwhile.
         if (self->_searchPending) self->StartSearch();
+        self->NotifyBusyChanged();
         return 0;
     }
 

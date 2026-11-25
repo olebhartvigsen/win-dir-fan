@@ -29,6 +29,7 @@ If you find FanFolder useful, an optional "buy me a coffee" donation is apprecia
 - Icons resize automatically, with actual Windows shell icons and thumbnails
 - Pick your folder, sort order, item count, and filter by filename
 - Type while the fan is open to filter live. The search covers every file in the folder, not just the ones currently shown
+- The taskbar icon and the tray icon spin a blue ring while the folder is being read, so you can see when the menu is still loading or a search is still running
 - Sort by date modified, date created, or name
 - Right-click any item for the full Windows context menu (open, copy, delete, rename...)
 - Drag items out of the menu and drop them into other applications

@@ -1,6 +1,14 @@
 #include "resource.h"
 IDI_APP      ICON        "app.ico"
 IDI_APP_OPEN ICON        "app-open.ico"
+IDI_APP_SCAN_0      ICON "app-scan-0.ico"
+IDI_APP_SCAN_1      ICON "app-scan-1.ico"
+IDI_APP_SCAN_2      ICON "app-scan-2.ico"
+IDI_APP_SCAN_3      ICON "app-scan-3.ico"
+IDI_APP_OPEN_SCAN_0 ICON "app-open-scan-0.ico"
+IDI_APP_OPEN_SCAN_1 ICON "app-open-scan-1.ico"
+IDI_APP_OPEN_SCAN_2 ICON "app-open-scan-2.ico"
+IDI_APP_OPEN_SCAN_3 ICON "app-open-scan-3.ico"
 IDR_MANIFEST RT_MANIFEST "app.manifest"
 
 // Version resource — provides the "FanFolder" name shown in the taskbar jump list

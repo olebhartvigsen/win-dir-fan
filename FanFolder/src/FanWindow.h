@@ -14,6 +14,9 @@ public:
     // Posted by the search worker when a full-folder search finishes. lParam is
     // a token, never a pointer; see SearchHandoff.
     static constexpr UINT WM_FAN_SEARCH_RESULTS = WM_APP + 5;
+    // Posted to the owner window whenever the async search starts or stops, so
+    // the taskbar icon can show that the fan is still waiting for the walk.
+    static constexpr UINT WM_FAN_BUSY_STATE = WM_APP + 7;
 
     FanWindow(HINSTANCE hInst, HWND hwndOwner, const ConfigData& config,
               std::vector<FileItem> items = {});
@@ -38,6 +41,9 @@ public:
     bool IsVisible() const;
     bool IsDragging() const { return _dragging; }
     bool IsFilterActive() const { return !_filterText.empty(); }
+    // True while the type-to-filter search is still walking the folder, i.e.
+    // the visible matches are a provisional in-memory subset.
+    bool IsSearchBusy() const { return _searchRunning || _searchPending; }
     void Reposition();
 
     static const wchar_t* ClassName() { return L"FanFolderFan"; }
@@ -233,6 +239,8 @@ private:
     void StartSearch();
     void CancelSearch();
     void ApplySearchResults(std::vector<FileItem>&& items, int total);
+    // Tells the owner window that the search busy state may have changed.
+    void NotifyBusyChanged();
     std::wstring NoMatchesText() const;
     void FreeBackBuffer();
 

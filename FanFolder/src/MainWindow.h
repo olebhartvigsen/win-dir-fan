@@ -87,6 +87,17 @@ private:
     HICON  _icoOpenSmall = nullptr;
     HICON  _icoOpenBig   = nullptr;
 
+    // "Scanning" frames. _icoScanSmall/_icoScanBig are the transparent style
+    // used on the taskbar button, _icoTrayScan the folded-plate style the tray
+    // shows. All three are cycled by TIMER_ID_SCAN_ANIM so the busy state is
+    // visible without opening the fan.
+    static constexpr int kScanFrames = 4;
+    HICON  _icoScanSmall[kScanFrames] = {};
+    HICON  _icoScanBig[kScanFrames]   = {};
+    HICON  _icoTrayScan[kScanFrames]  = {};
+    bool   _iconBusy  = false;
+    int    _iconFrame = 0;
+
     // Hook thread
     std::thread      _hookThread;
     // Written by the hook thread at startup, read by the UI thread in
@@ -110,6 +121,12 @@ private:
     void StartFolderWatch();
     void RefreshFromFolderChange();
     void SetTaskbarIcon(bool open);
+    // Recomputes whether anything is scanning (folder prewarm or a fan search
+    // walk) and switches the taskbar/tray icon between the idle artwork and the
+    // animated ring. Cheap enough to call on every relevant event.
+    void RefreshBusyIndicator();
+    void ApplyTaskbarIcon();
+    void ApplyTrayIcon();
     void InstallHooks();
     void UninstallHooks();
     void ProvideIconicThumbnail(int w, int h);

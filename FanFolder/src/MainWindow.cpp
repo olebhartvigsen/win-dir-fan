@@ -231,6 +231,19 @@ static constexpr UINT     TIMER_FOLDER_REFRESH_MS  = 500;
 // the UI thread.
 static constexpr UINT_PTR TIMER_ID_FOLDER_VERIFY = 3;
 static constexpr UINT     TIMER_FOLDER_VERIFY_MS  = 60000;
+// Drives the scanning ring on the taskbar button and tray icon.  220 ms per
+// frame is fast enough to read as motion and slow enough not to burn CPU on
+// WM_SETICON / NIM_MODIFY round-trips.
+static constexpr UINT_PTR TIMER_ID_SCAN_ANIM = 4;
+static constexpr UINT     TIMER_SCAN_ANIM_MS = 220;
+
+// Resource ids of the four scanning frames: transparent artwork for the
+// taskbar button, folded-plate artwork for the tray. Must match resource.h.
+static constexpr WORD kTaskbarScanIds[4] = {
+    IDI_APP_OPEN_SCAN_0, IDI_APP_OPEN_SCAN_1,
+    IDI_APP_OPEN_SCAN_2, IDI_APP_OPEN_SCAN_3 };
+static constexpr WORD kTrayScanIds[4] = {
+    IDI_APP_SCAN_0, IDI_APP_SCAN_1, IDI_APP_SCAN_2, IDI_APP_SCAN_3 };
 
 MainWindow* MainWindow::s_instance = nullptr;
 
@@ -269,6 +282,7 @@ MainWindow::~MainWindow() {
         KillTimer(_hwnd, TIMER_ID_VDM_RECONCILE);
         KillTimer(_hwnd, TIMER_ID_FOLDER_REFRESH);
         KillTimer(_hwnd, TIMER_ID_FOLDER_VERIFY);
+        KillTimer(_hwnd, TIMER_ID_SCAN_ANIM);
     }
     if (_vdm) {
         _vdm->Release();
@@ -280,6 +294,9 @@ MainWindow::~MainWindow() {
     if (_icoBig)       { DestroyIcon(_icoBig);       _icoBig       = nullptr; }
     if (_icoOpenSmall) { DestroyIcon(_icoOpenSmall); _icoOpenSmall = nullptr; }
     if (_icoOpenBig)   { DestroyIcon(_icoOpenBig);   _icoOpenBig   = nullptr; }
+    for (auto& h : _icoScanSmall) { if (h) DestroyIcon(h); h = nullptr; }
+    for (auto& h : _icoScanBig)   { if (h) DestroyIcon(h); h = nullptr; }
+    for (auto& h : _icoTrayScan)  { if (h) DestroyIcon(h); h = nullptr; }
     s_instance = nullptr;
 }
 
@@ -315,6 +332,18 @@ bool MainWindow::Create() {
     _icoBig       = CreateAlphaIconAtSize(_hInst, MAKEINTRESOURCEW(IDI_APP),     32);
     _icoOpenSmall = CreateAlphaIconAtSize(_hInst, MAKEINTRESOURCEW(IDI_APP_OPEN), 16);
     _icoOpenBig   = CreateAlphaIconAtSize(_hInst, MAKEINTRESOURCEW(IDI_APP_OPEN), 32);
+
+    // Scanning frames. Taskbar gets the transparent artwork (same silhouette as
+    // the open icon), the tray keeps the folded-plate style it already uses.
+    for (int i = 0; i < kScanFrames; ++i) {
+        _icoScanSmall[i] = CreateAlphaIconAtSize(
+            _hInst, MAKEINTRESOURCEW(kTaskbarScanIds[i]), 16);
+        _icoScanBig[i] = CreateAlphaIconAtSize(
+            _hInst, MAKEINTRESOURCEW(kTaskbarScanIds[i]), 32);
+        _icoTrayScan[i] = CreateAlphaIconAtSize(
+            _hInst, MAKEINTRESOURCEW(kTrayScanIds[i]), 16);
+    }
+
     SetTaskbarIcon(false);
 
     StartPrewarm(/*force*/ true);
@@ -408,6 +437,7 @@ void MainWindow::OpenFan() {
         _fanWindow->Close();
         _fanWindow.reset();
     }
+    RefreshBusyIndicator();   // a fan search may have been the only busy source
     DWORD tTeardown = GetTickCount() - t0;
 
     // Copy pre-warmed data (items + icons) under the lock. We duplicate the
@@ -626,6 +656,7 @@ void MainWindow::CloseFan() {
     // re-install it if the panel is still visible.
     if (_infoScreen && _infoScreen->IsVisible())
         InstallHooks();
+    RefreshBusyIndicator();   // dropping the fan drops its search state too
     SetTaskbarIcon(false);
     ShowWindow(_hwnd, SW_SHOWMINNOACTIVE);
     // Refresh so the fan reflects files added/removed/renamed while it was
@@ -637,12 +668,65 @@ void MainWindow::CloseFan() {
 
 // ---------------------------------------------------------------------------
 void MainWindow::SetTaskbarIcon(bool /*open*/) {
-    // Always use the wide "open" icon — single visual state regardless of
-    // whether the fan menu is currently shown.
+    // Single visual state regardless of whether the fan menu is shown: the
+    // wide transparent icon, or its scanning ring while a scan is running.
+    ApplyTaskbarIcon();
+}
+
+void MainWindow::ApplyTaskbarIcon() {
+    if (_iconBusy && _icoScanSmall[_iconFrame] && _icoScanBig[_iconFrame]) {
+        SendMessageW(_hwnd, WM_SETICON, ICON_SMALL, (LPARAM)_icoScanSmall[_iconFrame]);
+        SendMessageW(_hwnd, WM_SETICON, ICON_BIG,   (LPARAM)_icoScanBig[_iconFrame]);
+        return;
+    }
     HICON sm = _icoOpenSmall ? _icoOpenSmall : _icoSmall;
     HICON lg = _icoOpenBig   ? _icoOpenBig   : _icoBig;
     if (sm) SendMessageW(_hwnd, WM_SETICON, ICON_SMALL, (LPARAM)sm);
     if (lg) SendMessageW(_hwnd, WM_SETICON, ICON_BIG,   (LPARAM)lg);
+}
+
+void MainWindow::ApplyTrayIcon() {
+    if (!_nid.cbSize) return;   // tray icon not added yet
+    HICON h = (_iconBusy && _icoTrayScan[_iconFrame])
+                  ? _icoTrayScan[_iconFrame]
+                  : _icoSmall;
+    if (!h || _nid.hIcon == h) return;
+    _nid.hIcon  = h;
+    _nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    Shell_NotifyIconW(NIM_MODIFY, &_nid);
+}
+
+// A scan is "visible" for both kinds of wait the user can hit:
+//   * folder prewarm, i.e. the fan's content is still being read from disk
+//     (also covers the moment right after a click when no list is cached yet),
+//   * the type-to-filter search walk, which keeps running after the provisional
+//     in-memory matches are already on screen.
+// While either is true the icon cycles its frames; when both settle it goes
+// back to the idle artwork.
+void MainWindow::RefreshBusyIndicator() {
+    if (!_hwnd) return;
+
+    bool busy = _prewarmInflight.load(std::memory_order_acquire) > 0;
+    if (!busy && _fanWindow)
+        busy = _fanWindow->IsSearchBusy();
+
+    if (busy == _iconBusy) return;
+    _iconBusy  = busy;
+    _iconFrame = 0;
+
+    if (busy) {
+        SetTimer(_hwnd, TIMER_ID_SCAN_ANIM, TIMER_SCAN_ANIM_MS, nullptr);
+    } else {
+        KillTimer(_hwnd, TIMER_ID_SCAN_ANIM);
+    }
+    ApplyTaskbarIcon();
+    ApplyTrayIcon();
+
+    if (_iconBusy) {
+        DebugLog(L"[FanFolder] busy indicator: ON\n");
+    } else {
+        DebugLog(L"[FanFolder] busy indicator: OFF\n");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -667,6 +751,7 @@ void MainWindow::StartPrewarm(bool force) {
     auto* work = new PrewarmWork{this, std::move(cfg), hwnd, myGen};
 
     _prewarmInflight.fetch_add(1, std::memory_order_acq_rel);
+    RefreshBusyIndicator();   // the menu content is being (re)scanned now
 
     BOOL submitted = TrySubmitThreadpoolCallback([](PTP_CALLBACK_INSTANCE, PVOID ctx) {
         // Own the work item for the callback's whole lifetime: the body has
@@ -1327,10 +1412,13 @@ void MainWindow::ProvideIconicThumbnail(int w, int h) {
     if (w <= 0 || h <= 0) return;
 
     static constexpr int SrcSize = 256;
-    HICON hIco = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
+    // The hover preview shows the same state as the button: ring frame while a
+    // scan runs, idle artwork otherwise.
+    const WORD iconId = _iconBusy ? kTrayScanIds[_iconFrame] : IDI_APP;
+    HICON hIco = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(iconId),
                                     IMAGE_ICON, SrcSize, SrcSize, LR_CREATEDIBSECTION);
     if (!hIco)
-        hIco = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(IDI_APP),
+        hIco = (HICON)LoadImageW(_hInst, MAKEINTRESOURCEW(iconId),
                                   IMAGE_ICON, 0, 0, LR_CREATEDIBSECTION);
     if (!hIco) return;
 
@@ -1445,6 +1533,17 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             self->VerifyFolderChangedAsync();
             return 0;
         }
+        if (wParam == TIMER_ID_SCAN_ANIM) {
+            // Recompute first: this tick is also what notices that the prewarm
+            // worker or the search walk finished, and stops the animation.
+            self->RefreshBusyIndicator();
+            if (self->_iconBusy) {
+                self->_iconFrame = (self->_iconFrame + 1) % kScanFrames;
+                self->ApplyTaskbarIcon();
+                self->ApplyTrayIcon();
+            }
+            return 0;
+        }
         break;
 
     case WM_POWERBROADCAST:
@@ -1534,6 +1633,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         // ReplaceItems drops that without a repaint.
         if (self->_folderDirty.load(std::memory_order_acquire))
             SetTimer(hwnd, TIMER_ID_FOLDER_REFRESH, TIMER_FOLDER_REFRESH_MS, nullptr);
+        self->RefreshBusyIndicator();
         return 0;
     }
 
@@ -1556,6 +1656,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     case WM_MAIN_FAN_CLOSED:
         if (self->_fanOpen)
             self->CloseFan();
+        return 0;
+
+    // A fan search walk started, moved on to another query, or finished. The
+    // payload is only a hint; RefreshBusyIndicator reads the fan's real state.
+    case FanWindow::WM_FAN_BUSY_STATE:
+        self->RefreshBusyIndicator();
         return 0;
 
     case WM_TRAYICON:
