@@ -606,11 +606,11 @@ void FanWindow::StartSearch() {
     }
 }
 
-// Text shown in the search pill: the query, an ellipsis while the walk is
-// still running, and the "3 of 27" counter once the arc cannot show them all.
+// Text shown in the search field: the query plus the "3 of 27" counter when the
+// arc cannot show every match. Deliberately no "searching" ellipsis: it came and
+// went depending on how fast the walk finished, which read as a glitch.
 std::wstring FanWindow::FilterOverlayText() const {
     std::wstring text = _filterText;
-    if (_searchRunning) text += L"\u2026";
     if (!_isPlaceholder && _searchTotal > (int)_items.size())
         text += L"   " + MatchCountLabel((int)_items.size(), _searchTotal);
     return text;
@@ -1005,7 +1005,7 @@ void FanWindow::RebuildFontCache() {
     delete _filterFont; _filterFont = nullptr;
     _cachedFilterFontSize = std::max(14.f, _iconSize * 0.26f);
     _filterFont = new Gdiplus::Font(L"Segoe UI", _cachedFilterFontSize,
-                                    Gdiplus::FontStyleRegular, Gdiplus::UnitPoint);
+                                    Gdiplus::FontStyleBold, Gdiplus::UnitPoint);
 
     _measureSF = new Gdiplus::StringFormat();
     _measureSF->SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
