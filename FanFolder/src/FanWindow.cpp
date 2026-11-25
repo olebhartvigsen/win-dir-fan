@@ -595,8 +595,103 @@ void FanWindow::StartSearch() {
     }
 }
 
-// Swaps the visible list to a completed search. _originalItems is deliberately
-// left alone so clearing the filter restores the pre-search list.
+// Text shown in the search pill: the query, an ellipsis while the walk is
+// still running, and the "3 of 27" counter once the arc cannot show them all.
+std::wstring FanWindow::FilterOverlayText() const {
+    std::wstring text = _filterText;
+    if (_searchRunning) text += L"\u2026";
+    if (!_isPlaceholder && _searchTotal > (int)_items.size())
+        text += L"   " + MatchCountLabel((int)_items.size(), _searchTotal);
+    return text;
+}
+
+// The pill is the only part of the fan that shows what was typed, so it is
+// drawn from measured text instead of a per-character width guess: the guess
+// came out narrower than a single glyph, and the right-aligned string then lost
+// its first character to clipping. The background is deliberately translucent
+// so the desktop stays visible behind it.
+void FanWindow::DrawFilterOverlay(Gdiplus::Graphics& g) {
+    if (_filterPillRect.Width <= 1.f || _filterPillRect.Height <= 1.f) return;
+    if (!_labelFont) RebuildFontCache();
+
+    const float x = _filterPillRect.X, y = _filterPillRect.Y;
+    const float w = _filterPillRect.Width, h = _filterPillRect.Height;
+    const float radius = h / 2.f;
+    const float d = radius * 2.f;
+
+    auto pillPath = [&](Gdiplus::GraphicsPath& p, float dy) {
+        p.AddArc(x,           y + dy,           d, d, 180, 90);
+        p.AddArc(x + w - d,   y + dy,           d, d, 270, 90);
+        p.AddArc(x + w - d,   y + dy + h - d,   d, d, 0,   90);
+        p.AddArc(x,           y + dy + h - d,   d, d, 90,  90);
+        p.CloseFigure();
+    };
+
+    {   // Soft shadow so the pill keeps its edge on a light wallpaper.
+        Gdiplus::GraphicsPath shadow;
+        pillPath(shadow, 2.f);
+        Gdiplus::SolidBrush brush(Gdiplus::Color(60, 0, 0, 0));
+        g.FillPath(&brush, &shadow);
+    }
+
+    Gdiplus::GraphicsPath pill;
+    pillPath(pill, 0.f);
+    Gdiplus::SolidBrush fill(Gdiplus::Color(132, 18, 19, 24));
+    g.FillPath(&fill, &pill);
+    Gdiplus::Pen border(Gdiplus::Color(64, 255, 255, 255), 1.f);
+    g.DrawPath(&border, &pill);
+
+    const float glyph = h * 0.52f;
+    const float padL  = h * 0.40f;
+    const float padR  = h * 0.46f;
+    const float gap   = h * 0.26f;
+    const float textX = x + padL + glyph + gap;
+    const float textW = std::max(0.f, w - padL - glyph - gap - padR);
+
+    Gdiplus::StringFormat sf;
+    sf.SetAlignment(Gdiplus::StringAlignmentNear);
+    sf.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+    sf.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap |
+                      Gdiplus::StringFormatFlagsNoClip);
+    sf.SetTrimming(Gdiplus::StringTrimmingNone);
+
+    // Drop characters from the front when the query outgrows the pill, so the
+    // most recent keystrokes stay readable.
+    std::wstring text = FilterOverlayText();
+    auto measure = [&](const std::wstring& s) {
+        Gdiplus::RectF b;
+        g.MeasureString(s.c_str(), -1, _labelFont, Gdiplus::PointF(0, 0), &sf, &b);
+        return b.Width;
+    };
+    if (!text.empty() && measure(text) > textW) {
+        std::wstring trimmed = text;
+        while (trimmed.size() > 1 && measure(L"\u2026" + trimmed) > textW)
+            trimmed.erase(0, 1);
+        text = L"\u2026" + trimmed;
+    }
+
+    Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, 255, 255, 255));
+    Gdiplus::RectF textRect(textX, y, textW, h);
+    g.DrawString(text.c_str(), -1, _labelFont, textRect, &sf, &textBrush);
+
+    // Caret: marks the insertion point without needing a blink timer.
+    const float caretX = std::min(x + w - padR, textX + measure(text) + 2.f);
+    Gdiplus::Pen caret(Gdiplus::Color(190, 255, 255, 255), std::max(1.f, h * 0.06f));
+    g.DrawLine(&caret, caretX, y + h * 0.28f, caretX, y + h * 0.72f);
+
+    // Magnifier, drawn as geometry: U+2328 renders as a box in some fonts.
+    Gdiplus::Pen loupe(Gdiplus::Color(235, 235, 240),
+                       std::max(1.4f, h * 0.055f));
+    loupe.SetLineCap(Gdiplus::LineCapRound, Gdiplus::LineCapRound,
+                     Gdiplus::DashCapRound);
+    const float mx = x + padL + glyph * 0.42f;
+    const float my = y + h * 0.44f;
+    const float r  = glyph * 0.30f;
+    g.DrawEllipse(&loupe, mx - r, my - r, r * 2.f, r * 2.f);
+    g.DrawLine(&loupe, mx + r * 0.72f, my + r * 0.72f,
+                       mx + r * 1.5f,  my + r * 1.5f);
+}
+
 // Text for the synthetic no-result slot. While a walk is still running the
 // honest message is "searching", not "no matches".
 std::wstring FanWindow::NoMatchesText() const {
@@ -1018,6 +1113,7 @@ void FanWindow::CalculateLayout() {
     if (total == 0) {
         _winWidth  = 2 * FormMargin;
         _winHeight = 2 * FormMargin;
+        _filterPillRect = Gdiplus::RectF();
         _iconPos.clear();
         _hitRects.clear();
         _labelWidths.clear();
@@ -1073,6 +1169,16 @@ void FanWindow::CalculateLayout() {
     minX -= FormMargin; minY -= FormMargin;
     maxX += FormMargin; maxY += FormMargin;
 
+    // While a query is active, reserve a band on the far side of the fan for
+    // the search pill. Without it the text sat on top of the first items.
+    if (!_filterText.empty()) {
+        const float band = std::max(26.f, _iconSize * 0.46f) + 12.f;
+        if (taskbarAtBottom)    minY -= band;
+        else if (taskbarAtTop)  maxY += band;
+        else if (taskbarAtLeft) maxX += band;
+        else                    minX -= band;
+    }
+
     _winWidth  = (int)std::ceil(maxX - minX);
     _winHeight = (int)std::ceil(maxY - minY);
 
@@ -1106,6 +1212,46 @@ void FanWindow::CalculateLayout() {
     if (_winX + _winWidth  > mi.rcWork.right) _winX = mi.rcWork.right  - _winWidth;
     if (_winY < mi.rcWork.top)                _winY = mi.rcWork.top;
     if (_winY + _winHeight > mi.rcWork.bottom)_winY = mi.rcWork.bottom - _winHeight;
+
+    // Search pill geometry. Sized from the measured text (the old width was a
+    // character-count guess that came out too narrow for a single letter, and
+    // the clipped right-aligned string lost its first character), then centred
+    // in the reserved band.
+    _filterPillRect = Gdiplus::RectF();
+    if (!_filterText.empty() && _winWidth > 0) {
+        const std::wstring text = FilterOverlayText();
+        Gdiplus::RectF bounds;
+        tmpG.MeasureString(text.c_str(), -1, _labelFont, Gdiplus::PointF(0, 0),
+                           _measureSF, &bounds);
+
+        const float pillH = std::max(26.f, _iconSize * 0.46f);
+        const float glyph = pillH * 0.52f;
+        const float padL  = pillH * 0.40f;
+        const float padR  = pillH * 0.46f;
+        const float gap   = pillH * 0.26f;
+
+        float w = padL + glyph + gap + bounds.Width + padR;
+        w = std::min(w, (float)_winWidth - 16.f);
+        if (w < 48.f) w = (float)_winWidth - 16.f;
+
+        float x, y;
+        if (taskbarAtBottom) {
+            x = ((float)_winWidth - w) / 2.f;
+            y = 8.f;
+        } else if (taskbarAtTop) {
+            x = ((float)_winWidth - w) / 2.f;
+            y = (float)_winHeight - pillH - 8.f;
+        } else if (taskbarAtLeft) {
+            x = (float)_winWidth - w - 8.f;
+            y = ((float)_winHeight - pillH) / 2.f;
+        } else {
+            x = 8.f;
+            y = ((float)_winHeight - pillH) / 2.f;
+        }
+        x = std::max(8.f, x);
+        y = std::max(8.f, y);
+        _filterPillRect = Gdiplus::RectF(x, y, std::max(40.f, w), pillH);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1263,44 +1409,11 @@ void FanWindow::DrawToLayeredWindow() {
                 g.FillRectangle(&overlay, 0, 0, _winWidth, _winHeight);
             }
 
-            // Type-to-filter pill: magnifier, query, caret, and a counter
-            // when the search found more than the arc can show. Drawn last so
-            // it sits above the icons.
-            if (!_filterText.empty()) {
-                std::wstring overlay_text = _filterText;
-                if (_searchRunning) overlay_text += L"\u2026";
-                if (!_isPlaceholder && _searchTotal > (int)_items.size())
-                    overlay_text += L"   " +
-                        MatchCountLabel((int)_items.size(), _searchTotal);
-
-                const float pillH = _iconSize * 0.5f;
-                const float glyph = pillH * 0.62f;
-                const float gap   = 6.f;
-                const float textW = 12.f + (float)overlay_text.size() * _iconSize * 0.18f;
-                const float pillW = std::min((float)_winWidth - 16.f - glyph - gap,
-                                             textW);
-                // Position at the bottom of the fan (near the hinge for a
-                // bottom taskbar), with room for the magnifier to its left.
-                const float ox = 8.f + glyph + gap;
-                float oy = (float)_winHeight - pillH - 8.f;
-                if (oy < 0) oy = 8.f;
-
-                DrawLabelPill(g, ox, oy, pillW, pillH, pillH / 2.f,
-                              overlay_text, 1.f);
-
-                // Drawn as geometry: U+2328 renders as a box in some fonts,
-                // which is what the old overlay used.
-                Gdiplus::Pen loupe(Gdiplus::Color(235, 235, 240),
-                                   std::max(1.4f, pillH * 0.06f));
-                loupe.SetLineCap(Gdiplus::LineCapRound, Gdiplus::LineCapRound,
-                                 Gdiplus::DashCapRound);
-                const float mx = 8.f + glyph * 0.42f;
-                const float my = oy + pillH * 0.44f;
-                const float r  = glyph * 0.30f;
-                g.DrawEllipse(&loupe, mx - r, my - r, r * 2.f, r * 2.f);
-                g.DrawLine(&loupe, mx + r * 0.72f, my + r * 0.72f,
-                                   mx + r * 1.5f,  my + r * 1.5f);
-            }
+            // Type-to-filter overlay: query, caret and match counter, in a
+            // translucent pill above the arc. It gets its own band in the
+            // layout, so it no longer covers the results.
+            if (!_filterText.empty())
+                DrawFilterOverlay(g);
         } else {
             // GDI+ unavailable — request a redraw on the next animation tick
             // so the frame is retried once the graphics subsystem recovers.

@@ -65,6 +65,10 @@ private:
 
     // Layout
     int   _winWidth  = 0, _winHeight  = 0;
+    // Search pill geometry, computed in CalculateLayout so the reserved band and
+    // the drawing agree. Empty rect when no filter is active.
+    Gdiplus::RectF _filterPillRect{};
+
     int   _winX      = 0, _winY       = 0;
     int   _iconSize  = 64;
     float _maxStackHeight = 600.f;
@@ -241,6 +245,10 @@ private:
     void ApplySearchResults(std::vector<FileItem>&& items, int total);
     // Tells the owner window that the search busy state may have changed.
     void NotifyBusyChanged();
+    // Type-to-filter overlay: the query, the caret and the match counter, in a
+    // translucent pill in a band reserved on the far side of the fan.
+    std::wstring FilterOverlayText() const;
+    void DrawFilterOverlay(Gdiplus::Graphics& g);
     std::wstring NoMatchesText() const;
     void FreeBackBuffer();
 
