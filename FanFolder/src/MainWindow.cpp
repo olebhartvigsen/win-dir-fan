@@ -8,6 +8,37 @@
 #include "InfoScreen.h"
 #include "../resources/resource.h"
 #include <fstream>
+#include <winver.h>
+
+// The version shown in the settings menu, read from this executable's own
+// version resource. Reading it instead of hardcoding it in C++ keeps the number
+// in step with what the installer and winget ship.
+static std::wstring AppVersionString() {
+    wchar_t exe[MAX_PATH] = {};
+    if (!GetModuleFileNameW(nullptr, exe, MAX_PATH)) return {};
+
+    DWORD ignored = 0;
+    const DWORD size = GetFileVersionInfoSizeW(exe, &ignored);
+    if (!size) return {};
+
+    std::vector<BYTE> block(size);
+    if (!GetFileVersionInfoW(exe, 0, size, block.data())) return {};
+
+    VS_FIXEDFILEINFO* info = nullptr;
+    UINT infoLen = 0;
+    if (!VerQueryValueW(block.data(), L"\\", (void**)&info, &infoLen) ||
+        !info || infoLen < sizeof(*info))
+        return {};
+
+    std::wstring version =
+        std::to_wstring(HIWORD(info->dwFileVersionMS)) + L"." +
+        std::to_wstring(LOWORD(info->dwFileVersionMS)) + L"." +
+        std::to_wstring(HIWORD(info->dwFileVersionLS));
+    // The build field is 0 in released builds, so only show it when it is set.
+    if (LOWORD(info->dwFileVersionLS))
+        version += L"." + std::to_wstring(LOWORD(info->dwFileVersionLS));
+    return version;
+}
 
 // Debug log helper — writes to %TEMP%\fanfolder_debug.log
 // Gated by kDebugLogEnabled: set to true for diagnostic builds. When false,
@@ -1179,6 +1210,14 @@ void MainWindow::ShowTrayMenu() {
     AppendMenuW(hMenu, MF_STRING | (_config.showInfoOnLaunch ? MF_CHECKED : 0), ID_SHOW_INFO_ON_LAUNCH, GetInfoStrings().trayItem);
     AppendMenuW(hMenu, MF_STRING, ID_VISIT_WEBPAGE, s.visitWebpage);
     AppendMenuW(hMenu, MF_STRING, ID_EXIT, s.exitApp);
+    // Greyed version line at the bottom: users asking "which version am I on"
+    // look in the settings menu, not in the file properties.
+    const std::wstring version = AppVersionString();
+    if (!version.empty()) {
+        AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+        const std::wstring versionLabel = L"FanFolder " + version;
+        AppendMenuW(hMenu, MF_STRING | MF_GRAYED, 0, versionLabel.c_str());
+    }
 
     // Position menu at cursor; SetForegroundWindow required for proper dismissal
     POINT pt = {};
