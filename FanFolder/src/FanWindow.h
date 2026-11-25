@@ -68,6 +68,8 @@ private:
     // Search pill geometry, computed in CalculateLayout so the reserved band and
     // the drawing agree. Empty rect when no filter is active.
     Gdiplus::RectF _filterPillRect{};
+    float _filterPillW = 0.f;
+    float _filterPillH = 0.f;
 
     int   _winX      = 0, _winY       = 0;
     int   _iconSize  = 64;
@@ -197,6 +199,11 @@ private:
     // Cached GDI+ font/format objects — rebuilt only when _iconSize changes
     float                  _cachedFontSize = 0.f;
     Gdiplus::Font*         _labelFont      = nullptr;
+    // Canvas captured before the first keystroke: the window keeps this size and
+    // position while a query is active, so the search field does not slide.
+    int                    _canvasSlots    = 0;
+    float                  _canvasMaxLabel = 0.f;
+    bool                   _caretOn        = true;
     // Larger font for the search field; sized from the pill height, not from the
     // item labels. Owned and released alongside _labelFont.
     Gdiplus::Font*         _filterFont     = nullptr;

@@ -174,6 +174,9 @@ namespace IconHandoff {
 // ---------------------------------------------------------------------------
 // Type-to-filter: debounce, limits, and the result handoff.
 static constexpr UINT_PTR TIMER_ID_SEARCH    = 10;
+static constexpr UINT_PTR TIMER_ID_CARET     = 11;
+static constexpr UINT     CARET_BLINK_MS     = 530;
+
 static constexpr UINT     SEARCH_DEBOUNCE_MS = 120;
 static constexpr size_t   kMaxQueryLength    = 64;
 
@@ -493,6 +496,13 @@ void FanWindow::ApplyFilter() {
     if (_hoverIdx >= TotalSlots()) _hoverIdx = -1;
     if (_dragIdx  >= TotalSlots()) _dragIdx  = -1;
 
+    // Caret blink: solid while typing, blinking once the keystrokes settle.
+    _caretOn = true;
+    if (_filterText.empty())
+        KillTimer(_hwnd, TIMER_ID_CARET);
+    else
+        SetTimer(_hwnd, TIMER_ID_CARET, CARET_BLINK_MS, nullptr);
+
     ScheduleSearch();
     CalculateLayout();
     DrawToLayeredWindow();
@@ -675,10 +685,20 @@ void FanWindow::DrawFilterOverlay(Gdiplus::Graphics& g) {
     Gdiplus::RectF textRect(textX, y, textW, h);
     g.DrawString(text.c_str(), -1, _filterFont, textRect, &sf, &textBrush);
 
-    // Caret: marks the insertion point without needing a blink timer.
-    const float caretX = std::min(x + w - padR, textX + measure(text) + 2.f);
-    Gdiplus::Pen caret(Gdiplus::Color(190, 255, 255, 255), std::max(1.f, h * 0.06f));
-    g.DrawLine(&caret, caretX, y + h * 0.28f, caretX, y + h * 0.72f);
+    // Caret: right after the glyphs, vertically on the font's own height rather
+    // than a fraction of the pill, and blinking (see TIMER_ID_CARET).
+    if (_caretOn) {
+        Gdiplus::RectF drawn;
+        g.MeasureString(text.c_str(), -1, _filterFont, textRect, &sf, &drawn);
+        const float textRight = std::min(x + w - padR,
+                                         drawn.X + drawn.Width);
+        float fh = _filterFont->GetHeight(&g);
+        if (fh <= 0.f) fh = h * 0.45f;
+        const float top = y + (h - fh) / 2.f;
+        Gdiplus::Pen caret(Gdiplus::Color(220, 255, 255, 255),
+                           std::max(1.f, h * 0.055f));
+        g.DrawLine(&caret, textRight + 2.f, top, textRight + 2.f, top + fh);
+    }
 
     // Magnifier, drawn as geometry: U+2328 renders as a box in some fonts.
     Gdiplus::Pen loupe(Gdiplus::Color(235, 235, 240),
@@ -1132,60 +1152,98 @@ void FanWindow::CalculateLayout() {
     }
 
     // Item spacing: baseline of 15 items filling maxStackHeight — same density always
-    float itemSpacing = (_maxStackHeight - StartDistance - halfIcon) / (float)(BaselineItems - 1);
-    float totalNeeded = StartDistance + itemSpacing * (total - 1) + halfIcon;
-    if (totalNeeded > _maxStackHeight && total > 1)
-        itemSpacing = (_maxStackHeight - StartDistance - halfIcon) / (float)(total - 1);
+    auto itemMetrics = [&](int n, float& spacing, float& spread) {
+        spacing = (_maxStackHeight - StartDistance - halfIcon) / (float)(BaselineItems - 1);
+        const float needed = StartDistance + spacing * (n - 1) + halfIcon;
+        if (needed > _maxStackHeight && n > 1)
+            spacing = (_maxStackHeight - StartDistance - halfIcon) / (float)(n - 1);
+        // Arc spread scales gently with item count
+        spread = (n > 1)
+            ? std::min((float)n * ArcSpreadPerItem, MaxArcSpreadDeg)
+            : 0.f;
+    };
+    auto relFor = [&](int i, int n, float spacing, float spread,
+                      float& rx, float& ry) {
+        const float t        = (n > 1) ? (float)i / (float)(n - 1) : 0.f;
+        const float angleDeg = 90.f - (t - 0.5f) * spread;  // centred on 90°
+        const float angleRad = angleDeg * kPI / 180.f;
+        const float dist     = StartDistance + spacing * i;
+        if (taskbarAtBottom)      { rx =  dist * std::cos(angleRad); ry = -dist * std::sin(angleRad); }
+        else if (taskbarAtTop)    { rx =  dist * std::cos(angleRad); ry =  dist * std::sin(angleRad); }
+        else if (taskbarAtLeft)   { rx =  dist * std::sin(angleRad); ry = -dist * std::cos(angleRad); }
+        else                      { rx = -dist * std::sin(angleRad); ry = -dist * std::cos(angleRad); }
+    };
 
-    // Arc spread scales gently with item count
-    float arcSpread = (total > 1)
-        ? std::min((float)total * ArcSpreadPerItem, MaxArcSpreadDeg)
-        : 0.f;
+    float itemSpacing, arcSpread;
+    itemMetrics(total, itemSpacing, arcSpread);
 
     // Polar arc: compute each item centre relative to the arc hinge
     std::vector<float> relX(total), relY(total);
-    for (int i = 0; i < total; i++) {
-        float t        = (total > 1) ? (float)i / (float)(total - 1) : 0.f;
-        float angleDeg = 90.f - (t - 0.5f) * arcSpread;  // centred on 90°
-        float angleRad = angleDeg * kPI / 180.f;
-        float dist     = StartDistance + itemSpacing * i;
+    for (int i = 0; i < total; i++)
+        relFor(i, total, itemSpacing, arcSpread, relX[i], relY[i]);
 
-        if (taskbarAtBottom) {
-            relX[i] =  dist * std::cos(angleRad);
-            relY[i] = -dist * std::sin(angleRad);
-        } else if (taskbarAtTop) {
-            relX[i] =  dist * std::cos(angleRad);
-            relY[i] =  dist * std::sin(angleRad);
-        } else if (taskbarAtLeft) {
-            relX[i] =  dist * std::sin(angleRad);
-            relY[i] = -dist * std::cos(angleRad);
-        } else {
-            relX[i] = -dist * std::sin(angleRad);
-            relY[i] = -dist * std::cos(angleRad);
-        }
+    // Bounding box (labels extend to the left of icons). While a filter is
+    // active the box is measured on the canvas captured before the first
+    // keystroke: the arc tightens to the matches, but the window must not move
+    // or resize, or the search field inside it slides around as you type.
+    if (_filterText.empty()) {
+        _canvasSlots    = total;
+        _canvasMaxLabel = maxLabelW;
+    } else if (_canvasSlots <= 0) {
+        _canvasSlots    = total;
+        _canvasMaxLabel = maxLabelW;
     }
+    const int   canvasTotal = _filterText.empty()
+        ? total : std::max(total, _canvasSlots);
+    // Only the captured label width while filtering. Re-measuring would let a
+    // wider "no results" string widen the canvas and shift the field again.
+    const float canvasLabelW = _filterText.empty()
+        ? maxLabelW : _canvasMaxLabel;
 
-    // Bounding box (labels extend to the left of icons)
-    float extentLeft = maxLabelW + (float)LabelGap;
+    float cSpacing, cSpread;
+    itemMetrics(canvasTotal, cSpacing, cSpread);
+
+    float extentLeft = canvasLabelW + (float)LabelGap;
     float minX = FLT_MAX, minY = FLT_MAX, maxX = -FLT_MAX, maxY = -FLT_MAX;
-    for (int i = 0; i < total; i++) {
-        minX = std::min(minX, relX[i] - halfIcon - extentLeft);
-        minY = std::min(minY, relY[i] - halfIcon);
-        maxX = std::max(maxX, relX[i] + halfIcon);
-        maxY = std::max(maxY, relY[i] + halfIcon);
+    for (int i = 0; i < canvasTotal; i++) {
+        float cx, cy;
+        relFor(i, canvasTotal, cSpacing, cSpread, cx, cy);
+        minX = std::min(minX, cx - halfIcon - extentLeft);
+        minY = std::min(minY, cy - halfIcon);
+        maxX = std::max(maxX, cx + halfIcon);
+        maxY = std::max(maxY, cy + halfIcon);
     }
     minX -= FormMargin; minY -= FormMargin;
     maxX += FormMargin; maxY += FormMargin;
 
-    // While a query is active, reserve a band on the far side of the fan for
-    // the search pill. Without it the text sat on top of the first items.
+    // While a query is active the search field needs two things the arc does not
+    // give it: a band on the far side of the fan so it never covers an item, and
+    // enough room around the hinge to be centred over the taskbar button instead
+    // of hugging whichever edge the labels happen to reach. Both are added to
+    // the canvas, so the window grows once, on the first keystroke, and then
+    // stays put for the rest of the search.
+    _filterPillW = 0.f;
+    _filterPillH = 0.f;
     if (!_filterText.empty()) {
         const float pillH = std::max(42.f, _iconSize * 0.62f);
+        float w = std::min(std::max(260.f, (maxX - minX) * 0.86f), 620.f);
+        w = std::max(w, 200.f);
+        _filterPillW = w;
+        _filterPillH = pillH;
+
         const float band  = pillH + 20.f;
-        if (taskbarAtBottom)    minY -= band;
-        else if (taskbarAtTop)  maxY += band;
-        else if (taskbarAtLeft) maxX += band;
-        else                    minX -= band;
+        const float halfW = w * 0.5f + 14.f;
+
+        if (taskbarAtBottom || taskbarAtTop) {
+            minX = std::min(minX, -halfW);   // hinge is rel (0,0)
+            maxX = std::max(maxX,  halfW);
+            if (taskbarAtBottom) minY -= band; else maxY += band;
+        } else {
+            const float halfH = pillH * 0.5f + 14.f;
+            minY = std::min(minY, -halfH);
+            maxY = std::max(maxY,  halfH);
+            if (taskbarAtLeft) maxX += band; else minX -= band;
+        }
     }
 
     _winWidth  = (int)std::ceil(maxX - minX);
@@ -1222,47 +1280,30 @@ void FanWindow::CalculateLayout() {
     if (_winY < mi.rcWork.top)                _winY = mi.rcWork.top;
     if (_winY + _winHeight > mi.rcWork.bottom)_winY = mi.rcWork.bottom - _winHeight;
 
-    // Search pill geometry. Sized from the measured text (the old width was a
-    // character-count guess that came out too narrow for a single letter, and
-    // the clipped right-aligned string lost its first character), then centred
-    // in the reserved band. A wide field reads as a search box; a chip that
-    // barely fits the query looks like a glitch.
+    // Search field geometry: centred on the arc hinge (the taskbar button) and
+    // pinned to the far side of the fan. The canvas above already made room for
+    // it, and it is recomputed only when the canvas changes, so the field does
+    // not move while the query is being typed.
     _filterPillRect = Gdiplus::RectF();
-    if (!_filterText.empty() && _winWidth > 0) {
-        if (!_filterFont) RebuildFontCache();
-        const std::wstring text = FilterOverlayText();
-        Gdiplus::RectF bounds;
-        tmpG.MeasureString(text.c_str(), -1, _filterFont, Gdiplus::PointF(0, 0),
-                           _measureSF, &bounds);
-
-        const float pillH = std::max(42.f, _iconSize * 0.62f);
-        const float glyph = pillH * 0.46f;
-        const float padL  = pillH * 0.34f;
-        const float padR  = pillH * 0.40f;
-        const float gap   = pillH * 0.22f;
-
-        const float wanted = padL + glyph + gap + bounds.Width + padR;
-        const float roomy  = std::min((float)_winWidth * 0.86f, 620.f);
-        float w = std::max(wanted, roomy);
-        w = std::min(w, (float)_winWidth - 24.f);
-        w = std::max(w, 160.f);
-
+    if (!_filterText.empty() && _winWidth > 0 && _filterPillW > 0.f) {
+        const float pillH = _filterPillH;
+        const float w     = _filterPillW;
         float x, y;
         if (taskbarAtBottom) {
-            x = ((float)_winWidth - w) / 2.f;
+            x = (float)_arcOriginX - w * 0.5f;
             y = 10.f;
         } else if (taskbarAtTop) {
-            x = ((float)_winWidth - w) / 2.f;
+            x = (float)_arcOriginX - w * 0.5f;
             y = (float)_winHeight - pillH - 10.f;
         } else if (taskbarAtLeft) {
             x = (float)_winWidth - w - 10.f;
-            y = ((float)_winHeight - pillH) / 2.f;
+            y = (float)_arcOriginY - pillH * 0.5f;
         } else {
             x = 10.f;
-            y = ((float)_winHeight - pillH) / 2.f;
+            y = (float)_arcOriginY - pillH * 0.5f;
         }
-        x = std::max(10.f, x);
-        y = std::max(10.f, y);
+        x = std::clamp(x, 8.f, std::max(8.f, (float)_winWidth  - w - 8.f));
+        y = std::clamp(y, 8.f, std::max(8.f, (float)_winHeight - pillH - 8.f));
         _filterPillRect = Gdiplus::RectF(x, y, w, pillH);
     }
 }
@@ -2468,6 +2509,11 @@ LRESULT CALLBACK FanWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         if (wParam == TIMER_ID_SEARCH) {
             KillTimer(hwnd, TIMER_ID_SEARCH);
             self->StartSearch();
+            return 0;
+        }
+        if (wParam == TIMER_ID_CARET) {
+            self->_caretOn = !self->_caretOn;
+            self->DrawToLayeredWindow();
             return 0;
         }
         break;
