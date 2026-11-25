@@ -69,6 +69,10 @@ ConfigData Config::Load() {
                     cfg.includeSubfolderFiles = (val != 0);
                 }
             }
+            // Folder entries only apply to the top level, so the two options are
+            // exclusive. Normalise here as well, in case an older build wrote
+            // both.
+            if (cfg.includeSubfolderFiles) cfg.includeDirs = false;
             // FilterRegex
             {
                 wchar_t buf[512] = {};

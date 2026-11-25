@@ -1162,7 +1162,10 @@ void MainWindow::ShowTrayMenu() {
     AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hSort,   s.sortBy);
     AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hMax,    s.maxItems);
     AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hAnim,   s.animation);
-    AppendMenuW(hMenu, MF_STRING | (_config.includeDirs    ? MF_CHECKED : 0), ID_INCLUDE_DIRS,    s.includeFolders);
+    AppendMenuW(hMenu,
+        MF_STRING | (isRecentMode || _config.includeSubfolderFiles ? MF_GRAYED : 0) |
+        (_config.includeDirs ? MF_CHECKED : 0),
+        ID_INCLUDE_DIRS, s.includeFolders);
     AppendMenuW(hMenu,
         MF_STRING | (isRecentMode ? MF_GRAYED : 0) |
         (_config.includeSubfolderFiles ? MF_CHECKED : 0),
@@ -1208,7 +1211,12 @@ void MainWindow::ShowTrayMenu() {
     case ID_ANIM_FADE:      _config.animStyle = ConfigData::AnimStyle::Fade;   break;
     case ID_ANIM_NONE:      _config.animStyle = ConfigData::AnimStyle::None;   break;
     case ID_INCLUDE_DIRS:   _config.includeDirs    = !_config.includeDirs;    break;
-    case ID_INCLUDE_SUBFOLDER_FILES: _config.includeSubfolderFiles = !_config.includeSubfolderFiles; break;
+    case ID_INCLUDE_SUBFOLDER_FILES:
+        _config.includeSubfolderFiles = !_config.includeSubfolderFiles;
+        // The two options are exclusive: folder entries describe the top level,
+        // which a recursive file listing no longer is.
+        if (_config.includeSubfolderFiles) _config.includeDirs = false;
+        break;
     case ID_SHOW_EXTENSIONS:_config.showExtensions = !_config.showExtensions; break;
     case ID_FILTER_AS_YOU_TYPE: _config.filterAsYouType = !_config.filterAsYouType; break;
     case ID_FOLDER_DOWNLOADS: {
