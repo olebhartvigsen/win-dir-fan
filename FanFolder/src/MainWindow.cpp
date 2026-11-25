@@ -236,14 +236,29 @@ static constexpr UINT     TIMER_FOLDER_VERIFY_MS  = 60000;
 // WM_SETICON / NIM_MODIFY round-trips.
 static constexpr UINT_PTR TIMER_ID_SCAN_ANIM = 4;
 static constexpr UINT     TIMER_SCAN_ANIM_MS = 220;
+// A folder read on a small folder can finish inside one frame interval. Keep
+// the ring on screen for at least one full turn so a click that lands during a
+// scan always shows something.
+static constexpr DWORD    BUSY_MIN_VISIBLE_MS = 900;
 
 // Resource ids of the four scanning frames: transparent artwork for the
-// taskbar button, folded-plate artwork for the tray. Must match resource.h.
+// taskbar button, folded-plate artwork for the tray, and a standalone ring
+// badge for the taskbar overlay. Must match resource.h.
 static constexpr WORD kTaskbarScanIds[4] = {
     IDI_APP_OPEN_SCAN_0, IDI_APP_OPEN_SCAN_1,
     IDI_APP_OPEN_SCAN_2, IDI_APP_OPEN_SCAN_3 };
 static constexpr WORD kTrayScanIds[4] = {
     IDI_APP_SCAN_0, IDI_APP_SCAN_1, IDI_APP_SCAN_2, IDI_APP_SCAN_3 };
+static constexpr WORD kOverlayScanIds[4] = {
+    IDI_SCAN_OVERLAY_0, IDI_SCAN_OVERLAY_1,
+    IDI_SCAN_OVERLAY_2, IDI_SCAN_OVERLAY_3 };
+
+// Broadcast by the shell once the taskbar button for a window exists. Any
+// ITaskbarList3 call made before it arrives is ignored.
+static UINT TaskbarButtonCreatedMsg() {
+    static const UINT id = RegisterWindowMessageW(L"TaskbarButtonCreated");
+    return id;
+}
 
 MainWindow* MainWindow::s_instance = nullptr;
 
@@ -297,6 +312,9 @@ MainWindow::~MainWindow() {
     for (auto& h : _icoScanSmall) { if (h) DestroyIcon(h); h = nullptr; }
     for (auto& h : _icoScanBig)   { if (h) DestroyIcon(h); h = nullptr; }
     for (auto& h : _icoTrayScan)  { if (h) DestroyIcon(h); h = nullptr; }
+    for (auto& h : _icoOverlay16) { if (h) DestroyIcon(h); h = nullptr; }
+    for (auto& h : _icoOverlay32) { if (h) DestroyIcon(h); h = nullptr; }
+    if (_taskbar) { _taskbar->Release(); _taskbar = nullptr; }
     s_instance = nullptr;
 }
 
@@ -342,8 +360,13 @@ bool MainWindow::Create() {
             _hInst, MAKEINTRESOURCEW(kTaskbarScanIds[i]), 32);
         _icoTrayScan[i] = CreateAlphaIconAtSize(
             _hInst, MAKEINTRESOURCEW(kTrayScanIds[i]), 16);
+        _icoOverlay16[i] = CreateAlphaIconAtSize(
+            _hInst, MAKEINTRESOURCEW(kOverlayScanIds[i]), 16);
+        _icoOverlay32[i] = CreateAlphaIconAtSize(
+            _hInst, MAKEINTRESOURCEW(kOverlayScanIds[i]), 32);
     }
 
+    InitTaskbarList();
     SetTaskbarIcon(false);
 
     StartPrewarm(/*force*/ true);
@@ -685,6 +708,43 @@ void MainWindow::ApplyTaskbarIcon() {
     if (lg) SendMessageW(_hwnd, WM_SETICON, ICON_BIG,   (LPARAM)lg);
 }
 
+// The taskbar button on Windows 11 is grouped, and its icon comes from the
+// shortcut / window icon the shell was told about when the button was created.
+// WM_SETICON does not repaint that button, so the ring has to be applied as an
+// ITaskbarList3 overlay as well. Both channels are driven from the same frame
+// counter, which keeps Windows 10, Alt+Tab and the Win11 button consistent.
+void MainWindow::InitTaskbarList() {
+    if (_taskbar) return;
+    if (FAILED(CoCreateInstance(CLSID_TaskbarList, nullptr, CLSCTX_INPROC_SERVER,
+                                IID_PPV_ARGS(&_taskbar))) || !_taskbar) {
+        _taskbar = nullptr;
+        return;
+    }
+    if (FAILED(_taskbar->HrInit())) {
+        _taskbar->Release();
+        _taskbar = nullptr;
+    }
+}
+
+void MainWindow::ApplyOverlayIcon() {
+    // Calls made before the button exists are ignored by the shell, never
+    // harmful, and a later frame applies normally. TaskbarButtonCreated forces
+    // one extra attempt for the case where the button appears mid-scan.
+    if (!_taskbar || !_hwnd) return;
+
+    if (_iconBusy) {
+        const UINT dpi = GetDpiForWindow(_hwnd);
+        HICON h = (dpi > 120 && _icoOverlay32[_iconFrame])
+                      ? _icoOverlay32[_iconFrame]
+                      : _icoOverlay16[_iconFrame];
+        if (h) {
+            _taskbar->SetOverlayIcon(_hwnd, h, L"Scanning");
+            return;
+        }
+    }
+    _taskbar->SetOverlayIcon(_hwnd, nullptr, nullptr);
+}
+
 void MainWindow::ApplyTrayIcon() {
     if (!_nid.cbSize) return;   // tray icon not added yet
     HICON h = (_iconBusy && _icoTrayScan[_iconFrame])
@@ -706,9 +766,14 @@ void MainWindow::ApplyTrayIcon() {
 void MainWindow::RefreshBusyIndicator() {
     if (!_hwnd) return;
 
-    bool busy = _prewarmInflight.load(std::memory_order_acquire) > 0;
-    if (!busy && _fanWindow)
-        busy = _fanWindow->IsSearchBusy();
+    bool raw = _prewarmInflight.load(std::memory_order_acquire) > 0;
+    if (!raw && _fanWindow)
+        raw = _fanWindow->IsSearchBusy();
+
+    // Hold the ring for a moment after a fast scan so it is actually seen.
+    const DWORD now = GetTickCount();
+    if (raw) _busyHoldUntil = now + BUSY_MIN_VISIBLE_MS;
+    const bool busy = raw || static_cast<LONG>(_busyHoldUntil - now) > 0;
 
     if (busy == _iconBusy) return;
     _iconBusy  = busy;
@@ -721,6 +786,7 @@ void MainWindow::RefreshBusyIndicator() {
     }
     ApplyTaskbarIcon();
     ApplyTrayIcon();
+    ApplyOverlayIcon();
 
     if (_iconBusy) {
         DebugLog(L"[FanFolder] busy indicator: ON\n");
@@ -1476,6 +1542,15 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     MainWindow* self = FromHWND(hwnd);
     if (!self) return DefWindowProcW(hwnd, msg, wParam, lParam);
 
+    // Registered message, so it cannot be a case label. The taskbar button now
+    // exists, which is the earliest moment SetOverlayIcon is honoured; apply the
+    // current state so a scan that started before the button appeared shows up.
+    if (msg == TaskbarButtonCreatedMsg()) {
+        self->InitTaskbarList();
+        self->ApplyOverlayIcon();
+        return 0;
+    }
+
     switch (msg) {
     case WM_SYSCOMMAND: {
         WPARAM cmd = wParam & 0xFFF0;
@@ -1541,6 +1616,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 self->_iconFrame = (self->_iconFrame + 1) % kScanFrames;
                 self->ApplyTaskbarIcon();
                 self->ApplyTrayIcon();
+                self->ApplyOverlayIcon();
             }
             return 0;
         }

@@ -14,4 +14,12 @@
 #define IDI_APP_OPEN_SCAN_2 122
 #define IDI_APP_OPEN_SCAN_3 123
 
+// Ring badge for ITaskbarList3::SetOverlayIcon. This is the channel that
+// actually reaches the Windows 11 taskbar button: WM_SETICON only updates the
+// window icon there, not the glommed button icon.
+#define IDI_SCAN_OVERLAY_0 130
+#define IDI_SCAN_OVERLAY_1 131
+#define IDI_SCAN_OVERLAY_2 132
+#define IDI_SCAN_OVERLAY_3 133
+
 #define IDR_MANIFEST 1

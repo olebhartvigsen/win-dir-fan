@@ -9,6 +9,10 @@ IDI_APP_OPEN_SCAN_0 ICON "app-open-scan-0.ico"
 IDI_APP_OPEN_SCAN_1 ICON "app-open-scan-1.ico"
 IDI_APP_OPEN_SCAN_2 ICON "app-open-scan-2.ico"
 IDI_APP_OPEN_SCAN_3 ICON "app-open-scan-3.ico"
+IDI_SCAN_OVERLAY_0 ICON "scan-overlay-0.ico"
+IDI_SCAN_OVERLAY_1 ICON "scan-overlay-1.ico"
+IDI_SCAN_OVERLAY_2 ICON "scan-overlay-2.ico"
+IDI_SCAN_OVERLAY_3 ICON "scan-overlay-3.ico"
 IDR_MANIFEST RT_MANIFEST "app.manifest"
 
 // Version resource — provides the "FanFolder" name shown in the taskbar jump list

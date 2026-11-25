@@ -95,8 +95,21 @@ private:
     HICON  _icoScanSmall[kScanFrames] = {};
     HICON  _icoScanBig[kScanFrames]   = {};
     HICON  _icoTrayScan[kScanFrames]  = {};
+    // Ring badges applied to the taskbar button with
+    // ITaskbarList3::SetOverlayIcon. This is the only channel that reaches the
+    // Windows 11 taskbar button; WM_SETICON stays for Alt+Tab and Win10.
+    HICON  _icoOverlay16[kScanFrames] = {};
+    HICON  _icoOverlay32[kScanFrames] = {};
     bool   _iconBusy  = false;
     int    _iconFrame = 0;
+
+    // The shell refuses ITaskbarList3 calls until the button exists, so the
+    // overlay is (re)applied when TaskbarButtonCreated arrives as well.
+    ITaskbarList3* _taskbar      = nullptr;
+
+    // Keeps the ring visible for a moment even when the scan finishes in a few
+    // milliseconds; otherwise a quick folder read would never be seen.
+    DWORD  _busyHoldUntil = 0;
 
     // Hook thread
     std::thread      _hookThread;
@@ -127,6 +140,8 @@ private:
     void RefreshBusyIndicator();
     void ApplyTaskbarIcon();
     void ApplyTrayIcon();
+    void ApplyOverlayIcon();
+    void InitTaskbarList();
     void InstallHooks();
     void UninstallHooks();
     void ProvideIconicThumbnail(int w, int h);
